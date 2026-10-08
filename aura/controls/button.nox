@@ -1,0 +1,104 @@
+from aura.foundation.color import COLOR_BUTTON, COLOR_BUTTON_TEXT
+from aura.rendering.layer import PaintingContext
+from aura.rendering.render_object import RenderBox
+from aura.semantics.semantics_node import SemanticsNode
+from aura.text.measure import measure_height, measure_width
+from aura.widgets.framework import Element, RenderObjectWidget
+from aura.widgets.theme import theme_for_element
+from aura.widgets.key import Key
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_BUTTON: int = alloc_type_id()
+
+BUTTON_PAD_X: float = 18.0
+BUTTON_PAD_Y: float = 10.0
+
+
+class RenderButton(RenderBox):
+    label: str
+    font_size: float
+    color: int
+    background: int
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.label = ""
+        self.font_size = 16.0
+        self.color = COLOR_BUTTON_TEXT
+        self.background = COLOR_BUTTON
+        self.semantics_role = "button"
+
+    def set_button(self, label: str, font_size: float, color: int, background: int) -> None:
+        changed: bool = False
+        if self.label != label or self.font_size != font_size or self.color != color or self.background != background:
+            changed = True
+        self.label = label
+        self.font_size = font_size
+        self.color = color
+        self.background = background
+        self.semantics_role = "button"
+        self.semantics_label = label
+        self.takes_focus = True
+        if changed:
+            self.mark_needs_layout()
+
+    def perform_layout(self) -> None:
+        text_w: float = measure_width(self.label, self.font_size, 600, "")
+        text_h: float = measure_height(self.font_size, 600, "")
+        self.width = self.constraints.constrain_width(text_w + BUTTON_PAD_X * 2.0)
+        self.height = self.constraints.constrain_height(text_h + BUTTON_PAD_Y * 2.0)
+
+    def paint_self(self, context: PaintingContext) -> None:
+        context.fill_rect(0.0, 0.0, self.width, self.height, self.background)
+        text_w: float = measure_width(self.label, self.font_size, 600, "")
+        text_h: float = measure_height(self.font_size, 600, "")
+        x: float = (self.width - text_w) / 2.0
+        y: float = (self.height - text_h) / 2.0
+        context.fill_text(x, y, self.label, self.font_size, 600, self.color, "")
+
+    def hit_test_self(self, x: float, y: float) -> bool:
+        return True
+
+    def describe_semantics(self, node: SemanticsNode) -> None:
+        node.role = "button"
+        node.label = self.label
+        node.value = ""
+        node.enabled = True
+        node.checked = False
+        node.add_action("tap")
+
+
+class Button(RenderObjectWidget):
+    label: str
+    on_press: () -> None
+    font_size: float
+    color: int
+    background: int
+    has_colors: int
+
+    def __init__(self, label: str, on_press: () -> None, font_size: float = 16.0, color: int | None = None, background: int | None = None, key: Key | None = None) -> None:
+        super().__init__(TYPE_BUTTON, key)
+        self.label = label
+        self.on_press = on_press
+        self.font_size = font_size
+        self.color = 0
+        self.background = 0
+        self.has_colors = 0
+        if color is not None:
+            if background is not None:
+                self.color = color
+                self.background = background
+                self.has_colors = 1
+
+    def create_render(self) -> RenderBox | None:
+        return RenderButton()
+
+    def sync_render(self, element: Element) -> None:
+        element.remember_press(self.on_press)
+        element.ensure_button_focus()
+        color: int = self.color
+        background: int = self.background
+        if self.has_colors == 0:
+            color = theme_for_element(element).scheme.button_text
+            background = theme_for_element(element).scheme.button
+        element.apply_button(self.label, self.font_size, color, background, element.press_and_focus)

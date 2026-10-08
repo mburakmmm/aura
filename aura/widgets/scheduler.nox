@@ -1,0 +1,35 @@
+class Ticker:
+    def tick(self, time_s: float) -> None:
+        pass
+
+
+class Scheduler:
+    tickers: list[Ticker]
+    time_s: float
+
+    def __init__(self) -> None:
+        self.tickers = []
+        self.time_s = 0.0
+
+    def add(self, ticker: Ticker) -> None:
+        i: int = 0
+        while i < len(self.tickers):
+            if self.tickers[i] == ticker:
+                return
+            i = i + 1
+        self.tickers.append(ticker)
+
+    def remove(self, ticker: Ticker) -> None:
+        kept: list[Ticker] = []
+        i: int = 0
+        while i < len(self.tickers):
+            if self.tickers[i] != ticker:
+                kept.append(self.tickers[i])
+            i = i + 1
+        self.tickers = kept
+
+    def flush(self) -> None:
+        i: int = 0
+        while i < len(self.tickers):
+            self.tickers[i].tick(self.time_s)
+            i = i + 1

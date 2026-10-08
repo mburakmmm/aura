@@ -1,0 +1,63 @@
+from aura.foundation.constraints import Constraints
+from aura.rendering.layer import PaintingContext, PictureLayer
+from aura.rendering.render_object import RenderBox
+from aura.widgets.framework import Element, RenderObjectWidget, Widget
+from aura.widgets.key import Key
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_REPAINT: int = alloc_type_id()
+
+
+class RenderRepaintBoundary(RenderBox):
+    cache: PictureLayer
+    has_cache: int
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.cache = PictureLayer()
+        self.has_cache = 0
+        self.is_repaint_boundary = True
+
+    def perform_layout(self) -> None:
+        child: RenderBox | None = self.only_child
+        if child is None:
+            self.width = self.constraints.constrain_width(0.0)
+            self.height = self.constraints.constrain_height(0.0)
+            return
+        limits: Constraints = self.constraints
+        child.layout(limits)
+        child.offset_x = 0.0
+        child.offset_y = 0.0
+        self.width = child.width
+        self.height = child.height
+
+    def paint(self, context: PaintingContext) -> None:
+        self.paint_visit_count = self.paint_visit_count + 1
+        if self.needs_paint or self.has_cache == 0:
+            self.cache = PictureLayer()
+            local: PaintingContext = PaintingContext(self.cache)
+            self.needs_paint = False
+            self.paint_self(local)
+            self.paint_children(local)
+            self.has_cache = 1
+        else:
+            self.needs_paint = False
+        context.blit(self.cache)
+
+    def mark_needs_paint(self) -> None:
+        self.has_cache = 0
+        super().mark_needs_paint()
+
+
+class RepaintBoundary(RenderObjectWidget):
+    child: Widget
+
+    def __init__(self, child: Widget, key: Key | None = None) -> None:
+        super().__init__(TYPE_REPAINT, key)
+        self.child = child
+
+    def create_render(self) -> RenderBox | None:
+        return RenderRepaintBoundary()
+
+    def child_widgets(self) -> list[Widget]:
+        return [self.child]

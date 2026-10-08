@@ -1,0 +1,58 @@
+class SemanticsNode:
+    role: str
+    label: str
+    value: str
+    enabled: bool
+    checked: bool
+    actions: list[str]
+    x: float
+    y: float
+    width: float
+    height: float
+    press_id: int
+    children: list[SemanticsNode]
+
+    def __init__(self) -> None:
+        self.role = ""
+        self.label = ""
+        self.value = ""
+        self.enabled = True
+        self.checked = False
+        self.actions = []
+        self.x = 0.0
+        self.y = 0.0
+        self.width = 0.0
+        self.height = 0.0
+        self.press_id = -1
+        self.children = []
+
+    def add_action(self, action: str) -> None:
+        self.actions.append(action)
+
+    def add_child(self, child: SemanticsNode) -> None:
+        self.children.append(child)
+
+
+class SemanticsOwner:
+    root: SemanticsNode
+
+    def __init__(self) -> None:
+        self.root = SemanticsNode()
+
+    def reset(self) -> None:
+        self.root = SemanticsNode()
+
+    def find_role(self, role: str) -> SemanticsNode | None:
+        return _find_role(self.root, role)
+
+
+def _find_role(node: SemanticsNode, role: str) -> SemanticsNode | None:
+    if node.role == role:
+        return node
+    i: int = 0
+    while i < len(node.children):
+        found: SemanticsNode | None = _find_role(node.children[i], role)
+        if found is not None:
+            return found
+        i = i + 1
+    return None

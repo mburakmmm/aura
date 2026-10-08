@@ -1,0 +1,802 @@
+from aura.core.diagnostics import FrameworkError
+from aura.core.mode import MODE_DEBUG, current_mode
+from aura.foundation.color import rgba
+from aura.foundation.constraints import BoxConstraints, Constraints
+from aura.graphics.canvas import Canvas
+from aura.rendering.layer import PaintingContext, PictureLayer, Scene
+from aura.semantics.semantics_node import SemanticsNode, SemanticsOwner
+
+PHASE_IDLE: int = 0
+PHASE_INPUT: int = 1
+PHASE_BUILD: int = 2
+PHASE_LAYOUT: int = 3
+PHASE_PAINT: int = 4
+PHASE_COMPOSITE: int = 5
+
+FLEX_TIGHT: int = 0
+FLEX_LOOSE: int = 1
+
+_next_node_id: int = 1
+
+
+def _alloc_node_id() -> int:
+    _next_node_id = _next_node_id + 1
+    return _next_node_id
+
+
+def _noop_tap() -> None:
+    pass
+
+
+def _noop_key(code: int, is_down: int) -> bool:
+    return False
+
+
+def _noop_scroll(delta: float) -> None:
+    pass
+
+
+class HitTestEntry:
+    node_id: int
+    x: float
+    y: float
+
+    def __init__(self, node_id: int, x: float, y: float) -> None:
+        self.node_id = node_id
+        self.x = x
+        self.y = y
+
+
+class HitTestResult:
+    entries: list[HitTestEntry]
+    targets: list[RenderBox]
+
+    def __init__(self) -> None:
+        self.entries = []
+        self.targets = []
+
+    def add(self, box: RenderBox, x: float, y: float) -> None:
+        self.entries.append(HitTestEntry(box.node_id, x, y))
+        self.targets.append(box)
+
+
+class RenderObject:
+    node_id: int
+    parent: RenderBox | None
+    needs_layout: bool
+    needs_paint: bool
+    paint_mark_count: int
+    paint_visit_count: int
+    layout_count: int
+    in_layout_queue: bool
+    painted_serial: int
+
+    def __init__(self) -> None:
+        self.node_id = _alloc_node_id()
+        self.parent = None
+        self.needs_layout = True
+        self.needs_paint = True
+        self.paint_mark_count = 0
+        self.paint_visit_count = 0
+        self.layout_count = 0
+        self.in_layout_queue = False
+        self.painted_serial = 0
+
+    def mark_needs_layout(self) -> None:
+        pass
+
+    def mark_needs_paint(self) -> None:
+        pass
+
+    def paint(self, context: PaintingContext) -> None:
+        pass
+
+    def describe_semantics(self, node: SemanticsNode) -> None:
+        node.role = ""
+        node.label = ""
+        node.value = ""
+        node.enabled = True
+        node.checked = False
+
+
+class RenderBox(RenderObject):
+    width: float
+    height: float
+    offset_x: float
+    offset_y: float
+    constraints: Constraints
+    pipeline: PipelineOwner | None
+    flex: int
+    flex_fit: int
+    multi_child: bool
+    force_boundary: bool
+    is_relayout_boundary: bool
+    is_repaint_boundary: bool
+    only_child: RenderBox | None
+    children: list[RenderBox]
+    semantics_role: str
+    semantics_label: str
+    debug_tag: int
+    overflow: float
+    overflow_reported: bool
+    on_tap: () -> None
+    has_tap: bool
+    on_key: (int, int) -> bool
+    has_key: bool
+    takes_focus: bool
+    on_scroll: (float) -> None
+    has_scroll: bool
+    slot_index: int
+    text_target: int
+    drag_id: int
+    drop_id: int
+    host_id: int
+    plugin_id: int
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.width = 0.0
+        self.height = 0.0
+        self.offset_x = 0.0
+        self.offset_y = 0.0
+        self.constraints = Constraints(0.0, 0.0, 0.0, 0.0)
+        self.pipeline = None
+        self.flex = 0
+        self.flex_fit = FLEX_LOOSE
+        self.multi_child = False
+        self.force_boundary = False
+        self.is_relayout_boundary = False
+        self.is_repaint_boundary = False
+        self.only_child = None
+        self.children = []
+        self.semantics_role = ""
+        self.semantics_label = ""
+        self.debug_tag = 0
+        self.overflow = 0.0
+        self.overflow_reported = False
+        self.on_tap = _noop_tap
+        self.has_tap = False
+        self.on_key = _noop_key
+        self.has_key = False
+        self.takes_focus = False
+        self.on_scroll = _noop_scroll
+        self.has_scroll = False
+        self.slot_index = 0
+        self.text_target = 0
+        self.drag_id = 0
+        self.drop_id = 0
+        self.host_id = 0
+        self.plugin_id = 0
+
+    def mark_needs_layout(self) -> None:
+        pipeline: PipelineOwner | None = self.pipeline
+        if pipeline is not None:
+            if pipeline.phase == PHASE_PAINT:
+                self.needs_layout = True
+                pipeline.defer_layout(self)
+                return
+        if self.needs_layout:
+            return
+        self.needs_layout = True
+        if self.is_relayout_boundary or self.force_boundary or self.parent is None:
+            pipeline = self.pipeline
+            if pipeline is not None:
+                pipeline.schedule_layout(self)
+        else:
+            parent: RenderBox | None = self.parent
+            if parent is not None:
+                parent.mark_needs_layout()
+
+    def mark_needs_paint(self) -> None:
+        pipeline: PipelineOwner | None = self.pipeline
+        if pipeline is not None:
+            if pipeline.phase == PHASE_PAINT:
+                pipeline.defer_paint(self)
+                return
+        if self.needs_paint:
+            return
+        self.needs_paint = True
+        self.paint_mark_count = self.paint_mark_count + 1
+        if self.is_repaint_boundary or self.parent is None:
+            pipeline = self.pipeline
+            if pipeline is not None:
+                pipeline.schedule_paint(self)
+        else:
+            parent: RenderBox | None = self.parent
+            if parent is not None:
+                parent.mark_needs_paint()
+
+    def layout(self, constraints: Constraints) -> None:
+        pipeline: PipelineOwner | None = self.pipeline
+        if pipeline is not None:
+            if pipeline.phase == PHASE_PAINT:
+                raise FrameworkError("layout called during paint")
+        constraints.validate()
+        changed: bool = False
+        if constraints.min_width != self.constraints.min_width or constraints.max_width != self.constraints.max_width:
+            changed = True
+        if constraints.min_height != self.constraints.min_height or constraints.max_height != self.constraints.max_height:
+            changed = True
+        self.constraints = constraints
+        tight: bool = False
+        if constraints.min_width == constraints.max_width and constraints.min_height == constraints.max_height:
+            tight = True
+        if self.parent is None or tight or self.force_boundary:
+            self.is_relayout_boundary = True
+        else:
+            self.is_relayout_boundary = False
+        if self.needs_layout or changed:
+            self.perform_layout()
+            self.check_size()
+            self.needs_layout = False
+            self.layout_count = self.layout_count + 1
+            self.mark_needs_paint()
+
+    def perform_layout(self) -> None:
+        self.width = constraints_width(self.constraints)
+        self.height = constraints_height(self.constraints)
+
+    def check_size(self) -> None:
+        if self.width != self.width or self.height != self.height:
+            raise FrameworkError("invalid constraints: NaN size")
+        if self.width < 0.0 or self.height < 0.0:
+            raise FrameworkError("invalid constraints: negative size")
+
+    def set_only_child(self, child: RenderBox | None) -> None:
+        if self.multi_child:
+            raise FrameworkError("set_only_child on a multi-child render object")
+        current: RenderBox | None = self.only_child
+        if current is not None and child is not None:
+            if current.node_id == child.node_id:
+                return
+        if current is None and child is None:
+            return
+        if current is not None:
+            current.parent = None
+        self.only_child = child
+        if child is not None:
+            child.parent = self
+            child.pipeline = self.pipeline
+            child.propagate_pipeline()
+        self.mark_needs_layout()
+
+    def set_children(self, next: list[RenderBox]) -> None:
+        if not self.multi_child:
+            raise FrameworkError("set_children on a single-child render object")
+        if self._same_children(next):
+            return
+        i: int = 0
+        while i < len(self.children):
+            self.children[i].parent = None
+            i = i + 1
+        self.children = next
+        i = 0
+        while i < len(next):
+            next[i].parent = self
+            next[i].pipeline = self.pipeline
+            next[i].propagate_pipeline()
+            i = i + 1
+        self.mark_needs_layout()
+
+    def _same_children(self, next: list[RenderBox]) -> bool:
+        if len(self.children) != len(next):
+            return False
+        i: int = 0
+        while i < len(next):
+            if self.children[i].node_id != next[i].node_id:
+                return False
+            i = i + 1
+        return True
+
+    def propagate_pipeline(self) -> None:
+        only: RenderBox | None = self.only_child
+        if only is not None:
+            only.pipeline = self.pipeline
+            only.propagate_pipeline()
+        i: int = 0
+        while i < len(self.children):
+            self.children[i].pipeline = self.pipeline
+            self.children[i].propagate_pipeline()
+            i = i + 1
+
+    def detach(self) -> None:
+        parent: RenderBox | None = self.parent
+        if parent is not None:
+            parent._forget(self)
+            self.parent = None
+        child: RenderBox | None = self.only_child
+        if child is not None:
+            self.only_child = None
+            child.parent = None
+            child.detach()
+        i: int = 0
+        while i < len(self.children):
+            self.children[i].parent = None
+            self.children[i].detach()
+            i = i + 1
+        self.children = []
+
+    def _forget(self, child: RenderBox) -> None:
+        only: RenderBox | None = self.only_child
+        if only is not None:
+            if only.node_id == child.node_id:
+                self.only_child = None
+                return
+        kept: list[RenderBox] = []
+        i: int = 0
+        while i < len(self.children):
+            if self.children[i].node_id != child.node_id:
+                kept.append(self.children[i])
+            i = i + 1
+        self.children = kept
+
+    def paint(self, context: PaintingContext) -> None:
+        self.paint_visit_count = self.paint_visit_count + 1
+        self.needs_paint = False
+        pipeline: PipelineOwner | None = self.pipeline
+        if pipeline is not None:
+            self.painted_serial = pipeline.frame_serial
+            pipeline.objects_painted = pipeline.objects_painted + 1
+        self.paint_self(context)
+        self.paint_children(context)
+
+    def paint_self(self, context: PaintingContext) -> None:
+        pass
+
+    def paint_children(self, context: PaintingContext) -> None:
+        only: RenderBox | None = self.only_child
+        if only is not None:
+            self.paint_child(context, only)
+        i: int = 0
+        while i < len(self.children):
+            self.paint_child(context, self.children[i])
+            i = i + 1
+
+    def paint_child(self, context: PaintingContext, child: RenderBox) -> None:
+        context.push_offset(child.offset_x, child.offset_y)
+        child.paint(context)
+        context.pop_offset(child.offset_x, child.offset_y)
+
+    def hit_test(self, result: HitTestResult, x: float, y: float) -> bool:
+        if x < self.offset_x or y < self.offset_y:
+            return False
+        if x >= self.offset_x + self.width or y >= self.offset_y + self.height:
+            return False
+        local_x: float = x - self.offset_x
+        local_y: float = y - self.offset_y
+        if self.hit_test_children(result, local_x, local_y):
+            result.add(self, local_x, local_y)
+            return True
+        if self.hit_test_self(local_x, local_y):
+            result.add(self, local_x, local_y)
+            return True
+        return False
+
+    def hit_test_children(self, result: HitTestResult, x: float, y: float) -> bool:
+        only: RenderBox | None = self.only_child
+        if only is not None:
+            if only.hit_test(result, x, y):
+                return True
+        i: int = len(self.children) - 1
+        while i >= 0:
+            if self.children[i].hit_test(result, x, y):
+                return True
+            i = i - 1
+        return False
+
+    def hit_test_self(self, x: float, y: float) -> bool:
+        return False
+
+    def describe_semantics(self, node: SemanticsNode) -> None:
+        node.role = self.semantics_role
+        node.label = self.semantics_label
+        node.value = ""
+        node.enabled = True
+        node.checked = False
+
+    def set_tap(self, handler: () -> None) -> None:
+        self.on_tap = handler
+        self.has_tap = True
+
+    def clear_tap(self) -> None:
+        self.on_tap = _noop_tap
+        self.has_tap = False
+
+    def set_paragraph(self, value: str, font_size: float, color: int, weight: int, family: str) -> None:
+        raise FrameworkError("set_paragraph on a non-text render object")
+
+    def set_button(self, label: str, font_size: float, color: int, background: int) -> None:
+        raise FrameworkError("set_button on a non-button render object")
+
+    def set_toggle(self, checked: bool, label: str, text: int, track: int, thumb: int) -> None:
+        raise FrameworkError("set_toggle on a non-toggle render object")
+
+    def set_sized(self, has_w: int, w: float, has_h: int, h: float) -> None:
+        raise FrameworkError("set_sized on a non-sized-box render object")
+
+    def set_padding(self, left: float, top: float, right: float, bottom: float) -> None:
+        raise FrameworkError("set_padding on a non-padding render object")
+
+    def set_color(self, argb: int) -> None:
+        raise FrameworkError("set_color on a non-colored-box render object")
+
+    def set_opacity(self, opacity: float) -> None:
+        raise FrameworkError("set_opacity on a non-opacity render object")
+
+    def set_translation(self, x: float, y: float) -> None:
+        raise FrameworkError("set_translation on a non-transform render object")
+
+    def bind_viewport(self, extent: float, item_count: int, pixels: float) -> None:
+        pass
+
+    def set_host_id(self, host_id: int) -> None:
+        self.host_id = host_id
+
+    def set_plugin(self, plugin: int) -> None:
+        self.plugin_id = plugin
+
+    def set_scroll(self, pixels: float, max_pixels: float, viewport: float, content: float) -> None:
+        raise FrameworkError("set_scroll on a non-scrollbar render object")
+
+    def scroll_by(self, delta: float) -> None:
+        pass
+
+    def set_active_index(self, index: int) -> None:
+        pass
+
+    def set_text_field(self, value: str, composing: str, cursor: int, anchor: int, multiline: int) -> None:
+        pass
+
+    def set_text_target(self, target_id: int) -> None:
+        self.text_target = target_id
+
+    def set_image(self, handle: int) -> None:
+        raise FrameworkError("set_image on a non-image render object")
+
+    def set_drag(self, drag_id: int, x: float, y: float) -> None:
+        raise FrameworkError("set_drag on a non-drag render object")
+
+    def set_drop(self, drop_id: int) -> None:
+        self.drop_id = drop_id
+
+    def set_modal(self, mode: int, x: float, y: float, dim: int) -> None:
+        raise FrameworkError("set_modal on a non-modal render object")
+
+    def set_flex_style(self, axis: int, main_align: int, cross_align: int, main_size: int, spacing: float) -> None:
+        raise FrameworkError("set_flex_style on a non-flex render object")
+
+    def absolute_x(self) -> float:
+        x: float = self.offset_x
+        p: RenderBox | None = self.parent
+        while p is not None:
+            x = x + p.offset_x
+            p = p.parent
+        return x
+
+    def absolute_y(self) -> float:
+        y: float = self.offset_y
+        p: RenderBox | None = self.parent
+        while p is not None:
+            y = y + p.offset_y
+            p = p.parent
+        return y
+
+    def find_role(self, role: str) -> RenderBox | None:
+        if self.semantics_role == role:
+            return self
+        only: RenderBox | None = self.only_child
+        if only is not None:
+            found: RenderBox | None = only.find_role(role)
+            if found is not None:
+                return found
+        i: int = 0
+        while i < len(self.children):
+            found_child: RenderBox | None = self.children[i].find_role(role)
+            if found_child is not None:
+                return found_child
+            i = i + 1
+        return None
+
+    def find_scroll(self) -> RenderBox | None:
+        only: RenderBox | None = self.only_child
+        if only is not None:
+            found: RenderBox | None = only.find_scroll()
+            if found is not None:
+                return found
+        i: int = 0
+        while i < len(self.children):
+            found_child: RenderBox | None = self.children[i].find_scroll()
+            if found_child is not None:
+                return found_child
+            i = i + 1
+        if self.has_scroll:
+            return self
+        return None
+
+    def find_tag(self, tag: int) -> RenderBox | None:
+        if self.debug_tag == tag:
+            return self
+        only: RenderBox | None = self.only_child
+        if only is not None:
+            found: RenderBox | None = only.find_tag(tag)
+            if found is not None:
+                return found
+        i: int = 0
+        while i < len(self.children):
+            found_child: RenderBox | None = self.children[i].find_tag(tag)
+            if found_child is not None:
+                return found_child
+            i = i + 1
+        return None
+
+    def reset_paint_marks(self) -> None:
+        self.paint_mark_count = 0
+        self.needs_paint = False
+        only: RenderBox | None = self.only_child
+        if only is not None:
+            only.reset_paint_marks()
+        i: int = 0
+        while i < len(self.children):
+            self.children[i].reset_paint_marks()
+            i = i + 1
+
+    def collect_semantics(self, parent: SemanticsNode, origin_x: float, origin_y: float) -> None:
+        node: SemanticsNode = SemanticsNode()
+        self.describe_semantics(node)
+        node.press_id = -1
+        if self.has_tap:
+            node.press_id = note_press_box(self)
+        node.x = origin_x + self.offset_x
+        node.y = origin_y + self.offset_y
+        node.width = self.width
+        node.height = self.height
+        parent.add_child(node)
+        next_x: float = origin_x + self.offset_x
+        next_y: float = origin_y + self.offset_y
+        only: RenderBox | None = self.only_child
+        if only is not None:
+            only.collect_semantics(node, next_x, next_y)
+        i: int = 0
+        while i < len(self.children):
+            self.children[i].collect_semantics(node, next_x, next_y)
+            i = i + 1
+
+
+class RenderView(RenderBox):
+    def __init__(self) -> None:
+        super().__init__()
+        self.force_boundary = True
+        self.is_relayout_boundary = True
+        self.is_repaint_boundary = True
+
+    def perform_layout(self) -> None:
+        self.width = self.constraints.constrain_width(self.constraints.max_width)
+        self.height = self.constraints.constrain_height(self.constraints.max_height)
+        child: RenderBox | None = self.only_child
+        if child is not None:
+            child.layout(BoxConstraints(0.0, self.width, 0.0, self.height))
+            child.offset_x = 0.0
+            child.offset_y = 0.0
+
+    def hit_test_self(self, x: float, y: float) -> bool:
+        return False
+
+
+class PipelineOwner:
+    phase: int
+    root: RenderBox | None
+    layout_queue: list[RenderBox]
+    paint_queue: list[RenderBox]
+    deferred_layout: list[RenderBox]
+    deferred_paint: list[RenderBox]
+    semantics: SemanticsOwner
+    frame_serial: int
+    objects_laid_out: int
+    objects_painted: int
+    layers_submitted: int
+
+    def __init__(self) -> None:
+        self.phase = PHASE_IDLE
+        self.root = None
+        self.layout_queue = []
+        self.paint_queue = []
+        self.deferred_layout = []
+        self.deferred_paint = []
+        self.semantics = SemanticsOwner()
+        self.frame_serial = 0
+        self.objects_laid_out = 0
+        self.objects_painted = 0
+        self.layers_submitted = 0
+
+    def schedule_layout(self, box: RenderBox) -> None:
+        if box.in_layout_queue:
+            return
+        box.in_layout_queue = True
+        self.layout_queue.append(box)
+
+    def schedule_paint(self, box: RenderBox) -> None:
+        i: int = 0
+        while i < len(self.paint_queue):
+            if self.paint_queue[i].node_id == box.node_id:
+                return
+            i = i + 1
+        self.paint_queue.append(box)
+
+    def defer_layout(self, box: RenderBox) -> None:
+        i: int = 0
+        while i < len(self.deferred_layout):
+            if self.deferred_layout[i].node_id == box.node_id:
+                return
+            i = i + 1
+        self.deferred_layout.append(box)
+
+    def defer_paint(self, box: RenderBox) -> None:
+        self.deferred_paint.append(box)
+
+    def flush_layout(self) -> None:
+        pending: list[RenderBox] = self.deferred_layout
+        self.deferred_layout = []
+        i: int = 0
+        while i < len(pending):
+            pending[i].needs_layout = False
+            pending[i].mark_needs_layout()
+            i = i + 1
+        guard: int = 0
+        while len(self.layout_queue) > 0:
+            guard = guard + 1
+            if guard > 32:
+                raise FrameworkError("cyclic build dependency")
+            batch: list[RenderBox] = self.layout_queue
+            self.layout_queue = []
+            _sort_by_depth(batch)
+            self.phase = PHASE_LAYOUT
+            j: int = 0
+            while j < len(batch):
+                node: RenderBox = batch[j]
+                node.in_layout_queue = False
+                node.layout(node.constraints)
+                self.objects_laid_out = self.objects_laid_out + 1
+                j = j + 1
+        self.phase = PHASE_IDLE
+
+    def flush_paint(self, canvas: Canvas) -> None:
+        self.flush_scene(canvas)
+        canvas.present()
+
+    def flush_scene(self, canvas: Canvas) -> None:
+        self.frame_serial = self.frame_serial + 1
+        self.objects_painted = 0
+        self.layers_submitted = 0
+        self.phase = PHASE_PAINT
+        layer: PictureLayer = PictureLayer()
+        context: PaintingContext = PaintingContext(layer)
+        root: RenderBox | None = self.root
+        if root is not None:
+            self.layers_submitted = 1
+            root.paint(context)
+        self.phase = PHASE_COMPOSITE
+        scene: Scene = Scene(layer)
+        scene.submit(canvas)
+        if current_mode() == MODE_DEBUG:
+            _debug_overlay(canvas, root, self.frame_serial)
+        self.paint_queue = []
+        self.phase = PHASE_IDLE
+        self.collect_semantics()
+
+    def collect_semantics(self) -> None:
+        clear_press_boxes()
+        self.semantics.reset()
+        root: RenderBox | None = self.root
+        if root is not None:
+            root.collect_semantics(self.semantics.root, 0.0, 0.0)
+
+
+def constraints_width(constraints: Constraints) -> float:
+    if constraints.has_bounded_width():
+        return constraints.max_width
+    return constraints.min_width
+
+
+def constraints_height(constraints: Constraints) -> float:
+    if constraints.has_bounded_height():
+        return constraints.max_height
+    return constraints.min_height
+
+
+def _depth(box: RenderBox) -> int:
+    depth: int = 0
+    p: RenderBox | None = box.parent
+    while p is not None:
+        depth = depth + 1
+        p = p.parent
+    return depth
+
+
+_press_boxes: list[RenderBox] = []
+_ax_handles: list[int] = []
+_ax_slots: list[int] = []
+_ax_targets: list[RenderBox] = []
+
+
+def clear_press_boxes() -> None:
+    _press_boxes = []
+
+
+def note_press_box(box: RenderBox) -> int:
+    index: int = len(_press_boxes)
+    _press_boxes.append(box)
+    return index
+
+
+def bind_press_window(handle: int) -> None:
+    handles: list[int] = []
+    slots: list[int] = []
+    targets: list[RenderBox] = []
+    i: int = 0
+    while i < len(_ax_handles):
+        if _ax_handles[i] != handle:
+            handles.append(_ax_handles[i])
+            slots.append(_ax_slots[i])
+            targets.append(_ax_targets[i])
+        i = i + 1
+    i = 0
+    while i < len(_press_boxes):
+        handles.append(handle)
+        slots.append(i)
+        targets.append(_press_boxes[i])
+        i = i + 1
+    _ax_handles = handles
+    _ax_slots = slots
+    _ax_targets = targets
+
+
+def invoke_press(handle: int, index: int) -> None:
+    i: int = 0
+    while i < len(_ax_handles):
+        if _ax_handles[i] == handle and _ax_slots[i] == index:
+            target: RenderBox = _ax_targets[i]
+            if target.has_tap:
+                target.on_tap()
+            return
+        i = i + 1
+
+
+DEBUG_BOUNDS: int = rgba(196, 122, 74, 180)
+DEBUG_REPAINT: int = rgba(180, 70, 60, 80)
+
+
+def _debug_overlay(canvas: Canvas, root: RenderBox | None, serial: int) -> None:
+    if root is None:
+        return
+    _debug_walk(canvas, root, serial)
+
+
+def _debug_walk(canvas: Canvas, box: RenderBox, serial: int) -> None:
+    x: float = box.absolute_x()
+    y: float = box.absolute_y()
+    if box.painted_serial == serial and box.width > 0.0 and box.height > 0.0:
+        canvas.fill_rect(x, y, box.width, box.height, DEBUG_REPAINT)
+    if box.width > 1.0 and box.height > 1.0:
+        canvas.fill_rect(x, y, box.width, 1.0, DEBUG_BOUNDS)
+        canvas.fill_rect(x, y + box.height - 1.0, box.width, 1.0, DEBUG_BOUNDS)
+        canvas.fill_rect(x, y, 1.0, box.height, DEBUG_BOUNDS)
+        canvas.fill_rect(x + box.width - 1.0, y, 1.0, box.height, DEBUG_BOUNDS)
+    only: RenderBox | None = box.only_child
+    if only is not None:
+        _debug_walk(canvas, only, serial)
+    i: int = 0
+    while i < len(box.children):
+        _debug_walk(canvas, box.children[i], serial)
+        i = i + 1
+
+
+def _sort_by_depth(items: list[RenderBox]) -> None:
+    i: int = 1
+    while i < len(items):
+        j: int = i
+        while j > 0 and _depth(items[j]) < _depth(items[j - 1]):
+            tmp: RenderBox = items[j - 1]
+            items[j - 1] = items[j]
+            items[j] = tmp
+            j = j - 1
+        i = i + 1

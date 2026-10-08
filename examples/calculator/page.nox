@@ -1,0 +1,67 @@
+from aura.controls import Button
+from aura.layout import Center, Column, Row
+from aura.text import Text
+from aura.widgets import BuildContext, State, StatefulWidget, Widget
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_CALC: int = alloc_type_id()
+
+
+class CalcState(State):
+    display: int
+    acc: int
+    op: int
+    fresh: int
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.display = 0
+        self.acc = 0
+        self.op = 0
+        self.fresh = 1
+
+    def digit(self, value: int) -> None:
+        if self.fresh == 1:
+            self.display = value
+            self.fresh = 0
+        else:
+            self.display = self.display * 10 + value
+        self.invalidate()
+
+    def press_one(self) -> None:
+        self.digit(1)
+
+    def press_two(self) -> None:
+        self.digit(2)
+
+    def press_plus(self) -> None:
+        self.acc = self.display
+        self.op = 1
+        self.fresh = 1
+        self.invalidate()
+
+    def press_eq(self) -> None:
+        if self.op == 1:
+            self.display = self.acc + self.display
+        self.op = 0
+        self.fresh = 1
+        self.invalidate()
+
+    def build(self, context: BuildContext) -> Widget:
+        return Center(Column([
+            Text(str(self.display), font_size=32.0),
+            Row([
+                Button("1", self.press_one),
+                Button("+", self.press_plus),
+                Button("2", self.press_two),
+                Button("=", self.press_eq),
+            ], spacing=8.0),
+        ], spacing=16.0))
+
+
+class CalculatorPage(StatefulWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_CALC, None)
+
+    def create_state(self) -> State:
+        return CalcState()

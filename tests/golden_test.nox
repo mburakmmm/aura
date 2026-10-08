@@ -1,0 +1,63 @@
+import nox.test
+from aura.foundation.color import COLOR_ACCENT, COLOR_BACKGROUND
+from aura.layout import Center, Column
+from aura.platform.macos import sample_pixel
+from aura.rendering.render_object import RenderBox
+from aura.runtime.binding import Binding
+from aura.text import Text
+from examples.rectangle.page import RectanglePage
+
+
+def require_box(box: RenderBox | None, name: str) -> RenderBox:
+    if box is None:
+        raise Exception(name)
+    return box
+
+
+def find_role(box: RenderBox, role: str) -> RenderBox | None:
+    if box.semantics_role == role:
+        return box
+    only: RenderBox | None = box.only_child
+    found: RenderBox | None = None
+    i: int = 0
+    if only is not None:
+        found = find_role(only, role)
+        if found is not None:
+            return found
+    while i < len(box.children):
+        found = find_role(box.children[i], role)
+        if found is not None:
+            return found
+        i = i + 1
+    return None
+
+
+def ink(handle: int, box: RenderBox) -> int:
+    y: float = box.absolute_y() + box.height / 2.0
+    x: float = box.absolute_x() + 1.0
+    limit: float = box.absolute_x() + box.width
+    while x < limit:
+        pixel: int = sample_pixel(handle, x, y)
+        if pixel != COLOR_BACKGROUND and pixel != COLOR_ACCENT:
+            return pixel
+        x = x + 1.0
+    return 0
+
+
+def main_check() -> None:
+    binding: Binding = Binding(800, 600, "Aura", 0)
+    binding.mount(RectanglePage())
+    binding.frame()
+    center: int = sample_pixel(binding.surface.handle, 400.0, 300.0)
+    nox.test.assert_eq_int(center, COLOR_ACCENT, "accent pixel")
+    binding.mount(Center(Column([Text("A")])))
+    binding.frame()
+    root: RenderBox | None = binding.pump.view.only_child
+    text_box: RenderBox = require_box(find_role(require_box(root, "root"), "text"), "text")
+    drawn: int = ink(binding.surface.handle, text_box)
+    nox.test.assert_true(drawn != 0, "text ink")
+    binding.close()
+    print("golden ok")
+
+
+main_check()

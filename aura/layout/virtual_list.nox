@@ -1,0 +1,402 @@
+from aura.core.diagnostics import FrameworkError
+from aura.foundation.constraints import Constraints
+from aura.rendering.layer import PaintingContext
+from aura.rendering.render_object import HitTestResult, RenderBox
+from aura.widgets.framework import BuildContext, Element, ParentDataWidget, RenderObjectWidget, StatelessWidget, Widget, dirty_element_id
+from aura.widgets.scheduler import Scheduler, Ticker
+from aura.widgets.key import IntValueKey, Key
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_VIEWPORT: int = alloc_type_id()
+TYPE_LIST: int = alloc_type_id()
+TYPE_SLOT: int = alloc_type_id()
+KEEP_ALIVE_CAP: int = 32
+
+
+class ViewportMetrics:
+    width: float
+    height: float
+
+    def __init__(self) -> None:
+        self.width = 0.0
+        self.height = 0.0
+
+
+class ScrollPosition:
+    pixels: float
+    min_pixels: float
+    max_pixels: float
+    viewport: float
+    content: float
+
+    def __init__(self) -> None:
+        self.pixels = 0.0
+        self.min_pixels = 0.0
+        self.max_pixels = 0.0
+        self.viewport = 0.0
+        self.content = 0.0
+
+
+class ScrollController:
+    position: ScrollPosition
+    element_id: int
+    bound: int
+    bar_element: int
+
+    def __init__(self) -> None:
+        self.position = ScrollPosition()
+        self.element_id = 0
+        self.bound = 0
+        self.bar_element = 0
+
+    def watch(self, element_id: int) -> None:
+        self.bar_element = element_id
+
+    def bind(self, element_id: int) -> None:
+        self.element_id = element_id
+        self.bound = 1
+
+    def jump(self, pixels: float) -> None:
+        self.move(pixels - self.position.pixels)
+
+    def move(self, delta: float) -> None:
+        nxt: float = self.position.pixels + delta
+        if nxt < self.position.min_pixels:
+            nxt = self.position.min_pixels
+        if nxt > self.position.max_pixels:
+            nxt = self.position.max_pixels
+        if nxt == self.position.pixels:
+            return
+        self.position.pixels = nxt
+        self._dirty()
+        if self.bar_element != 0:
+            dirty_element_id(self.bar_element)
+
+    def note_viewport(self, metrics: ViewportMetrics, width: float, height: float) -> None:
+        if metrics.width == width and metrics.height == height:
+            return
+        metrics.width = width
+        metrics.height = height
+        self._dirty()
+
+    def note_content(self, viewport: float, content: float) -> None:
+        limit: float = content - viewport
+        if limit < 0.0:
+            limit = 0.0
+        changed: int = 0
+        if self.position.viewport != viewport or self.position.content != content or self.position.max_pixels != limit:
+            changed = 1
+        self.position.viewport = viewport
+        self.position.content = content
+        self.position.max_pixels = limit
+        if self.position.pixels > limit:
+            self.position.pixels = limit
+            self._dirty()
+            changed = 1
+        if changed == 1 and self.bar_element != 0:
+            dirty_element_id(self.bar_element)
+
+    def _dirty(self) -> None:
+        if self.bound == 1:
+            dirty_element_id(self.element_id)
+
+
+class ItemSource:
+    def count(self) -> int:
+        return 0
+
+    def widget_at(self, index: int) -> Widget:
+        raise FrameworkError("widget_at is not implemented")
+
+    def keep_alive(self, index: int) -> bool:
+        return False
+
+
+_host_ids: list[int] = []
+_host_controllers: list[ScrollController] = []
+_host_metrics: list[ViewportMetrics] = []
+_next_host_id: int = 1
+
+
+def register_host(controller: ScrollController, metrics: ViewportMetrics) -> int:
+    host_id: int = _next_host_id
+    _next_host_id = _next_host_id + 1
+    _host_ids.append(host_id)
+    _host_controllers.append(controller)
+    _host_metrics.append(metrics)
+    return host_id
+
+
+def _host_index(host_id: int) -> int:
+    i: int = 0
+    while i < len(_host_ids):
+        if _host_ids[i] == host_id:
+            return i
+        i = i + 1
+    return -1
+
+
+def report_host(host_id: int, width: float, height: float, content: float) -> None:
+    index: int = _host_index(host_id)
+    if index < 0:
+        return
+    _host_controllers[index].note_content(height, content)
+    _host_controllers[index].note_viewport(_host_metrics[index], width, height)
+
+
+def scroll_host(host_id: int, delta: float) -> None:
+    index: int = _host_index(host_id)
+    if index < 0:
+        return
+    _host_controllers[index].move(delta)
+
+
+class RenderViewport(RenderBox):
+    extent: float
+    item_count: int
+    pixels: float
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.multi_child = True
+        self.extent = 1.0
+        self.item_count = 0
+        self.pixels = 0.0
+        self.has_scroll = True
+
+    def bind_viewport(self, extent: float, item_count: int, pixels: float) -> None:
+        self.extent = extent
+        self.item_count = item_count
+        self.pixels = pixels
+        self.mark_needs_layout()
+
+    def set_host_id(self, host_id: int) -> None:
+        self.host_id = host_id
+
+    def scroll_by(self, delta: float) -> None:
+        scroll_host(self.host_id, delta)
+
+    def perform_layout(self) -> None:
+        self.width = self.constraints.constrain_width(self.constraints.max_width)
+        self.height = self.constraints.constrain_height(self.constraints.max_height)
+        content: float = 0.0
+        n: int = 0
+        while n < self.item_count and self.extent > 0.0:
+            content = content + self.extent
+            n = n + 1
+        report_host(self.host_id, self.width, self.height, content)
+        child_h: float = self.extent
+        if child_h < 0.0:
+            child_h = 0.0
+        limits: Constraints = Constraints(0.0, self.width, child_h, child_h)
+        i: int = 0
+        while i < len(self.children):
+            child: RenderBox = self.children[i]
+            child.layout(limits)
+            child.offset_x = 0.0
+            child.offset_y = float(child.slot_index) * self.extent - self.pixels
+            i = i + 1
+
+    def paint_children(self, context: PaintingContext) -> None:
+        i: int = 0
+        while i < len(self.children):
+            child: RenderBox = self.children[i]
+            if child.offset_y + child.height >= 0.0 and child.offset_y <= self.height:
+                self.paint_child(context, child)
+            i = i + 1
+
+    def hit_test_children(self, result: HitTestResult, x: float, y: float) -> bool:
+        i: int = len(self.children) - 1
+        while i >= 0:
+            child: RenderBox = self.children[i]
+            if child.offset_y + child.height >= 0.0 and child.offset_y <= self.height:
+                if child.hit_test(result, x, y):
+                    return True
+            i = i - 1
+        return False
+
+
+class ListSlot(ParentDataWidget):
+    index: int
+    child: Widget
+
+    def __init__(self, index: int, child: Widget) -> None:
+        super().__init__(TYPE_SLOT, IntValueKey(index))
+        self.index = index
+        self.child = child
+
+    def child_widgets(self) -> list[Widget]:
+        return [self.child]
+
+    def push_parent_data_element(self, element: Element) -> None:
+        if len(element.children) == 0:
+            return
+        box: RenderBox | None = element.children[0].outermost_render()
+        if box is None:
+            return
+        box.slot_index = self.index
+
+
+class Viewport(RenderObjectWidget):
+    metrics: ViewportMetrics
+    controller: ScrollController
+    extent: float
+    item_count: int
+    slots: list[Widget]
+    host_id: int
+
+    def __init__(self, metrics: ViewportMetrics, controller: ScrollController, extent: float, item_count: int, slots: list[Widget], host_id: int) -> None:
+        super().__init__(TYPE_VIEWPORT, None)
+        self.metrics = metrics
+        self.controller = controller
+        self.extent = extent
+        self.item_count = item_count
+        self.slots = slots
+        self.host_id = host_id
+
+    def create_render(self) -> RenderBox | None:
+        return RenderViewport()
+
+    def child_widgets(self) -> list[Widget]:
+        return self.slots
+
+    def sync_render(self, element: Element) -> None:
+        box: RenderBox | None = element.render
+        if box is None:
+            return
+        box.set_host_id(self.host_id)
+        box.bind_viewport(self.extent, self.item_count, self.controller.position.pixels)
+        box.has_scroll = True
+
+
+def _controller_or_new(controller: ScrollController | None) -> ScrollController:
+    if controller is None:
+        return ScrollController()
+    return controller
+
+
+class VirtualList(StatelessWidget):
+    source: ItemSource
+    extent: float
+    controller: ScrollController
+    metrics: ViewportMetrics
+    host_id: int
+
+    def __init__(self, source: ItemSource, extent: float, controller: ScrollController | None = None, key: Key | None = None) -> None:
+        super().__init__(TYPE_LIST, key)
+        self.source = source
+        self.extent = extent
+        self.controller = _controller_or_new(controller)
+        self.metrics = ViewportMetrics()
+        self.host_id = register_host(self.controller, self.metrics)
+
+    def build(self, context: BuildContext) -> Widget:
+        self.controller.bind(context.element.element_id)
+        return Viewport(self.metrics, self.controller, self.extent, self.source.count(), self._slots(), self.host_id)
+
+    def _slots(self) -> list[Widget]:
+        slots: list[Widget] = []
+        if self.metrics.height <= 0.0 or self.extent <= 0.0:
+            return slots
+        total: int = self.source.count()
+        first: int = _floor_div(self.controller.position.pixels, self.extent)
+        if first < 0:
+            first = 0
+        if first > total:
+            first = total
+        visible: int = _fit_count(self.metrics.height, self.extent) + 1
+        last: int = first + visible
+        if last > total:
+            last = total
+        i: int = first
+        while i < last:
+            slots.append(ListSlot(i, self.source.widget_at(i)))
+            i = i + 1
+        extra: int = 0
+        k: int = 0
+        while k < total and extra < KEEP_ALIVE_CAP:
+            if self.source.keep_alive(k):
+                if k < first or k >= last:
+                    slots.append(ListSlot(k, self.source.widget_at(k)))
+                    extra = extra + 1
+            k = k + 1
+        return slots
+
+
+def _floor_div(numer: float, denom: float) -> int:
+    if denom <= 0.0 or numer <= 0.0:
+        return 0
+    count: int = 0
+    cursor: float = 0.0
+    while cursor + denom <= numer:
+        cursor = cursor + denom
+        count = count + 1
+    return count
+
+
+class Fling(Ticker):
+    host_id: int
+    velocity: float
+    last_time: float
+    alive: int
+
+    def __init__(self) -> None:
+        self.host_id = 0
+        self.velocity = 0.0
+        self.last_time = 0.0
+        self.alive = 1
+
+    def tick(self, time_s: float) -> None:
+        if self.alive == 0:
+            return
+        dt: float = time_s - self.last_time
+        if dt <= 0.0:
+            return
+        self.last_time = time_s
+        scroll_host(self.host_id, self.velocity * dt)
+        decay: float = 1.0 - dt * 3.0
+        if decay < 0.0:
+            decay = 0.0
+        self.velocity = self.velocity * decay
+        if self.velocity < 24.0 and self.velocity > -24.0:
+            self.alive = 0
+            self.velocity = 0.0
+
+
+_flings: list[Fling] = []
+
+
+def begin_fling(scheduler: Scheduler, host_id: int, velocity: float, time_s: float) -> None:
+    if host_id == 0:
+        return
+    if velocity < 40.0 and velocity > -40.0:
+        return
+    i: int = 0
+    while i < len(_flings):
+        current: Fling = _flings[i]
+        if current.host_id == host_id:
+            current.velocity = velocity
+            current.last_time = time_s
+            current.alive = 1
+            return
+        i = i + 1
+    created: Fling = Fling()
+    created.host_id = host_id
+    created.velocity = velocity
+    created.last_time = time_s
+    created.alive = 1
+    _flings.append(created)
+    scheduler.add(created)
+
+
+def _fit_count(space: float, extent: float) -> int:
+    if extent <= 0.0 or space <= 0.0:
+        return 0
+    count: int = 0
+    cursor: float = 0.0
+    while cursor + extent <= space:
+        cursor = cursor + extent
+        count = count + 1
+    if count == 0:
+        return 1
+    return count

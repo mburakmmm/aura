@@ -1,0 +1,6 @@
+_next_type_id: int = 1000
+
+
+def alloc_type_id() -> int:
+    _next_type_id = _next_type_id + 1
+    return _next_type_id

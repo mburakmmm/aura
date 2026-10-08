@@ -1,0 +1,200 @@
+from aura.input.drag import drag_by
+from aura.rendering.render_object import HitTestResult, RenderBox
+from aura.text.editing import pointer_text_down, pointer_text_move
+
+TAP_SLOP: float = 18.0
+
+
+class TapRecognizer:
+    on_tap: () -> None
+    accepted: bool
+
+    def __init__(self, on_tap: () -> None) -> None:
+        self.on_tap = on_tap
+        self.accepted = False
+
+    def accept(self) -> None:
+        self.accepted = True
+        self.on_tap()
+
+
+class GestureArena:
+    members: list[TapRecognizer]
+    tracking: bool
+    rejected: bool
+    scroll_won: bool
+    down_x: float
+    down_y: float
+    last_x: float
+    last_y: float
+    member_count: int
+    winner_count: int
+    scroll_box: RenderBox | None
+    text_box: RenderBox | None
+    text_selecting: bool
+    drag_box: RenderBox | None
+    drag_won: bool
+    last_time: float
+    fling_host: int
+    fling_velocity: float
+
+    def __init__(self) -> None:
+        self.members = []
+        self.tracking = False
+        self.rejected = False
+        self.scroll_won = False
+        self.down_x = 0.0
+        self.down_y = 0.0
+        self.last_x = 0.0
+        self.last_y = 0.0
+        self.member_count = 0
+        self.winner_count = 0
+        self.scroll_box = None
+        self.text_box = None
+        self.text_selecting = False
+        self.drag_box = None
+        self.drag_won = False
+        self.last_time = 0.0
+        self.fling_host = 0
+        self.fling_velocity = 0.0
+
+    def pointer_down(self, root: RenderBox, x: float, y: float, time_s: float = 0.0) -> None:
+        self.members = []
+        self.tracking = True
+        self.rejected = False
+        self.scroll_won = False
+        self.down_x = x
+        self.down_y = y
+        self.last_x = x
+        self.last_y = y
+        self.winner_count = 0
+        self.scroll_box = None
+        self.text_box = None
+        self.text_selecting = False
+        self.drag_box = None
+        self.drag_won = False
+        self.last_time = time_s
+        self.fling_velocity = 0.0
+        self.fling_host = 0
+        result: HitTestResult = HitTestResult()
+        root.hit_test(result, x, y)
+        i: int = 0
+        while i < len(result.targets):
+            target: RenderBox = result.targets[i]
+            if target.has_scroll and self.scroll_box is None:
+                self.scroll_box = target
+            if target.drag_id != 0 and self.drag_box is None:
+                self.drag_box = target
+            if target.text_target != 0 and self.text_box is None:
+                self.text_box = target
+                pointer_text_down(target.text_target, x - target.absolute_x() - 8.0)
+                if target.has_tap:
+                    target.on_tap()
+            if target.has_tap:
+                self.members.append(TapRecognizer(target.on_tap))
+            i = i + 1
+        self.member_count = len(self.members)
+
+    def pointer_move(self, x: float, y: float, time_s: float = 0.0) -> None:
+        if not self.tracking:
+            return
+        if self.scroll_won:
+            self._sample(y, time_s)
+            self._drag_scroll(x, y)
+            return
+        field: RenderBox | None = self.text_box
+        if field is not None:
+            span_x: float = x - self.down_x
+            span_y: float = y - self.down_y
+            if span_x < 0.0:
+                span_x = -span_x
+            if span_y < 0.0:
+                span_y = -span_y
+            if span_x > TAP_SLOP or span_y > TAP_SLOP:
+                self.rejected = True
+                self.text_selecting = True
+            if self.text_selecting:
+                pointer_text_move(field.text_target, x - field.absolute_x() - 8.0)
+            self.last_x = x
+            self.last_y = y
+            return
+        dragged: RenderBox | None = self.drag_box
+        if dragged is not None:
+            drag_span_x: float = x - self.down_x
+            drag_span_y: float = y - self.down_y
+            if drag_span_x < 0.0:
+                drag_span_x = -drag_span_x
+            if drag_span_y < 0.0:
+                drag_span_y = -drag_span_y
+            if drag_span_x > TAP_SLOP or drag_span_y > TAP_SLOP:
+                self.rejected = True
+                self.drag_won = True
+            if self.drag_won:
+                drag_by(dragged.drag_id, x - self.last_x, y - self.last_y)
+                self.last_x = x
+                self.last_y = y
+                return
+        dx: float = x - self.down_x
+        dy: float = y - self.down_y
+        if dx < 0.0:
+            dx = -dx
+        if dy < 0.0:
+            dy = -dy
+        if dx > TAP_SLOP or dy > TAP_SLOP:
+            self.rejected = True
+            if self.scroll_box is not None:
+                self.scroll_won = True
+                self._sample(y, time_s)
+                self._drag_scroll(x, y)
+
+    def pointer_up(self, x: float, y: float, time_s: float = 0.0) -> None:
+        if not self.tracking:
+            return
+        self.pointer_move(x, y, time_s)
+        scrolled: RenderBox | None = self.scroll_box
+        if self.scroll_won and scrolled is not None:
+            self.fling_host = scrolled.host_id
+        if not self.rejected and len(self.members) > 0:
+            self.members[0].accept()
+            self.winner_count = 1
+        self.tracking = False
+        self.scroll_won = False
+        self.scroll_box = None
+        self.text_box = None
+        self.text_selecting = False
+        self.drag_box = None
+        self.drag_won = False
+        self.members = []
+
+    def pointer_cancel(self) -> None:
+        self.tracking = False
+        self.rejected = True
+        self.scroll_won = False
+        self.scroll_box = None
+        self.text_box = None
+        self.text_selecting = False
+        self.drag_box = None
+        self.drag_won = False
+        self.members = []
+
+    def pointer_scroll(self, root: RenderBox, dx: float, dy: float) -> None:
+        self.down_x = dx
+        self.down_y = dy
+        found: RenderBox | None = root.find_scroll()
+        if found is not None:
+            found.scroll_by(dy)
+
+    def _sample(self, y: float, time_s: float) -> None:
+        dt: float = time_s - self.last_time
+        if dt > 0.0001:
+            self.fling_velocity = -(y - self.last_y) / dt
+        self.last_time = time_s
+
+    def _drag_scroll(self, x: float, y: float) -> None:
+        target: RenderBox | None = self.scroll_box
+        if target is None:
+            return
+        delta: float = y - self.last_y
+        self.last_x = x
+        self.last_y = y
+        target.scroll_by(-delta)

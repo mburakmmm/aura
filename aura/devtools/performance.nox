@@ -1,0 +1,5 @@
+from aura.runtime.frame import FramePump
+
+
+def format_frame(pump: FramePump) -> str:
+    return "build_ms=" + str(pump.build_ms) + " layout_ms=" + str(pump.layout_ms) + " paint_ms=" + str(pump.paint_ms) + " composite_ms=" + str(pump.composite_ms) + " widgets_built=" + str(pump.widgets_built) + " elements_updated=" + str(pump.elements_updated) + " laid_out=" + str(pump.laid_out) + " painted=" + str(pump.painted) + " layers=" + str(pump.layers)

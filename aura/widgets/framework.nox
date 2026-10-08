@@ -1,0 +1,1066 @@
+from aura.core.diagnostics import FrameworkError
+from aura.input.focus import FocusManager, FocusNode
+from aura.rendering.render_object import PipelineOwner, RenderBox
+from aura.widgets.key import KEY_GLOBAL, Key
+from aura.widgets.scheduler import Scheduler
+
+_next_element_id: int = 1
+
+
+def _alloc_element_id() -> int:
+    _next_element_id = _next_element_id + 1
+    return _next_element_id
+
+
+class BuildContext:
+    element: Element
+
+    def __init__(self, element: Element) -> None:
+        self.element = element
+
+    def ancestor(self, type_id: int) -> Widget | None:
+        return self.element.find_ancestor(type_id)
+
+
+class Widget:
+    type_id: int
+    key: Key | None
+
+    def __init__(self, type_id: int, key: Key | None) -> None:
+        self.type_id = type_id
+        self.key = key
+
+    def create_element(self) -> Element:
+        raise FrameworkError("create_element is not implemented")
+
+    def create_render(self) -> RenderBox | None:
+        return None
+
+    def build_widget(self, context: BuildContext) -> Widget:
+        raise FrameworkError("build_widget is not implemented")
+
+    def create_state(self) -> State:
+        raise FrameworkError("create_state is not implemented")
+
+    def child_widgets(self) -> list[Widget]:
+        empty: list[Widget] = []
+        return empty
+
+    def sync_render(self, element: Element) -> None:
+        pass
+
+    def push_parent_data_element(self, element: Element) -> None:
+        pass
+
+    def publish_inherited(self, element: Element) -> None:
+        pass
+
+    def seed_navigator(self, element: Element) -> None:
+        pass
+
+    def seed_overlay(self, element: Element) -> None:
+        pass
+
+
+class State:
+    element: Element | None
+    disposed: bool
+
+    def __init__(self) -> None:
+        self.element = None
+        self.disposed = False
+
+    def attach(self, element: Element) -> None:
+        self.element = element
+
+    def init_state(self) -> None:
+        pass
+
+    def did_update_widget(self, old_widget: Widget) -> None:
+        pass
+
+    def dispose(self) -> None:
+        if self.disposed:
+            raise FrameworkError("dispose called twice")
+        self.disposed = True
+        self.element = None
+
+    def invalidate(self) -> None:
+        element: Element | None = self.element
+        if self.disposed or element is None:
+            raise FrameworkError("set_state after dispose")
+        if element.unmounted:
+            raise FrameworkError("set_state after dispose")
+        element.mark_dirty()
+
+    def build(self, context: BuildContext) -> Widget:
+        raise FrameworkError("State.build is not implemented")
+
+
+_owners: list[BuildOwner] = []
+_scope_owners: list[BuildOwner] = []
+_scope_ids: list[int] = []
+_watch_signal: list[int] = []
+_watch_element: list[int] = []
+_edge_source: list[int] = []
+_edge_computed: list[int] = []
+_state_ids: list[int] = []
+_state_dirty: list[int] = []
+_state_evaluating: list[int] = []
+_active_computed: int = 0
+
+
+def current_build_element() -> int:
+    count: int = len(_scope_ids)
+    if count == 0:
+        return 0
+    return _scope_ids[count - 1]
+
+
+def current_build_owner() -> BuildOwner | None:
+    count: int = len(_scope_owners)
+    if count == 0:
+        return None
+    return _scope_owners[count - 1]
+
+
+def push_build_scope(owner: BuildOwner, element_id: int) -> None:
+    _scope_owners.append(owner)
+    _scope_ids.append(element_id)
+
+
+def pop_build_scope() -> None:
+    count: int = len(_scope_ids)
+    if count == 0:
+        return
+    owners: list[BuildOwner] = []
+    ids: list[int] = []
+    i: int = 0
+    while i < count - 1:
+        owners.append(_scope_owners[i])
+        ids.append(_scope_ids[i])
+        i = i + 1
+    _scope_owners = owners
+    _scope_ids = ids
+
+
+def dirty_element_id(element_id: int) -> None:
+    i: int = 0
+    while i < len(_owners):
+        _owners[i].dirty_element_id(element_id)
+        i = i + 1
+
+
+def _state_index(reactive_id: int) -> int:
+    i: int = 0
+    while i < len(_state_ids):
+        if _state_ids[i] == reactive_id:
+            return i
+        i = i + 1
+    _state_ids.append(reactive_id)
+    _state_dirty.append(1)
+    _state_evaluating.append(0)
+    return len(_state_ids) - 1
+
+
+def computed_is_evaluating(reactive_id: int) -> int:
+    return _state_evaluating[_state_index(reactive_id)]
+
+
+def set_computed_evaluating(reactive_id: int, value: int) -> None:
+    index: int = _state_index(reactive_id)
+    _state_evaluating[index] = value
+
+
+def computed_is_dirty(reactive_id: int) -> int:
+    return _state_dirty[_state_index(reactive_id)]
+
+
+def set_computed_dirty(reactive_id: int, value: int) -> None:
+    index: int = _state_index(reactive_id)
+    _state_dirty[index] = value
+
+
+def begin_computed(reactive_id: int) -> int:
+    previous: int = _active_computed
+    _active_computed = reactive_id
+    return previous
+
+
+def end_computed(previous: int) -> None:
+    _active_computed = previous
+
+
+def _has_edge(source_id: int, computed_id: int) -> int:
+    i: int = 0
+    while i < len(_edge_source):
+        if _edge_source[i] == source_id and _edge_computed[i] == computed_id:
+            return 1
+        i = i + 1
+    return 0
+
+
+def _has_watch(reactive_id: int, element_id: int) -> int:
+    i: int = 0
+    while i < len(_watch_signal):
+        if _watch_signal[i] == reactive_id and _watch_element[i] == element_id:
+            return 1
+        i = i + 1
+    return 0
+
+
+def track_signal(reactive_id: int) -> None:
+    if _active_computed != 0:
+        if _has_edge(reactive_id, _active_computed) == 0:
+            _edge_source.append(reactive_id)
+            _edge_computed.append(_active_computed)
+        return
+    owner: BuildOwner | None = current_build_owner()
+    if owner is None:
+        return
+    element_id: int = current_build_element()
+    if element_id == 0:
+        return
+    element: Element | None = owner.element_by_id(element_id)
+    if element is None:
+        return
+    if _has_watch(reactive_id, element_id) == 0:
+        _watch_signal.append(reactive_id)
+        _watch_element.append(element_id)
+    element.note_signal(reactive_id)
+
+
+def _dirty_watchers(reactive_id: int) -> None:
+    i: int = 0
+    while i < len(_watch_signal):
+        if _watch_signal[i] == reactive_id:
+            dirty_element_id(_watch_element[i])
+        i = i + 1
+
+
+def notify_signal(reactive_id: int) -> None:
+    _dirty_watchers(reactive_id)
+    i: int = 0
+    while i < len(_edge_source):
+        if _edge_source[i] == reactive_id:
+            child: int = _edge_computed[i]
+            set_computed_dirty(child, 1)
+            _dirty_watchers(child)
+        i = i + 1
+
+
+def forget_element_signals(element_id: int) -> None:
+    signals: list[int] = []
+    elements: list[int] = []
+    i: int = 0
+    while i < len(_watch_element):
+        if _watch_element[i] != element_id:
+            signals.append(_watch_signal[i])
+            elements.append(_watch_element[i])
+        i = i + 1
+    _watch_signal = signals
+    _watch_element = elements
+
+
+class BuildOwner:
+    dirty: list[Element]
+    key_ids: list[int]
+    key_elements: list[Element]
+    mounted_ids: list[int]
+    mounted_elements: list[Element]
+    widgets_built: int
+    elements_updated: int
+
+    def __init__(self) -> None:
+        self.dirty = []
+        self.key_ids = []
+        self.key_elements = []
+        self.mounted_ids = []
+        self.mounted_elements = []
+        self.widgets_built = 0
+        self.elements_updated = 0
+        _owners.append(self)
+
+    def schedule(self, element: Element) -> None:
+        if element.in_dirty:
+            return
+        element.in_dirty = True
+        self.dirty.append(element)
+
+    def flush(self) -> None:
+        passes: int = 0
+        while len(self.dirty) > 0:
+            passes = passes + 1
+            if passes > 64:
+                raise FrameworkError("cyclic build dependency")
+            batch: list[Element] = self.dirty
+            self.dirty = []
+            _sort_elements(batch)
+            i: int = 0
+            while i < len(batch):
+                element: Element = batch[i]
+                element.in_dirty = False
+                if not element.unmounted:
+                    element.rebuild()
+                i = i + 1
+
+    def register_global_key(self, key_id: int, element: Element) -> None:
+        i: int = 0
+        while i < len(self.key_ids):
+            if self.key_ids[i] == key_id:
+                current: Element = self.key_elements[i]
+                if current.element_id != element.element_id:
+                    raise FrameworkError("Widget reused with incompatible key")
+                self.key_elements[i] = element
+                return
+            i = i + 1
+        self.key_ids.append(key_id)
+        self.key_elements.append(element)
+
+    def unregister_global_key(self, key_id: int) -> None:
+        ids: list[int] = []
+        elements: list[Element] = []
+        i: int = 0
+        while i < len(self.key_ids):
+            if self.key_ids[i] != key_id:
+                ids.append(self.key_ids[i])
+                elements.append(self.key_elements[i])
+            i = i + 1
+        self.key_ids = ids
+        self.key_elements = elements
+
+    def register_element(self, element: Element) -> None:
+        i: int = 0
+        while i < len(self.mounted_ids):
+            if self.mounted_ids[i] == element.element_id:
+                self.mounted_elements[i] = element
+                return
+            i = i + 1
+        self.mounted_ids.append(element.element_id)
+        self.mounted_elements.append(element)
+
+    def unregister_element(self, element_id: int) -> None:
+        ids: list[int] = []
+        elements: list[Element] = []
+        i: int = 0
+        while i < len(self.mounted_ids):
+            if self.mounted_ids[i] != element_id:
+                ids.append(self.mounted_ids[i])
+                elements.append(self.mounted_elements[i])
+            i = i + 1
+        self.mounted_ids = ids
+        self.mounted_elements = elements
+
+    def element_by_id(self, element_id: int) -> Element | None:
+        i: int = 0
+        while i < len(self.mounted_ids):
+            if self.mounted_ids[i] == element_id:
+                return self.mounted_elements[i]
+            i = i + 1
+        return None
+
+    def dirty_element_id(self, element_id: int) -> None:
+        found: Element | None = self.element_by_id(element_id)
+        if found is None:
+            return
+        if found.unmounted:
+            return
+        found.mark_dirty()
+
+
+def _noop_press() -> None:
+    pass
+
+
+class Element:
+    element_id: int
+    widget: Widget | None
+    parent: Element | None
+    children: list[Element]
+    depth: int
+    owner: BuildOwner | None
+    pipeline: PipelineOwner | None
+    focus_manager: FocusManager | None
+    render: RenderBox | None
+    state: State | None
+    unmounted: bool
+    in_dirty: bool
+    rebuild_count: int
+    global_key_id: int
+    dependents: list[Element]
+    press: () -> None
+    has_press: bool
+    focus_node: FocusNode | None
+    signal_ids: list[int]
+    scheduler: Scheduler | None
+
+    def __init__(self) -> None:
+        self.element_id = _alloc_element_id()
+        self.widget = None
+        self.parent = None
+        self.children = []
+        self.depth = 0
+        self.owner = None
+        self.pipeline = None
+        self.focus_manager = None
+        self.render = None
+        self.state = None
+        self.unmounted = False
+        self.in_dirty = False
+        self.rebuild_count = 0
+        self.global_key_id = 0
+        self.dependents = []
+        self.press = _noop_press
+        self.has_press = False
+        self.focus_node = None
+        self.signal_ids = []
+        self.scheduler = None
+
+    def mount(self, parent: Element | None, widget: Widget) -> None:
+        self.parent = parent
+        self.widget = widget
+        if parent is None:
+            self.depth = 0
+        else:
+            self.depth = parent.depth + 1
+            self.owner = parent.owner
+            self.pipeline = parent.pipeline
+            self.focus_manager = parent.focus_manager
+            self.scheduler = parent.scheduler
+        owner: BuildOwner | None = self.owner
+        if owner is not None:
+            owner.register_element(self)
+        self._register_key()
+        self.first_mount()
+
+    def first_mount(self) -> None:
+        pass
+
+    def update(self, widget: Widget) -> None:
+        current: Widget | None = self.widget
+        if current is not None:
+            if current.type_id != widget.type_id:
+                raise FrameworkError("Widget reused with incompatible key")
+        self.widget = widget
+        self.notify_dependents()
+
+    def rebuild(self) -> None:
+        pass
+
+    def boot_home(self, page: Widget) -> None:
+        pass
+
+    def push_page(self, name: str, page: Widget) -> None:
+        pass
+
+    def pop_page(self) -> None:
+        pass
+
+    def replace_page(self, name: str, page: Widget) -> None:
+        pass
+
+    def can_pop_page(self) -> int:
+        return 0
+
+    def set_page(self, page: Widget) -> None:
+        pass
+
+    def push_entry(self, page: Widget) -> None:
+        pass
+
+    def pop_entry(self) -> None:
+        pass
+
+    def entry_count(self) -> int:
+        return 0
+
+    def note_signal(self, reactive_id: int) -> None:
+        i: int = 0
+        while i < len(self.signal_ids):
+            if self.signal_ids[i] == reactive_id:
+                return
+            i = i + 1
+        self.signal_ids.append(reactive_id)
+
+    def drop_signals(self) -> None:
+        forget_element_signals(self.element_id)
+        self.signal_ids = []
+
+
+    def begin_scope(self) -> None:
+        owner: BuildOwner | None = self.owner
+        if owner is None:
+            return
+        push_build_scope(owner, self.element_id)
+
+    def end_scope(self) -> None:
+        if self.owner is None:
+            return
+        pop_build_scope()
+
+    def unmount(self) -> None:
+        if self.unmounted:
+            return
+        self.drop_signals()
+        self._unlink_dependents()
+        self.unmounted = True
+        i: int = 0
+        while i < len(self.children):
+            self.children[i].unmount()
+            i = i + 1
+        self.children = []
+        state: State | None = self.state
+        if state is not None:
+            if not state.disposed:
+                state.dispose()
+            self.state = None
+        focus_node: FocusNode | None = self.focus_node
+        manager: FocusManager | None = self.focus_manager
+        if focus_node is not None and manager is not None:
+            manager.detach(focus_node)
+            self.focus_node = None
+        render: RenderBox | None = self.render
+        if render is not None:
+            render.detach()
+            self.render = None
+        owner: BuildOwner | None = self.owner
+        if owner is not None and self.global_key_id != 0:
+            owner.unregister_global_key(self.global_key_id)
+            self.global_key_id = 0
+        if owner is not None:
+            owner.unregister_element(self.element_id)
+        self.press = _noop_press
+        self.has_press = False
+        self.parent = None
+
+    def mark_dirty(self) -> None:
+        if self.unmounted:
+            return
+        owner: BuildOwner | None = self.owner
+        if owner is None:
+            return
+        owner.schedule(self)
+
+    def _count_build(self) -> None:
+        owner: BuildOwner | None = self.owner
+        if owner is not None:
+            owner.widgets_built = owner.widgets_built + 1
+            owner.elements_updated = owner.elements_updated + 1
+
+    def _count_update(self) -> None:
+        owner: BuildOwner | None = self.owner
+        if owner is not None:
+            owner.elements_updated = owner.elements_updated + 1
+
+    def inflate(self, widget: Widget) -> Element:
+        child: Element = widget.create_element()
+        child.mount(self, widget)
+        return child
+
+    def reconcile(self, new_widgets: list[Widget]) -> None:
+        old: list[Element] = []
+        i: int = 0
+        while i < len(self.children):
+            old.append(self.children[i])
+            i = i + 1
+        old_n: int = len(old)
+        new_n: int = len(new_widgets)
+        used: list[int] = []
+        result: dict[int, Element] = {}
+        i = 0
+        while i < old_n:
+            used.append(0)
+            i = i + 1
+        prefix: int = 0
+        while prefix < old_n and prefix < new_n:
+            if not _can_update(old[prefix], new_widgets[prefix]):
+                break
+            old[prefix].update(new_widgets[prefix])
+            result[prefix] = old[prefix]
+            used[prefix] = 1
+            prefix = prefix + 1
+        suffix_old: int = old_n - 1
+        suffix_new: int = new_n - 1
+        while suffix_old >= prefix and suffix_new >= prefix:
+            if not _can_update(old[suffix_old], new_widgets[suffix_new]):
+                break
+            old[suffix_old].update(new_widgets[suffix_new])
+            result[suffix_new] = old[suffix_old]
+            used[suffix_old] = 1
+            suffix_old = suffix_old - 1
+            suffix_new = suffix_new - 1
+        keyed: dict[str, int] = {}
+        i = prefix
+        while i <= suffix_old:
+            current: Widget | None = old[i].widget
+            if used[i] == 0 and current is not None:
+                token: str = _key_token(current)
+                if token != "":
+                    keyed[token] = i
+            i = i + 1
+        unkeyed: list[int] = []
+        i = prefix
+        while i <= suffix_old:
+            current_old: Widget | None = old[i].widget
+            if used[i] == 0 and current_old is not None:
+                token_old: str = _key_token(current_old)
+                if token_old == "":
+                    unkeyed.append(i)
+            i = i + 1
+        cursor: int = 0
+        ni: int = prefix
+        while ni <= suffix_new:
+            token_new: str = _key_token(new_widgets[ni])
+            if token_new != "":
+                if token_new in keyed:
+                    oi: int = keyed[token_new]
+                    if used[oi] == 0 and _can_update(old[oi], new_widgets[ni]):
+                        old[oi].update(new_widgets[ni])
+                        result[ni] = old[oi]
+                        used[oi] = 1
+                        del keyed[token_new]
+                    else:
+                        raise FrameworkError("Widget reused with incompatible key")
+                else:
+                    result[ni] = self.inflate(new_widgets[ni])
+            else:
+                matched: int = -1
+                while cursor < len(unkeyed):
+                    oi_plain: int = unkeyed[cursor]
+                    cursor = cursor + 1
+                    if used[oi_plain] == 0 and _can_update(old[oi_plain], new_widgets[ni]):
+                        matched = oi_plain
+                        break
+                if matched >= 0:
+                    old[matched].update(new_widgets[ni])
+                    result[ni] = old[matched]
+                    used[matched] = 1
+                else:
+                    result[ni] = self.inflate(new_widgets[ni])
+            ni = ni + 1
+        i = 0
+        while i < old_n:
+            if used[i] == 0:
+                old[i].unmount()
+            i = i + 1
+        built: list[Element] = []
+        i = 0
+        while i < new_n:
+            if not (i in result):
+                raise FrameworkError("reconcile left an empty child slot")
+            built.append(result[i])
+            i = i + 1
+        self.children = built
+
+    def outermost_render(self) -> RenderBox | None:
+        if self.render is not None:
+            return self.render
+        if len(self.children) == 0:
+            return None
+        return self.children[0].outermost_render()
+
+    def find_ancestor(self, type_id: int) -> Widget | None:
+        parent: Element | None = self.parent
+        while parent is not None:
+            current: Widget | None = parent.widget
+            if current is not None:
+                if current.type_id == type_id:
+                    parent.add_dependent(self)
+                    return current
+            parent = parent.parent
+        return None
+
+    def add_dependent(self, element: Element) -> None:
+        i: int = 0
+        while i < len(self.dependents):
+            if self.dependents[i].element_id == element.element_id:
+                return
+            i = i + 1
+        self.dependents.append(element)
+
+    def notify_dependents(self) -> None:
+        i: int = 0
+        while i < len(self.dependents):
+            self.dependents[i].mark_dirty()
+            i = i + 1
+
+    def apply_text(self, value: str, font_size: float, color: int, weight: int, family: str) -> None:
+        box: RenderBox | None = self.render
+        if box is None:
+            raise FrameworkError("text has no render object")
+        box.set_paragraph(value, font_size, color, weight, family)
+        box.semantics_role = "text"
+        box.semantics_label = value
+
+    def apply_toggle(self, checked: bool, label: str, text: int, track: int, thumb: int, handler: () -> None) -> None:
+        box: RenderBox | None = self.render
+        if box is None:
+            raise FrameworkError("toggle has no render object")
+        box.set_toggle(checked, label, text, track, thumb)
+        box.set_tap(handler)
+        box.semantics_role = "toggle"
+        box.semantics_label = label
+        box.takes_focus = True
+
+    def apply_modal(self, mode: int, x: float, y: float, dim: int, handler: () -> None) -> None:
+        box: RenderBox | None = self.render
+        if box is None:
+            raise FrameworkError("modal has no render object")
+        box.set_modal(mode, x, y, dim)
+        box.set_tap(handler)
+
+    def apply_button(self, label: str, font_size: float, color: int, background: int, handler: () -> None) -> None:
+        box: RenderBox | None = self.render
+        if box is None:
+            raise FrameworkError("button has no render object")
+        box.set_button(label, font_size, color, background)
+        box.set_tap(handler)
+        box.semantics_role = "button"
+        box.semantics_label = label
+        box.takes_focus = True
+
+    def apply_sized(self, has_w: int, w: float, has_h: int, h: float, tag: int) -> None:
+        box: RenderBox | None = self.render
+        if box is None:
+            raise FrameworkError("sized box has no render object")
+        box.set_sized(has_w, w, has_h, h)
+        box.debug_tag = tag
+
+    def apply_padding(self, left: float, top: float, right: float, bottom: float) -> None:
+        box: RenderBox | None = self.render
+        if box is None:
+            raise FrameworkError("padding has no render object")
+        box.set_padding(left, top, right, bottom)
+
+    def apply_color(self, argb: int) -> None:
+        box: RenderBox | None = self.render
+        if box is None:
+            raise FrameworkError("colored box has no render object")
+        box.set_color(argb)
+
+    def apply_opacity(self, opacity: float) -> None:
+        box: RenderBox | None = self.render
+        if box is None:
+            raise FrameworkError("opacity has no render object")
+        box.set_opacity(opacity)
+
+    def apply_translation(self, x: float, y: float) -> None:
+        box: RenderBox | None = self.render
+        if box is None:
+            raise FrameworkError("transform has no render object")
+        box.set_translation(x, y)
+
+    def apply_flex(self, axis: int, main_align: int, cross_align: int, main_size: int, spacing: float) -> None:
+        box: RenderBox | None = self.render
+        if box is None:
+            raise FrameworkError("flex has no render object")
+        box.set_flex_style(axis, main_align, cross_align, main_size, spacing)
+
+    def remember_press(self, handler: () -> None) -> None:
+        self.press = handler
+        self.has_press = True
+
+    def ensure_button_focus(self) -> None:
+        if self.focus_node is not None:
+            return
+        manager: FocusManager | None = self.focus_manager
+        if manager is None:
+            return
+        node: FocusNode = FocusNode()
+        node.on_key = self.handle_key
+        node.has_key = True
+        node.on_text = self.handle_text
+        node.has_text = True
+        self.focus_node = node
+        manager.attach(node)
+
+    def focus_field(self) -> None:
+        self.take_focus()
+
+    def take_focus(self) -> None:
+        manager: FocusManager | None = self.focus_manager
+        node: FocusNode | None = self.focus_node
+        if manager is not None and node is not None:
+            manager.focus(node)
+
+    def press_and_focus(self) -> None:
+        self.take_focus()
+        if self.has_press:
+            self.press()
+
+    def handle_key(self, code: int, is_down: int) -> bool:
+        node: FocusNode | None = self.focus_node
+        if node is not None:
+            node.last_key = code
+            node.last_down = is_down
+        return True
+
+    def handle_text(self, code: int) -> None:
+        node: FocusNode | None = self.focus_node
+        if node is not None:
+            node.last_text = code
+
+    def _register_key(self) -> None:
+        widget: Widget | None = self.widget
+        if widget is None:
+            return
+        key: Key | None = widget.key
+        if key is None:
+            return
+        if key.kind() != KEY_GLOBAL:
+            return
+        owner: BuildOwner | None = self.owner
+        if owner is None:
+            return
+        self.global_key_id = key.int_value()
+        owner.register_global_key(self.global_key_id, self)
+
+    def _unlink_dependents(self) -> None:
+        parent: Element | None = self.parent
+        while parent is not None:
+            parent._drop_dependent(self.element_id)
+            parent = parent.parent
+        self.dependents = []
+
+    def _drop_dependent(self, element_id: int) -> None:
+        kept: list[Element] = []
+        i: int = 0
+        while i < len(self.dependents):
+            if self.dependents[i].element_id != element_id:
+                kept.append(self.dependents[i])
+            i = i + 1
+        self.dependents = kept
+
+
+class StatelessElement(Element):
+    def first_mount(self) -> None:
+        self.rebuild()
+
+    def update(self, widget: Widget) -> None:
+        self.widget = widget
+        self.rebuild()
+        self.notify_dependents()
+
+    def rebuild(self) -> None:
+        if self.unmounted:
+            return
+        widget: Widget | None = self.widget
+        if widget is None:
+            return
+        self.drop_signals()
+        self.begin_scope()
+        self.rebuild_count = self.rebuild_count + 1
+        self._count_build()
+        built: Widget = widget.build_widget(BuildContext(self))
+        self.reconcile([built])
+        self.end_scope()
+
+
+class StatefulElement(Element):
+    def first_mount(self) -> None:
+        widget: Widget | None = self.widget
+        if widget is None:
+            raise FrameworkError("stateful mount without widget")
+        created: State = widget.create_state()
+        created.attach(self)
+        self.state = created
+        created.init_state()
+        self.rebuild()
+
+    def update(self, widget: Widget) -> None:
+        old: Widget | None = self.widget
+        self.widget = widget
+        state: State | None = self.state
+        if state is not None and old is not None:
+            state.did_update_widget(old)
+        self.rebuild()
+        self.notify_dependents()
+
+    def rebuild(self) -> None:
+        if self.unmounted:
+            return
+        state: State | None = self.state
+        if state is None:
+            return
+        self.drop_signals()
+        self.begin_scope()
+        self.rebuild_count = self.rebuild_count + 1
+        self._count_build()
+        built: Widget = state.build(BuildContext(self))
+        self.reconcile([built])
+        self.end_scope()
+
+
+class RenderElement(Element):
+    def first_mount(self) -> None:
+        widget: Widget | None = self.widget
+        if widget is None:
+            raise FrameworkError("render mount without widget")
+        created: RenderBox | None = widget.create_render()
+        if created is None:
+            raise FrameworkError("create_render is not implemented")
+        self.render = created
+        pipeline: PipelineOwner | None = self.pipeline
+        if pipeline is not None:
+            created.pipeline = pipeline
+        self._count_update()
+        widget.sync_render(self)
+        self.reconcile(widget.child_widgets())
+        self.sync_render_children()
+
+    def update(self, widget: Widget) -> None:
+        self.widget = widget
+        self.rebuild_count = self.rebuild_count + 1
+        self._count_update()
+        widget.sync_render(self)
+        self.reconcile(widget.child_widgets())
+        self.sync_render_children()
+        self.notify_dependents()
+
+    def rebuild(self) -> None:
+        if self.unmounted:
+            return
+        widget: Widget | None = self.widget
+        if widget is None:
+            return
+        self.drop_signals()
+        self.begin_scope()
+        self.rebuild_count = self.rebuild_count + 1
+        self._count_update()
+        widget.sync_render(self)
+        self.reconcile(widget.child_widgets())
+        self.sync_render_children()
+        self.end_scope()
+
+    def sync_render_children(self) -> None:
+        box: RenderBox | None = self.render
+        if box is None:
+            return
+        if box.multi_child:
+            boxes: list[RenderBox] = []
+            i: int = 0
+            while i < len(self.children):
+                child: RenderBox | None = self.children[i].outermost_render()
+                if child is not None:
+                    boxes.append(child)
+                i = i + 1
+            box.set_children(boxes)
+        else:
+            only: RenderBox | None = None
+            if len(self.children) > 0:
+                only = self.children[0].outermost_render()
+            box.set_only_child(only)
+
+
+class ParentDataElement(Element):
+    def first_mount(self) -> None:
+        widget: Widget | None = self.widget
+        if widget is None:
+            raise FrameworkError("parent data mount without widget")
+        self._count_update()
+        self.reconcile(widget.child_widgets())
+        widget.push_parent_data_element(self)
+
+    def update(self, widget: Widget) -> None:
+        self.widget = widget
+        self._count_update()
+        self.reconcile(widget.child_widgets())
+        widget.push_parent_data_element(self)
+        self.notify_dependents()
+
+    def rebuild(self) -> None:
+        if self.unmounted:
+            return
+        widget: Widget | None = self.widget
+        if widget is None:
+            return
+        self.drop_signals()
+        self.begin_scope()
+        self.rebuild_count = self.rebuild_count + 1
+        self._count_update()
+        self.reconcile(widget.child_widgets())
+        widget.push_parent_data_element(self)
+        self.end_scope()
+
+
+class InheritedElement(StatelessElement):
+    def rebuild(self) -> None:
+        widget: Widget | None = self.widget
+        if widget is not None:
+            widget.publish_inherited(self)
+        super().rebuild()
+
+    def update(self, widget: Widget) -> None:
+        self.widget = widget
+        widget.publish_inherited(self)
+        self.notify_dependents()
+
+
+class StatelessWidget(Widget):
+    def create_element(self) -> Element:
+        return StatelessElement()
+
+    def build_widget(self, context: BuildContext) -> Widget:
+        return self.build(context)
+
+    def build(self, context: BuildContext) -> Widget:
+        raise FrameworkError("StatelessWidget.build is not implemented")
+
+
+class StatefulWidget(Widget):
+    def create_element(self) -> Element:
+        return StatefulElement()
+
+
+class RenderObjectWidget(Widget):
+    def create_element(self) -> Element:
+        return RenderElement()
+
+
+class ParentDataWidget(Widget):
+    def create_element(self) -> Element:
+        return ParentDataElement()
+
+
+def mount_tree(widget: Widget, owner: BuildOwner, pipeline: PipelineOwner, focus: FocusManager, scheduler: Scheduler | None = None) -> Element:
+    element: Element = widget.create_element()
+    element.owner = owner
+    element.pipeline = pipeline
+    element.focus_manager = focus
+    element.scheduler = scheduler
+    element.mount(None, widget)
+    return element
+
+
+def _key_token(widget: Widget) -> str:
+    key: Key | None = widget.key
+    if key is None:
+        return ""
+    return key.token()
+
+
+def _can_update(old: Element, widget: Widget) -> bool:
+    current: Widget | None = old.widget
+    if current is None:
+        return False
+    if current.type_id != widget.type_id:
+        return False
+    left: Key | None = current.key
+    right: Key | None = widget.key
+    if left is None and right is None:
+        return True
+    if left is None or right is None:
+        return False
+    return left.equals(right)
+
+
+def _sort_elements(items: list[Element]) -> None:
+    i: int = 1
+    while i < len(items):
+        j: int = i
+        while j > 0 and items[j].depth < items[j - 1].depth:
+            tmp: Element = items[j - 1]
+            items[j - 1] = items[j]
+            items[j] = tmp
+            j = j - 1
+        i = i + 1

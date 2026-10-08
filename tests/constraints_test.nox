@@ -1,0 +1,34 @@
+import nox.test
+from aura.core.diagnostics import FrameworkError
+from aura.foundation.constraints import BoxConstraints, Constraints, infinity, loose_box, tight_box, tight_constraints
+
+box: Constraints = Constraints(10.0, 100.0, 0.0, 50.0)
+nox.test.assert_eq_float(box.constrain_width(5.0), 10.0, "min width")
+nox.test.assert_eq_float(box.constrain_width(1000.0), 100.0, "max width")
+nox.test.assert_eq_float(box.constrain_height(20.0), 20.0, "inside height")
+tight: Constraints = box.tighten(40.0, 10.0)
+nox.test.assert_eq_float(tight.min_width, 40.0, "tight min")
+nox.test.assert_eq_float(tight.max_width, 40.0, "tight max")
+loose: Constraints = tight_constraints(80.0, 20.0).loosen()
+nox.test.assert_eq_float(loose.min_width, 0.0, "loose min")
+nox.test.assert_eq_float(loose.max_width, 80.0, "loose max")
+deflated: Constraints = box.deflate(5.0, 0.0, 5.0, 10.0)
+nox.test.assert_eq_float(deflated.min_width, 0.0, "deflated min width")
+nox.test.assert_eq_float(deflated.max_width, 90.0, "deflated max width")
+nox.test.assert_true(Constraints(0.0, infinity(), 0.0, 10.0).has_bounded_height(), "bounded height")
+nox.test.assert_true(not Constraints(0.0, infinity(), 0.0, 10.0).has_bounded_width(), "unbounded width")
+
+failed: int = 0
+try:
+    Constraints(5.0, 1.0, 0.0, 1.0).validate()
+except FrameworkError as error:
+    failed = 1
+    nox.test.assert_true(error.message == "invalid constraints: min greater than max", "invalid constraints message")
+nox.test.assert_eq_int(failed, 1, "invalid constraints raised")
+boxed: BoxConstraints = tight_box(40.0, 20.0)
+nox.test.assert_eq_float(boxed.min_width, 40.0, "box min width")
+nox.test.assert_eq_float(boxed.max_height, 20.0, "box max height")
+open_box: BoxConstraints = loose_box(90.0, 50.0)
+nox.test.assert_eq_float(open_box.min_width, 0.0, "loose box min")
+nox.test.assert_eq_float(open_box.constrain_width(1000.0), 90.0, "loose box clamp")
+print("constraints ok")

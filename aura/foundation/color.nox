@@ -1,0 +1,13 @@
+def rgba(r: int, g: int, b: int, a: int) -> int:
+    return (a << 24) | (r << 16) | (g << 8) | b
+
+
+def rgb(r: int, g: int, b: int) -> int:
+    return rgba(r, g, b, 255)
+
+
+COLOR_BACKGROUND: int = rgb(28, 27, 25)
+COLOR_TEXT: int = rgb(244, 241, 234)
+COLOR_BUTTON: int = rgb(232, 226, 214)
+COLOR_BUTTON_TEXT: int = rgb(28, 27, 25)
+COLOR_ACCENT: int = rgb(196, 122, 74)

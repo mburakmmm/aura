@@ -1,0 +1,201 @@
+from aura.foundation.color import COLOR_BACKGROUND
+from aura.foundation.constraints import Constraints
+from aura.graphics.canvas import Canvas
+from aura.input.drop import deliver_drop
+from aura.layout.virtual_list import begin_fling
+from aura.input.events import EVENT_AX_ACTION, EVENT_FILE_DROP, EVENT_IME_DELETE, EVENT_IME_INSERT, EVENT_IME_MARK, EVENT_KEY_DOWN, EVENT_KEY_UP, EVENT_POINTER_CANCEL, EVENT_POINTER_DOWN, EVENT_POINTER_MOVE, EVENT_POINTER_UP, EVENT_RESIZE, EVENT_SCROLL, EVENT_TEXT, EVENT_WINDOW_FOCUS
+from aura.core.mode import MODE_PROFILE, current_mode
+from aura.platform.bridge import mono_time, set_cursor
+from aura.text.editing import deliver_delete, deliver_insert, deliver_key, deliver_mark
+from aura.input.focus import FocusManager
+from aura.input.gesture import GestureArena
+from aura.rendering.render_object import PHASE_BUILD, PHASE_IDLE, HitTestResult, PipelineOwner, RenderBox, RenderView, invoke_press
+from aura.widgets.framework import BuildOwner, Element, Widget, mount_tree
+from aura.widgets.scheduler import Scheduler
+
+
+class FramePump:
+    owner: BuildOwner
+    pipeline: PipelineOwner
+    focus: FocusManager
+    arena: GestureArena
+    view: RenderView
+    root: Element | None
+    scheduler: Scheduler
+    width: float
+    height: float
+    background: int
+    frame_time: float
+    last_scroll_x: float
+    last_scroll_y: float
+    window_handle: int
+    build_ms: float
+    layout_ms: float
+    paint_ms: float
+    composite_ms: float
+    widgets_built: int
+    elements_updated: int
+    laid_out: int
+    painted: int
+    layers: int
+
+    def __init__(self) -> None:
+        self.owner = BuildOwner()
+        self.pipeline = PipelineOwner()
+        self.focus = FocusManager()
+        self.arena = GestureArena()
+        self.view = RenderView()
+        self.root = None
+        self.scheduler = Scheduler()
+        self.width = 0.0
+        self.height = 0.0
+        self.background = COLOR_BACKGROUND
+        self.frame_time = 0.0
+        self.last_scroll_x = 0.0
+        self.last_scroll_y = 0.0
+        self.window_handle = 0
+        self.build_ms = 0.0
+        self.layout_ms = 0.0
+        self.paint_ms = 0.0
+        self.composite_ms = 0.0
+        self.widgets_built = 0
+        self.elements_updated = 0
+        self.laid_out = 0
+        self.painted = 0
+        self.layers = 0
+        self.view.pipeline = self.pipeline
+        self.pipeline.root = self.view
+
+    def mount(self, widget: Widget, width: float, height: float) -> None:
+        previous: Element | None = self.root
+        if previous is not None:
+            previous.unmount()
+            self.root = None
+        self.width = width
+        self.height = height
+        root: Element = mount_tree(widget, self.owner, self.pipeline, self.focus, self.scheduler)
+        self.root = root
+        child: RenderBox | None = root.outermost_render()
+        self.view.set_only_child(child)
+        self.resize(width, height)
+
+    def resize(self, width: float, height: float) -> None:
+        self.width = width
+        self.height = height
+        self.view.constraints = Constraints(width, width, height, height)
+        self.view.needs_layout = False
+        self.view.mark_needs_layout()
+
+    def pump(self, canvas: Canvas) -> None:
+        profile: int = 0
+        started: float = 0.0
+        if current_mode() == MODE_PROFILE:
+            profile = 1
+            started = mono_time()
+        self.scheduler.time_s = self.frame_time
+        self.scheduler.flush()
+        self.pipeline.phase = PHASE_BUILD
+        self.owner.flush()
+        if len(self.owner.dirty) > 0:
+            self.owner.flush()
+        if profile == 1:
+            self.build_ms = mono_time() - started
+            started = mono_time()
+        self.pipeline.objects_laid_out = 0
+        self.pipeline.flush_layout()
+        if len(self.owner.dirty) > 0:
+            self.pipeline.phase = PHASE_BUILD
+            self.owner.flush()
+            self.pipeline.flush_layout()
+        if profile == 1:
+            self.layout_ms = mono_time() - started
+            started = mono_time()
+        canvas.clear(self.background)
+        self.pipeline.flush_scene(canvas)
+        if profile == 1:
+            self.paint_ms = mono_time() - started
+            started = mono_time()
+        canvas.present()
+        if profile == 1:
+            self.composite_ms = mono_time() - started
+        self.pipeline.phase = PHASE_IDLE
+        self.widgets_built = self.owner.widgets_built
+        self.elements_updated = self.owner.elements_updated
+        self.owner.widgets_built = 0
+        self.owner.elements_updated = 0
+        self.laid_out = self.pipeline.objects_laid_out
+        self.painted = self.pipeline.objects_painted
+        self.layers = self.pipeline.layers_submitted
+
+    def pointer_down(self, x: float, y: float) -> None:
+        self.arena.pointer_down(self.view, x, y, self.frame_time)
+        self._hover_cursor(x, y)
+
+    def pointer_move(self, x: float, y: float) -> None:
+        self.arena.pointer_move(x, y, self.frame_time)
+        self._hover_cursor(x, y)
+
+    def pointer_up(self, x: float, y: float) -> None:
+        self.arena.pointer_up(x, y, self.frame_time)
+        begin_fling(self.scheduler, self.arena.fling_host, self.arena.fling_velocity, self.frame_time)
+
+    def pointer_cancel(self) -> None:
+        self.arena.pointer_cancel()
+
+    def key_down(self, code: int, mods: int = 0) -> None:
+        self.focus.dispatch_key(code, 1)
+        deliver_key(self.focus, code, mods)
+
+    def key_up(self, code: int) -> None:
+        self.focus.dispatch_key(code, 0)
+
+    def text_input(self, code: int) -> None:
+        self.focus.dispatch_text(code)
+
+    def scroll(self, dx: float, dy: float) -> None:
+        self.arena.pointer_scroll(self.view, dx, dy)
+        self.last_scroll_x = dx
+        self.last_scroll_y = dy
+
+    def dispatch(self, kind: int, x: float, y: float, key_code: int, text: str, mods: int = 0) -> None:
+        if kind == EVENT_POINTER_DOWN:
+            self.pointer_down(x, y)
+        elif kind == EVENT_POINTER_MOVE:
+            self.pointer_move(x, y)
+        elif kind == EVENT_POINTER_UP:
+            self.pointer_up(x, y)
+        elif kind == EVENT_POINTER_CANCEL:
+            self.pointer_cancel()
+        elif kind == EVENT_KEY_DOWN:
+            self.key_down(key_code, mods)
+        elif kind == EVENT_KEY_UP:
+            self.key_up(key_code)
+        elif kind == EVENT_TEXT:
+            self.text_input(key_code)
+        elif kind == EVENT_IME_INSERT:
+            deliver_insert(self.focus, text)
+        elif kind == EVENT_IME_DELETE:
+            deliver_delete(self.focus)
+        elif kind == EVENT_IME_MARK:
+            deliver_mark(self.focus, text)
+        elif kind == EVENT_SCROLL:
+            self.scroll(x, y)
+        elif kind == EVENT_RESIZE:
+            self.resize(x, y)
+        elif kind == EVENT_WINDOW_FOCUS:
+            pass
+        elif kind == EVENT_FILE_DROP:
+            deliver_drop(self.view, x, y, text)
+        elif kind == EVENT_AX_ACTION:
+            invoke_press(self.window_handle, key_code)
+
+    def _hover_cursor(self, x: float, y: float) -> None:
+        result: HitTestResult = HitTestResult()
+        self.view.hit_test(result, x, y)
+        kind: int = 0
+        i: int = 0
+        while i < len(result.targets):
+            if result.targets[i].text_target != 0:
+                kind = 1
+            i = i + 1
+        set_cursor(kind)

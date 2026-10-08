@@ -1,0 +1,58 @@
+from aura.foundation.constraints import Constraints
+from aura.input.drag import DragController, drag_x, drag_y
+from aura.rendering.render_object import RenderBox
+from aura.widgets.framework import Element, RenderObjectWidget, Widget
+from aura.widgets.key import Key
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_DRAG: int = alloc_type_id()
+
+
+class RenderDrag(RenderBox):
+    origin_x: float
+    origin_y: float
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.origin_x = 0.0
+        self.origin_y = 0.0
+
+    def set_drag(self, drag_id: int, x: float, y: float) -> None:
+        self.drag_id = drag_id
+        self.origin_x = x
+        self.origin_y = y
+        self.mark_needs_layout()
+
+    def perform_layout(self) -> None:
+        self.width = self.constraints.constrain_width(self.constraints.max_width)
+        self.height = self.constraints.constrain_height(self.constraints.max_height)
+        child: RenderBox | None = self.only_child
+        if child is None:
+            return
+        loose: Constraints = self.constraints.loosen()
+        child.layout(loose)
+        child.offset_x = self.origin_x
+        child.offset_y = self.origin_y
+
+
+class Draggable(RenderObjectWidget):
+    controller: DragController
+    child: Widget
+
+    def __init__(self, controller: DragController, child: Widget, key: Key | None = None) -> None:
+        super().__init__(TYPE_DRAG, key)
+        self.controller = controller
+        self.child = child
+
+    def create_render(self) -> RenderBox | None:
+        return RenderDrag()
+
+    def child_widgets(self) -> list[Widget]:
+        return [self.child]
+
+    def sync_render(self, element: Element) -> None:
+        self.controller.bind(element.element_id)
+        box: RenderBox | None = element.render
+        if box is None:
+            return
+        box.set_drag(self.controller.drag_id, drag_x(self.controller.drag_id), drag_y(self.controller.drag_id))

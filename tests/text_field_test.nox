@@ -1,0 +1,114 @@
+import nox.test
+from aura.input.events import EVENT_IME_DELETE, EVENT_IME_INSERT, EVENT_IME_MARK, EVENT_KEY_DOWN
+from aura.platform.macos import clipboard_get, clipboard_set, set_cursor
+from aura.rendering.render_object import RenderBox
+from aura.runtime.binding import Binding
+from aura.text.editing import KEY_C, KEY_LEFT, KEY_RIGHT, KEY_V, KEY_X, MOD_COMMAND, MOD_SHIFT, TextEditingController
+from aura.text.measure import measure_width
+from aura.testing.tester import WidgetTester
+from aura.text.field import TextField
+
+
+def require_box(box: RenderBox | None, name: str) -> RenderBox:
+    if box is None:
+        raise Exception(name)
+    return box
+
+
+plain: TextEditingController = TextEditingController("hi")
+plain.insert("!")
+nox.test.assert_eq_str(plain.text, "hi!", "insert appends")
+nox.test.assert_eq_int(plain.cursor, 3, "cursor follows insert")
+plain.backspace()
+nox.test.assert_eq_str(plain.text, "hi", "backspace removes one")
+plain.backspace()
+plain.backspace()
+plain.backspace()
+nox.test.assert_eq_str(plain.text, "", "backspace stops at the start")
+
+field: TextEditingController = TextEditingController("")
+tester: WidgetTester = WidgetTester()
+tester.pump_widget(TextField(field), 240.0, 80.0)
+nox.test.assert_eq_str(field.text, "", "field starts empty")
+tester.pump.dispatch(EVENT_IME_INSERT, 0.0, 0.0, 0, "ab")
+tester.pump_frame()
+nox.test.assert_eq_str(field.text, "ab", "insert event updates the controller")
+box: RenderBox = require_box(tester.view().only_child, "field")
+nox.test.assert_eq_str(box.semantics_label, "ab", "field paints the inserted text")
+tester.pump.dispatch(EVENT_IME_MARK, 0.0, 0.0, 0, "c")
+tester.pump_frame()
+nox.test.assert_eq_str(field.composing, "c", "mark event stores composition")
+tester.pump.dispatch(EVENT_IME_DELETE, 0.0, 0.0, 0, "")
+tester.pump_frame()
+nox.test.assert_eq_str(field.text, "a", "delete event removes one character")
+nox.test.assert_eq_str(field.composing, "", "delete clears composition")
+
+body: TextEditingController = TextEditingController("")
+lines: WidgetTester = WidgetTester()
+lines.pump_widget(TextField(body, multiline=1), 240.0, 160.0)
+single_height: float = box.height
+body.insert("one\ntwo")
+lines.pump_frame()
+wrapped: RenderBox = require_box(lines.view().only_child, "multiline")
+nox.test.assert_true(wrapped.height > single_height, "multiline grows with a second line")
+
+binding: Binding = Binding(800, 600, "Aura", 0)
+native: TextEditingController = TextEditingController("")
+binding.mount(TextField(native))
+binding.frame()
+binding.insert_text("nox")
+binding.frame()
+nox.test.assert_eq_str(native.text, "nox", "platform text queue reaches the field")
+binding.close()
+
+kept: str = clipboard_get()
+sample: TextEditingController = TextEditingController("abcdef")
+sample.anchor = 1
+sample.cursor = 4
+sample.copy()
+nox.test.assert_eq_str(clipboard_get(), "bcd", "copy writes the selection")
+sample.cut()
+nox.test.assert_eq_str(sample.text, "aef", "cut removes the selection")
+nox.test.assert_eq_int(sample.cursor, 1, "cut collapses the caret")
+clipboard_set("XY")
+sample.paste()
+nox.test.assert_eq_str(sample.text, "aXYef", "paste replaces the caret")
+sample.move_by(-1, 0)
+nox.test.assert_eq_int(sample.cursor, 2, "left arrow moves the caret")
+sample.move_by(-1, 1)
+nox.test.assert_eq_int(sample.sel_start(), 1, "shift left extends the selection")
+nox.test.assert_eq_int(sample.sel_end(), 2, "shift left keeps the anchor")
+sample.insert("Z")
+nox.test.assert_eq_str(sample.text, "aZYef", "typing replaces the selection")
+
+placed: TextEditingController = TextEditingController("abcdef")
+place: WidgetTester = WidgetTester()
+place.pump_widget(TextField(placed), 240.0, 80.0)
+glyph: float = measure_width("ab", 16.0, 400, "")
+field_box: RenderBox = require_box(place.view().only_child, "place")
+place.pump.pointer_down(field_box.absolute_x() + 8.0 + glyph, field_box.absolute_y() + 12.0)
+place.pump.pointer_up(field_box.absolute_x() + 8.0 + glyph, field_box.absolute_y() + 12.0)
+place.pump_frame()
+nox.test.assert_eq_int(placed.cursor, 2, "click places the caret by glyph width")
+nox.test.assert_eq_int(placed.anchor, 2, "click clears the selection")
+far: float = measure_width("abcdef", 16.0, 400, "")
+place.pump.pointer_down(field_box.absolute_x() + 8.0, field_box.absolute_y() + 12.0)
+place.pump.pointer_move(field_box.absolute_x() + 8.0 + far, field_box.absolute_y() + 12.0)
+place.pump.pointer_up(field_box.absolute_x() + 8.0 + far, field_box.absolute_y() + 12.0)
+place.pump_frame()
+nox.test.assert_eq_int(placed.sel_start(), 0, "drag selects from the press")
+nox.test.assert_true(placed.sel_end() >= 4, "drag follows the pointer")
+place.pump.dispatch(EVENT_KEY_DOWN, 0.0, 0.0, KEY_LEFT, "", MOD_SHIFT)
+place.pump_frame()
+nox.test.assert_true(placed.sel_end() > placed.sel_start(), "shift arrow keeps a selection")
+place.pump.dispatch(EVENT_KEY_DOWN, 0.0, 0.0, KEY_RIGHT, "")
+place.pump_frame()
+nox.test.assert_eq_int(placed.anchor, placed.cursor, "plain arrow collapses the selection")
+place.pump.dispatch(EVENT_KEY_DOWN, 0.0, 0.0, KEY_C, "", MOD_COMMAND)
+place.pump.dispatch(EVENT_KEY_DOWN, 0.0, 0.0, KEY_X, "", MOD_COMMAND)
+place.pump.dispatch(EVENT_KEY_DOWN, 0.0, 0.0, KEY_V, "", MOD_COMMAND)
+place.pump_frame()
+set_cursor(1)
+set_cursor(0)
+clipboard_set(kept)
+print("text field ok")

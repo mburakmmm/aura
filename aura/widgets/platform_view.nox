@@ -1,0 +1,31 @@
+from aura.rendering.render_object import RenderBox
+from aura.widgets.framework import Element, RenderObjectWidget
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_PLATFORM: int = alloc_type_id()
+
+
+class RenderPlatformView(RenderBox):
+    def __init__(self) -> None:
+        super().__init__()
+        self.semantics_role = "platform-view"
+
+    def perform_layout(self) -> None:
+        self.width = self.constraints.constrain_width(self.constraints.max_width)
+        self.height = self.constraints.constrain_height(self.constraints.max_height)
+
+
+class PlatformView(RenderObjectWidget):
+    plugin: int
+
+    def __init__(self, plugin: int) -> None:
+        super().__init__(TYPE_PLATFORM, None)
+        self.plugin = plugin
+
+    def create_render(self) -> RenderBox | None:
+        return RenderPlatformView()
+
+    def sync_render(self, element: Element) -> None:
+        render: RenderBox | None = element.render
+        if render is not None:
+            render.set_plugin(self.plugin)

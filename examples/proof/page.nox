@@ -1,0 +1,92 @@
+from aura.animation.effects import Opacity
+from aura.controls import Button
+from aura.core.mode import MODE_DEBUG, MODE_PROFILE, MODE_RELEASE, set_mode
+from aura.foundation.color import COLOR_ACCENT
+from aura.image.image import Image
+from aura.layout import Center, ColoredBox, Column, Row, SizedBox
+from aura.layout.flex import MAIN_MIN
+from aura.text import Text
+from aura.widgets import BuildContext, PlatformView, StatelessWidget, State, StatefulWidget, TextSignal, Widget, build_view
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_PROOF: int = alloc_type_id()
+TYPE_MODE: int = alloc_type_id()
+
+
+def make_badge() -> Widget:
+    return Text("badge")
+
+
+class ModeRead(StatelessWidget):
+    source: TextSignal
+
+    def __init__(self, source: TextSignal) -> None:
+        super().__init__(TYPE_MODE, None)
+        self.source = source
+
+    def build(self, context: BuildContext) -> Widget:
+        return Text(self.source.get())
+
+
+class ProofState(State):
+    png: int
+    jpeg: int
+    plugin: int
+    mode: TextSignal
+
+    def __init__(self, png: int, jpeg: int, plugin: int) -> None:
+        super().__init__()
+        self.png = png
+        self.jpeg = jpeg
+        self.plugin = plugin
+        self.mode = TextSignal("release")
+
+    def show_debug(self) -> None:
+        set_mode(MODE_DEBUG)
+        self.mode.set("debug")
+
+    def show_profile(self) -> None:
+        set_mode(MODE_PROFILE)
+        self.mode.set("profile")
+
+    def show_release(self) -> None:
+        set_mode(MODE_RELEASE)
+        self.mode.set("release")
+
+    def build(self, context: BuildContext) -> Widget:
+        solid: Widget = SizedBox(48.0, 48.0, ColoredBox(COLOR_ACCENT))
+        faded: Widget = Opacity(0.45, SizedBox(48.0, 48.0, ColoredBox(COLOR_ACCENT)))
+        return Center(Column([
+            Text("Aura 0.3", font_size=32.0),
+            Text("Noto Sans", font_size=20.0),
+            Row([solid, faded], main_size=MAIN_MIN, spacing=12.0),
+            Row([
+                Text("PNG"),
+                Image(self.png),
+                Text("JPEG"),
+                Image(self.jpeg),
+            ], main_size=MAIN_MIN, spacing=8.0),
+            build_view("badge"),
+            SizedBox(160.0, 48.0, PlatformView(self.plugin)),
+            ModeRead(self.mode),
+            Row([
+                Button("Debug", self.show_debug),
+                Button("Profile", self.show_profile),
+                Button("Release", self.show_release),
+            ], main_size=MAIN_MIN, spacing=8.0),
+        ], main_size=MAIN_MIN, spacing=12.0))
+
+
+class ProofPage(StatefulWidget):
+    png: int
+    jpeg: int
+    plugin: int
+
+    def __init__(self, png: int, jpeg: int, plugin: int) -> None:
+        super().__init__(TYPE_PROOF, None)
+        self.png = png
+        self.jpeg = jpeg
+        self.plugin = plugin
+
+    def create_state(self) -> State:
+        return ProofState(self.png, self.jpeg, self.plugin)

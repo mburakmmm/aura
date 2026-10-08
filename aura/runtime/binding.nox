@@ -1,0 +1,98 @@
+from aura.graphics.canvas import Canvas
+from aura.input.events import EVENT_POINTER_DOWN, EVENT_POINTER_UP, EVENT_WINDOW_FOCUS
+from aura.platform.bridge import clear_events, event_button, event_count, event_key, event_kind, event_text, event_x, event_y, frame_timestamp, plugin_place, poll_events, post_ax, post_drop, post_mouse, post_text, set_active_window, should_close, wait_frame
+from aura.rendering.render_object import RenderBox
+from aura.semantics.bridge import publish_semantics
+from aura.platform.surface import MacGraphicsDevice, MacSurface
+from aura.runtime.frame import FramePump
+from aura.widgets.framework import Widget
+
+
+class Binding:
+    device: MacGraphicsDevice
+    surface: MacSurface
+    pump: FramePump
+    alive: bool
+    width: int
+    height: int
+
+    def __init__(self, width: int, height: int, title: str, visible: int) -> None:
+        self.device = MacGraphicsDevice()
+        self.surface = self.device.open_surface(width, height, title, visible)
+        self.pump = FramePump()
+        self.alive = True
+        self.width = width
+        self.height = height
+        set_active_window(self.surface.handle)
+
+    def mount(self, widget: Widget) -> None:
+        self.pump.mount(widget, float(self.width), float(self.height))
+
+    def frame(self) -> None:
+        stamp: float = frame_timestamp(self.surface.handle)
+        if stamp >= 0.0:
+            self.pump.frame_time = stamp
+        self.pump.window_handle = self.surface.handle
+        self._drain()
+        self.pump.pump(self.surface.canvas)
+        _place_plugins(self.surface.handle, self.pump.view)
+        publish_semantics(self.surface.handle, self.pump.pipeline.semantics)
+
+    def post_access(self, index: int) -> None:
+        post_ax(self.surface.handle, index)
+
+    def wait(self) -> None:
+        wait_frame(self.surface.handle)
+
+    def close(self) -> None:
+        if self.alive:
+            set_active_window(0)
+            self.surface.close()
+            self.alive = False
+
+    def is_closed(self) -> bool:
+        if not self.alive:
+            return True
+        return should_close(self.surface.handle)
+
+    def insert_text(self, text: str) -> None:
+        post_text(self.surface.handle, text)
+
+    def post_file(self, x: float, y: float, path: str) -> None:
+        post_drop(self.surface.handle, x, y, path)
+
+    def post_click(self, x: float, y: float) -> None:
+        post_mouse(self.surface.handle, EVENT_POINTER_DOWN, x, y)
+        post_mouse(self.surface.handle, EVENT_POINTER_UP, x, y)
+
+    def _drain(self) -> None:
+        poll_events(self.surface.handle)
+        count: int = event_count(self.surface.handle)
+        i: int = 0
+        while i < count:
+            kind: int = event_kind(self.surface.handle, i)
+            x: float = event_x(self.surface.handle, i)
+            y: float = event_y(self.surface.handle, i)
+            key_code: int = event_key(self.surface.handle, i)
+            mods: int = event_button(self.surface.handle, i)
+            if kind == EVENT_WINDOW_FOCUS:
+                set_active_window(self.surface.handle)
+            self.pump.dispatch(kind, x, y, key_code, event_text(self.surface.handle, i), mods)
+            i = i + 1
+        clear_events(self.surface.handle)
+
+
+def canvas_of(binding: Binding) -> Canvas:
+    return binding.surface.canvas
+
+
+def _place_plugins(handle: int, box: RenderBox) -> None:
+    only: RenderBox | None = box.only_child
+    i: int = 0
+    if box.plugin_id != 0:
+        plugin_place(handle, box.plugin_id, box.absolute_x(), box.absolute_y(), box.width, box.height)
+    if only is not None:
+        _place_plugins(handle, only)
+    while i < len(box.children):
+        _place_plugins(handle, box.children[i])
+        i = i + 1

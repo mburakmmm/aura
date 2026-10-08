@@ -1,0 +1,117 @@
+import nox.test
+from aura.core.diagnostics import FrameworkError
+from aura.layout.boxes import SizedBox
+from aura.testing.tester import WidgetTester
+from aura.text import Text
+from aura.widgets import BuildContext, Computed, Element, IntReader, Signal, State, StatefulWidget, StatelessWidget, Widget
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_READER: int = alloc_type_id()
+TYPE_PAGE: int = alloc_type_id()
+
+source: Signal = Signal(0)
+
+
+class ZeroReader(IntReader):
+    def read(self) -> int:
+        return 0
+
+
+class CyclePair:
+    left: Computed
+    right: Computed
+
+    def __init__(self) -> None:
+        blank: ZeroReader = ZeroReader()
+        self.left = Computed(blank)
+        self.right = Computed(blank)
+
+
+pair: CyclePair = CyclePair()
+
+
+class ReadState(State):
+    def build(self, context: BuildContext) -> Widget:
+        return Text(str(source.get()))
+
+
+class ReadPage(StatefulWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_PAGE, None)
+
+    def create_state(self) -> State:
+        return ReadState()
+
+
+class SameRead(StatelessWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_READER, None)
+
+    def build(self, context: BuildContext) -> Widget:
+        return Text(str(source.get()))
+
+
+class LeftReader(IntReader):
+    def read(self) -> int:
+        return pair.right.get()
+
+
+class RightReader(IntReader):
+    def read(self) -> int:
+        return pair.left.get()
+
+
+class DoubleReader(IntReader):
+    def read(self) -> int:
+        return source.get() * 2
+
+
+def require_root(tester: WidgetTester) -> Element:
+    root: Element | None = tester.pump.root
+    if root is None:
+        raise Exception("missing root")
+    return root
+
+
+def run_signal() -> None:
+    source.set(1)
+    source.set(1)
+    tester: WidgetTester = WidgetTester()
+    tester.pump_widget(SameRead(), 40.0, 40.0)
+    reader: Element = require_root(tester)
+    nox.test.assert_eq_int(reader.rebuild_count, 1, "mounted once")
+    source.set(2)
+    tester.pump_frame()
+    nox.test.assert_eq_int(reader.rebuild_count, 2, "signal rebuilds reader")
+    source.set(2)
+    tester.pump_frame()
+    nox.test.assert_eq_int(reader.rebuild_count, 2, "same value skips")
+    doubled: Computed = Computed(DoubleReader())
+    nox.test.assert_eq_int(doubled.get(), 4, "computed value")
+    source.set(3)
+    nox.test.assert_eq_int(doubled.get(), 6, "computed refresh")
+
+
+def run_cycle() -> None:
+    pair.left = Computed(LeftReader())
+    pair.right = Computed(RightReader())
+    raised: int = 0
+    try:
+        pair.left.get()
+    except FrameworkError as error:
+        raised = 1
+        nox.test.assert_true(error.message == "cyclic computed dependency", "cycle message")
+    nox.test.assert_eq_int(raised, 1, "cycle raised")
+
+
+def run_unmount() -> None:
+    page: WidgetTester = WidgetTester()
+    page.pump_widget(ReadPage(), 30.0, 30.0)
+    page.pump_widget(SizedBox(1.0, 1.0), 30.0, 30.0)
+    source.set(9)
+
+
+run_signal()
+run_cycle()
+run_unmount()
+print("signal ok")

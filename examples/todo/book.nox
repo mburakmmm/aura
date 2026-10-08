@@ -1,0 +1,51 @@
+class TodoBook:
+    titles: list[str]
+    bodies: list[str]
+    done: list[int]
+    reveal: float
+    home_element: int
+    preview_visible: int
+    picture: int
+
+    def __init__(self) -> None:
+        self.titles = []
+        self.bodies = []
+        self.done = []
+        self.reveal = 0.0
+        self.home_element = 0
+        self.preview_visible = 1
+        self.picture = 0
+
+    def add_blank(self) -> None:
+        self.titles.append("")
+        self.bodies.append("")
+        self.done.append(0)
+        self.reveal = 0.0
+
+    def remove(self, index: int) -> None:
+        titles: list[str] = []
+        bodies: list[str] = []
+        done: list[int] = []
+        i: int = 0
+        while i < len(self.titles):
+            if i != index:
+                titles.append(self.titles[i])
+                bodies.append(self.bodies[i])
+                done.append(self.done[i])
+            i = i + 1
+        self.titles = titles
+        self.bodies = bodies
+        self.done = done
+
+    def toggle(self, index: int) -> None:
+        if self.done[index] == 0:
+            self.done[index] = 1
+        else:
+            self.done[index] = 0
+
+    def save(self, index: int, title: str, body: str) -> None:
+        self.titles[index] = title
+        self.bodies[index] = body
+
+
+notes: TodoBook = TodoBook()

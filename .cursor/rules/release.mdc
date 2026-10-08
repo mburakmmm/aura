@@ -1,0 +1,22 @@
+---
+description: Sürüm yayınla denince commit, push, etiket ve noxc publish çalıştır
+alwaysApply: true
+---
+
+# Sürüm yayını
+
+Kullanıcı "sürüm yayınla" dediğinde commit, push, etiket ve `noxc publish` aynı turda çalışır. Bu ifade push ve commit iznidir. Başka isteklerde commit veya push yapma.
+
+Sürüm `nox.json` içindeki `version` alanıdır. Etiket `v` ile başlar ve bu numarayla aynıdır. Örnek: `0.3.0` için etiket `v0.3.0`.
+
+1. `./scripts/test.sh` geçmeden etiketleme.
+2. Git durumunu, diff'i ve son commit mesajlarını paralel oku. Sırları ve `third_party/` altını ekleme.
+3. Değişiklik varsa commit et. Mesajı HEREDOC ile ver. Hook başarısız olursa yeni commit aç. `--no-verify` ve force push kullanma.
+4. `main` dalını ve etiketi gönder: `git push -u origin main`, ardından `git push origin vX.Y.Z`. Etiket bu commit'e işaret eder. Etiket zaten varsa yeniden oluşturma.
+5. İndeks kaydı, etiket uzak depoya gittikten sonra:
+
+```sh
+noxc publish github.com/mburakmmm/aura --ref vX.Y.Z --description "Nox için deklaratif masaüstü UI framework'ü" --tags ui,framework,desktop
+```
+
+`noxc publish` kod göndermez. `--help` verme. İlk argüman depo yoludur. Kayıt admin onayından sonra [noxpkg](https://noxpkg.noxlang.com) indeksinde görünür.

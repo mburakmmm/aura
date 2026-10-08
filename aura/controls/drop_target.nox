@@ -1,0 +1,85 @@
+from aura.image.image import Image
+from aura.input.drop import DropController, drop_handle
+from aura.rendering.render_object import RenderBox
+from aura.widgets.framework import BuildContext, Element, RenderObjectWidget, State, StatefulWidget, Widget
+from aura.widgets.key import Key
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_DROP: int = alloc_type_id()
+TYPE_DROP_SURFACE: int = alloc_type_id()
+
+
+class RenderDrop(RenderBox):
+    def __init__(self) -> None:
+        super().__init__()
+
+    def perform_layout(self) -> None:
+        self.width = self.constraints.constrain_width(self.constraints.max_width)
+        self.height = self.constraints.constrain_height(self.constraints.max_height)
+        child: RenderBox | None = self.only_child
+        if child is None:
+            return
+        child.layout(self.constraints.loosen())
+        child.offset_x = 0.0
+        child.offset_y = 0.0
+
+    def hit_test_self(self, x: float, y: float) -> bool:
+        return True
+
+
+class DropSurface(RenderObjectWidget):
+    controller: DropController
+    child: Widget
+
+    def __init__(self, controller: DropController, child: Widget) -> None:
+        super().__init__(TYPE_DROP_SURFACE, None)
+        self.controller = controller
+        self.child = child
+
+    def create_render(self) -> RenderBox | None:
+        return RenderDrop()
+
+    def child_widgets(self) -> list[Widget]:
+        return [self.child]
+
+    def sync_render(self, element: Element) -> None:
+        parent: Element | None = element.parent
+        if parent is not None:
+            self.controller.bind(parent.element_id)
+        box: RenderBox | None = element.render
+        if box is None:
+            return
+        box.set_drop(self.controller.drop_id)
+
+
+class DropTargetState(State):
+    controller: DropController
+    child: Widget
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.controller = DropController()
+        self.child = DropSurface(self.controller, Image(0))
+
+    def build(self, context: BuildContext) -> Widget:
+        handle: int = drop_handle(self.controller.drop_id)
+        shown: Widget = self.child
+        if handle != 0:
+            shown = Image(handle)
+        return DropSurface(self.controller, shown)
+
+
+class DropTarget(StatefulWidget):
+    controller: DropController
+    child: Widget
+
+    def __init__(self, controller: DropController, child: Widget, key: Key | None = None) -> None:
+        super().__init__(TYPE_DROP, key)
+        self.controller = controller
+        self.child = child
+
+    def create_state(self) -> State:
+        state: DropTargetState = DropTargetState()
+        state.controller = self.controller
+        state.child = self.child
+        return state

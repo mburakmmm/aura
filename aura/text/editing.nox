@@ -1,0 +1,252 @@
+from aura.input.focus import FocusManager, FocusNode
+from aura.platform.bridge import clipboard_get, clipboard_set
+from aura.text.measure import measure_width
+from aura.widgets.framework import dirty_element_id
+
+KEY_LEFT: int = 123
+KEY_RIGHT: int = 124
+KEY_DOWN_ARROW: int = 125
+KEY_UP_ARROW: int = 126
+KEY_C: int = 8
+KEY_V: int = 9
+KEY_X: int = 7
+MOD_COMMAND: int = 1
+MOD_SHIFT: int = 2
+
+_next_target: int = 1
+
+
+class TextEditingController:
+    text: str
+    cursor: int
+    anchor: int
+    composing: str
+    target_id: int
+    element_id: int
+    bound: int
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.cursor = len(text)
+        self.anchor = len(text)
+        self.composing = ""
+        self.target_id = _remember(self)
+        self.element_id = 0
+        self.bound = 0
+
+    def bind(self, element_id: int) -> None:
+        self.element_id = element_id
+        self.bound = 1
+
+    def sel_start(self) -> int:
+        if self.anchor < self.cursor:
+            return self.anchor
+        return self.cursor
+
+    def sel_end(self) -> int:
+        if self.anchor > self.cursor:
+            return self.anchor
+        return self.cursor
+
+    def selected_text(self) -> str:
+        return self.text[self.sel_start():self.sel_end()]
+
+    def collapse(self, index: int) -> None:
+        self.cursor = _clamp(index, len(self.text))
+        self.anchor = self.cursor
+        self._notify()
+
+    def extend_to(self, index: int) -> None:
+        self.cursor = _clamp(index, len(self.text))
+        self._notify()
+
+    def move_by(self, delta: int, extend: int) -> None:
+        if extend == 0 and self.anchor != self.cursor:
+            if delta < 0:
+                self.collapse(self.sel_start())
+            else:
+                self.collapse(self.sel_end())
+            return
+        index: int = self.cursor + delta
+        if extend == 1:
+            self.extend_to(index)
+        else:
+            self.collapse(index)
+
+    def insert(self, value: str) -> None:
+        self._delete_selection()
+        head: str = self.text[0:self.cursor]
+        tail: str = self.text[self.cursor:len(self.text)]
+        self.text = head + value + tail
+        self.cursor = self.cursor + len(value)
+        self.anchor = self.cursor
+        self.composing = ""
+        self._notify()
+
+    def backspace(self) -> None:
+        if self._delete_selection() == 1:
+            self.composing = ""
+            self._notify()
+            return
+        if self.cursor <= 0:
+            return
+        head: str = self.text[0:self.cursor - 1]
+        tail: str = self.text[self.cursor:len(self.text)]
+        self.text = head + tail
+        self.cursor = self.cursor - 1
+        self.anchor = self.cursor
+        self.composing = ""
+        self._notify()
+
+    def cut(self) -> None:
+        if self.sel_start() == self.sel_end():
+            return
+        clipboard_set(self.selected_text())
+        self._delete_selection()
+        self._notify()
+
+    def copy(self) -> None:
+        if self.sel_start() == self.sel_end():
+            return
+        clipboard_set(self.selected_text())
+
+    def paste(self) -> None:
+        self.insert(clipboard_get())
+
+    def _delete_selection(self) -> int:
+        start: int = self.sel_start()
+        end: int = self.sel_end()
+        if start == end:
+            return 0
+        self.text = self.text[0:start] + self.text[end:len(self.text)]
+        self.cursor = start
+        self.anchor = start
+        return 1
+
+    def set_composing(self, value: str) -> None:
+        if self.composing == value:
+            return
+        self.composing = value
+        self._notify()
+
+    def _notify(self) -> None:
+        if self.bound == 1:
+            dirty_element_id(self.element_id)
+
+
+_target_ids: list[int] = []
+_targets: list[TextEditingController] = []
+
+
+def _remember(controller: TextEditingController) -> int:
+    target_id: int = _next_target
+    _next_target = _next_target + 1
+    _target_ids.append(target_id)
+    _targets.append(controller)
+    return target_id
+
+
+def _find(target_id: int) -> TextEditingController | None:
+    if target_id == 0:
+        return None
+    i: int = 0
+    while i < len(_target_ids):
+        if _target_ids[i] == target_id:
+            return _targets[i]
+        i = i + 1
+    return None
+
+
+def _focused_target(manager: FocusManager) -> TextEditingController | None:
+    node: FocusNode | None = manager.focused
+    if node is None:
+        return None
+    return _find(node.insert_target)
+
+
+def deliver_insert(manager: FocusManager, text: str) -> None:
+    controller: TextEditingController | None = _focused_target(manager)
+    if controller is None:
+        return
+    controller.insert(text)
+
+
+def deliver_delete(manager: FocusManager) -> None:
+    controller: TextEditingController | None = _focused_target(manager)
+    if controller is None:
+        return
+    controller.backspace()
+
+
+def deliver_mark(manager: FocusManager, text: str) -> None:
+    controller: TextEditingController | None = _focused_target(manager)
+    if controller is None:
+        return
+    controller.set_composing(text)
+
+
+def deliver_key(manager: FocusManager, code: int, mods: int) -> None:
+    controller: TextEditingController | None = _focused_target(manager)
+    if controller is None:
+        return
+    extend: int = 0
+    if (mods & MOD_SHIFT) != 0:
+        extend = 1
+    if (mods & MOD_COMMAND) != 0 and code == KEY_X:
+        controller.cut()
+    elif (mods & MOD_COMMAND) != 0 and code == KEY_C:
+        controller.copy()
+    elif (mods & MOD_COMMAND) != 0 and code == KEY_V:
+        controller.paste()
+    elif code == KEY_LEFT:
+        controller.move_by(-1, extend)
+    elif code == KEY_RIGHT:
+        controller.move_by(1, extend)
+    elif code == KEY_UP_ARROW:
+        if extend == 1:
+            controller.extend_to(0)
+        else:
+            controller.collapse(0)
+    elif code == KEY_DOWN_ARROW:
+        if extend == 1:
+            controller.extend_to(len(controller.text))
+        else:
+            controller.collapse(len(controller.text))
+
+
+def _clamp(index: int, count: int) -> int:
+    if index < 0:
+        return 0
+    if index > count:
+        return count
+    return index
+
+
+def index_at(text: str, local_x: float) -> int:
+    if local_x <= 0.0:
+        return 0
+    count: int = len(text)
+    i: int = 0
+    while i < count:
+        previous: float = measure_width(text[0:i], 16.0, 400, "")
+        width: float = measure_width(text[0:i + 1], 16.0, 400, "")
+        if local_x < width:
+            if local_x - previous >= width - local_x:
+                return i + 1
+            return i
+        i = i + 1
+    return count
+
+
+def pointer_text_down(target_id: int, local_x: float) -> None:
+    controller: TextEditingController | None = _find(target_id)
+    if controller is None:
+        return
+    controller.collapse(index_at(controller.text, local_x))
+
+
+def pointer_text_move(target_id: int, local_x: float) -> None:
+    controller: TextEditingController | None = _find(target_id)
+    if controller is None:
+        return
+    controller.extend_to(index_at(controller.text, local_x))

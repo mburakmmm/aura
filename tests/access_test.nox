@@ -1,0 +1,49 @@
+import nox.test
+from aura.controls.button import Button
+from aura.controls.toggle import Toggle
+from aura.layout.flex import Column
+from aura.platform.macos import ax_checked, ax_count, ax_press, ax_text, ax_bounds_y
+from aura.runtime.binding import Binding
+
+
+class Tally:
+    count: int
+
+    def __init__(self) -> None:
+        self.count = 0
+
+    def press(self) -> None:
+        self.count = self.count + 1
+
+
+tally: Tally = Tally()
+binding: Binding = Binding(400, 300, "Aura", 0)
+binding.mount(Column([
+    Button("Save", tally.press),
+    Toggle(True, "Done", tally.press),
+]))
+binding.frame()
+total: int = ax_count(binding.surface.handle)
+nox.test.assert_true(total >= 2, "accessibility tree is published")
+save: int = -1
+done: int = -1
+i: int = 0
+while i < total:
+    label: str = ax_text(binding.surface.handle, i, 1)
+    role: str = ax_text(binding.surface.handle, i, 0)
+    if label == "Save" and role == "button":
+        save = i
+    if label == "Done" and role == "toggle":
+        done = i
+    i = i + 1
+nox.test.assert_true(save >= 0, "button is an accessibility element")
+nox.test.assert_true(done >= 0, "toggle is an accessibility element")
+nox.test.assert_eq_int(ax_checked(binding.surface.handle, done), 1, "toggle checked state is published")
+nox.test.assert_true(ax_bounds_y(binding.surface.handle, save) >= 0.0, "button bounds are published")
+press: int = ax_press(binding.surface.handle, save)
+nox.test.assert_true(press >= 0, "button exposes a press action")
+binding.post_access(press)
+binding.frame()
+nox.test.assert_eq_int(tally.count, 1, "queued accessibility action presses the button")
+binding.close()
+print("access ok")

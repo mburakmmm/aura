@@ -1,0 +1,126 @@
+from aura.foundation.color import COLOR_ACCENT, COLOR_BACKGROUND, COLOR_BUTTON, COLOR_BUTTON_TEXT, COLOR_TEXT
+from aura.widgets.framework import BuildContext, Element, InheritedElement, StatelessWidget, Widget
+from aura.widgets.key import Key
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_THEME: int = alloc_type_id()
+
+_theme_ids: list[int] = []
+_theme_text: list[int] = []
+_theme_button: list[int] = []
+_theme_button_text: list[int] = []
+_theme_background: list[int] = []
+_theme_accent: list[int] = []
+_theme_body: list[float] = []
+_theme_title: list[float] = []
+
+
+class ColorScheme:
+    background: int
+    text: int
+    button: int
+    button_text: int
+    accent: int
+
+    def __init__(self, background: int, text: int, button: int, button_text: int, accent: int) -> None:
+        self.background = background
+        self.text = text
+        self.button = button
+        self.button_text = button_text
+        self.accent = accent
+
+
+class Typography:
+    body_size: float
+    title_size: float
+
+    def __init__(self, body_size: float = 16.0, title_size: float = 32.0) -> None:
+        self.body_size = body_size
+        self.title_size = title_size
+
+
+class ThemeData:
+    scheme: ColorScheme
+    typography: Typography
+
+    def __init__(self, scheme: ColorScheme, typography: Typography) -> None:
+        self.scheme = scheme
+        self.typography = typography
+
+
+def default_scheme() -> ColorScheme:
+    return ColorScheme(COLOR_BACKGROUND, COLOR_TEXT, COLOR_BUTTON, COLOR_BUTTON_TEXT, COLOR_ACCENT)
+
+
+def default_theme() -> ThemeData:
+    return ThemeData(default_scheme(), Typography())
+
+
+def publish_theme(element_id: int, data: ThemeData) -> None:
+    i: int = 0
+    while i < len(_theme_ids):
+        if _theme_ids[i] == element_id:
+            _store_at(i, data)
+            return
+        i = i + 1
+    _theme_ids.append(element_id)
+    _theme_text.append(data.scheme.text)
+    _theme_button.append(data.scheme.button)
+    _theme_button_text.append(data.scheme.button_text)
+    _theme_background.append(data.scheme.background)
+    _theme_accent.append(data.scheme.accent)
+    _theme_body.append(data.typography.body_size)
+    _theme_title.append(data.typography.title_size)
+
+
+def _store_at(index: int, data: ThemeData) -> None:
+    _theme_text[index] = data.scheme.text
+    _theme_button[index] = data.scheme.button
+    _theme_button_text[index] = data.scheme.button_text
+    _theme_background[index] = data.scheme.background
+    _theme_accent[index] = data.scheme.accent
+    _theme_body[index] = data.typography.body_size
+    _theme_title[index] = data.typography.title_size
+
+
+def _theme_at(index: int) -> ThemeData:
+    scheme: ColorScheme = ColorScheme(_theme_background[index], _theme_text[index], _theme_button[index], _theme_button_text[index], _theme_accent[index])
+    typography: Typography = Typography(_theme_body[index], _theme_title[index])
+    return ThemeData(scheme, typography)
+
+
+def theme_for_element(element: Element) -> ThemeData:
+    parent: Element | None = element.parent
+    while parent is not None:
+        i: int = 0
+        while i < len(_theme_ids):
+            if _theme_ids[i] == parent.element_id:
+                parent.add_dependent(element)
+                return _theme_at(i)
+            i = i + 1
+        parent = parent.parent
+    return default_theme()
+
+
+def theme_of(context: BuildContext) -> ThemeData:
+    return theme_for_element(context.element)
+
+
+class Theme(StatelessWidget):
+    data: ThemeData
+    child: Widget
+
+    def __init__(self, data: ThemeData, child: Widget, key: Key | None = None) -> None:
+        super().__init__(TYPE_THEME, key)
+        self.data = data
+        self.child = child
+
+    def create_element(self) -> Element:
+        return InheritedElement()
+
+    def publish_inherited(self, element: Element) -> None:
+        publish_theme(element.element_id, self.data)
+
+    def build(self, context: BuildContext) -> Widget:
+        publish_theme(context.element.element_id, self.data)
+        return self.child

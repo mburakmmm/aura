@@ -1,0 +1,21 @@
+class Canvas:
+    def clear(self, argb: int) -> None:
+        pass
+
+    def fill_rect(self, x: float, y: float, w: float, h: float, argb: int) -> None:
+        pass
+
+    def fill_text(self, x: float, y: float, text: str, size: float, weight: int, argb: int, family: str) -> None:
+        pass
+
+    def push_opacity(self, opacity: float) -> None:
+        pass
+
+    def pop_opacity(self) -> None:
+        pass
+
+    def draw_image(self, x: float, y: float, w: float, h: float, image: int) -> None:
+        pass
+
+    def present(self) -> None:
+        pass

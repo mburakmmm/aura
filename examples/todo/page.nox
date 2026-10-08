@@ -1,0 +1,244 @@
+from aura.animation.effects import Opacity
+from aura.animation.ticker import AnimationController
+from aura.controls import Button, Toggle
+from aura.foundation.color import rgb
+from aura.foundation.insets import insets_all
+from aura.image.image import Image
+from aura.layout import Center, ColoredBox, Column, Expanded, Padding, Row, VirtualList
+from aura.layout.flex import CROSS_STRETCH
+from aura.layout.scrollbar import Scrollbar
+from aura.layout.virtual_list import ItemSource, ScrollController
+from aura.platform.macos import open_image_file
+from aura.runtime.host import WindowController
+from aura.text import Text, TextEditingController, TextField
+from aura.widgets import BuildContext, Element, Navigator, Route, State, StatefulWidget, StatelessWidget, Widget, navigator_handle
+from aura.widgets.framework import dirty_element_id
+from aura.widgets.overlay import DialogResult, MenuItem, Overlay, show_dialog, show_menu
+from aura.widgets.scheduler import Scheduler
+from aura.widgets.theme import Theme, default_theme
+from aura.widgets.type_ids import alloc_type_id
+from examples.todo.book import notes
+
+TYPE_APP: int = alloc_type_id()
+TYPE_HOME: int = alloc_type_id()
+TYPE_ROW: int = alloc_type_id()
+TYPE_DETAIL: int = alloc_type_id()
+TYPE_PICTURE: int = alloc_type_id()
+ROW_EXTENT: float = 56.0
+SURFACE: int = rgb(46, 44, 41)
+
+
+def scheduler_of(state: State) -> Scheduler | None:
+    element: Element | None = state.element
+    if element is None:
+        return None
+    return element.scheduler
+
+
+class TodoSource(ItemSource):
+    def count(self) -> int:
+        return len(notes.titles)
+
+    def widget_at(self, index: int) -> Widget:
+        return TodoRow(index)
+
+
+class TodoRowState(State):
+    index: int
+    motion: AnimationController
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.index = 0
+        self.motion = AnimationController(0.25)
+
+    def init_state(self) -> None:
+        self.motion.on_tick = self.tick
+        self.motion.has_listener = True
+        notes.reveal = self.motion.value
+        found: Scheduler | None = scheduler_of(self)
+        if found is not None:
+            self.motion.forward(found)
+
+    def tick(self) -> None:
+        notes.reveal = self.motion.value
+        self.invalidate()
+
+    def dispose(self) -> None:
+        found: Scheduler | None = scheduler_of(self)
+        if found is not None:
+            self.motion.dispose(found)
+        super().dispose()
+
+    def toggle(self) -> None:
+        notes.toggle(self.index)
+        self.invalidate()
+
+    def open_row(self) -> None:
+        element: Element | None = self.element
+        if element is None:
+            return
+        navigator_handle(BuildContext(element)).push(Route("detail", DetailPage(self.index)))
+
+    def open_menu(self) -> None:
+        element: Element | None = self.element
+        if element is None:
+            return
+        show_menu(BuildContext(element), 32.0, 96.0, [
+            MenuItem("Picture", self.open_picture),
+            MenuItem("Delete", self.ask_delete),
+        ])
+
+    def open_picture(self) -> None:
+        handle: int = open_image_file("tests/fixtures/pixel.png")
+        notes.picture = handle
+        WindowController().open(NotePicture(handle), 420, 320, "Note", notes.preview_visible)
+
+    def ask_delete(self) -> None:
+        element: Element | None = self.element
+        if element is None:
+            return
+        show_dialog(BuildContext(element), "Delete", "Remove this note?", DeleteResult(self.index))
+
+    def title_text(self) -> str:
+        value: str = notes.titles[self.index]
+        if value == "":
+            return "New"
+        return value
+
+    def build(self, context: BuildContext) -> Widget:
+        checked: bool = notes.done[self.index] == 1
+        return Opacity(self.motion.value, Row([
+            Toggle(checked, "Done", self.toggle),
+            Text(self.title_text()),
+            Button("Open", self.open_row),
+            Button("Menu", self.open_menu),
+        ], spacing=12.0))
+
+
+class TodoRow(StatefulWidget):
+    index: int
+
+    def __init__(self, index: int) -> None:
+        super().__init__(TYPE_ROW, None)
+        self.index = index
+
+    def create_state(self) -> State:
+        state: TodoRowState = TodoRowState()
+        state.index = self.index
+        return state
+
+
+class DetailState(State):
+    index: int
+    title: TextEditingController
+    body: TextEditingController
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.index = 0
+        self.title = TextEditingController("")
+        self.body = TextEditingController("")
+
+    def save(self) -> None:
+        notes.save(self.index, self.title.text, self.body.text)
+        element: Element | None = self.element
+        if element is None:
+            return
+        navigator_handle(BuildContext(element)).pop()
+
+    def build(self, context: BuildContext) -> Widget:
+        return Padding(insets_all(24.0), Column([
+            Text("Detail", font_size=32.0),
+            Text("Title"),
+            TextField(self.title),
+            Text("Body"),
+            TextField(self.body, multiline=1),
+            Button("Save", self.save),
+        ], spacing=12.0, cross_align=CROSS_STRETCH))
+
+
+class DetailPage(StatefulWidget):
+    index: int
+
+    def __init__(self, index: int) -> None:
+        super().__init__(TYPE_DETAIL, None)
+        self.index = index
+
+    def create_state(self) -> State:
+        state: DetailState = DetailState()
+        state.index = self.index
+        state.title = TextEditingController(notes.titles[self.index])
+        state.body = TextEditingController(notes.bodies[self.index])
+        return state
+
+
+class DeleteResult(DialogResult):
+    index: int
+
+    def __init__(self, index: int) -> None:
+        super().__init__()
+        self.index = index
+
+    def choose(self, code: int) -> None:
+        self.code = code
+        self.chosen = 1
+        if code == 1:
+            notes.remove(self.index)
+            if notes.home_element != 0:
+                dirty_element_id(notes.home_element)
+
+
+class NotePicture(StatelessWidget):
+    handle: int
+
+    def __init__(self, handle: int) -> None:
+        super().__init__(TYPE_PICTURE, None)
+        self.handle = handle
+
+    def build(self, context: BuildContext) -> Widget:
+        return Center(Image(self.handle))
+
+
+class HomeState(State):
+    listing: VirtualList
+    scroll: ScrollController
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.scroll = ScrollController()
+        self.listing = VirtualList(TodoSource(), ROW_EXTENT, self.scroll)
+
+    def add(self) -> None:
+        notes.add_blank()
+        self.invalidate()
+
+    def build(self, context: BuildContext) -> Widget:
+        notes.home_element = context.element.element_id
+        body: Widget = Center(Text("Nothing yet"))
+        if len(notes.titles) > 0:
+            body = Row([
+                Expanded(self.listing),
+                Scrollbar(self.scroll),
+            ])
+        return Padding(insets_all(24.0), Column([
+            Text("Todo", font_size=32.0),
+            Button("Add", self.add),
+            Expanded(ColoredBox(SURFACE, body)),
+        ], spacing=16.0, cross_align=0))
+
+
+class TodoHome(StatefulWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_HOME, None)
+
+    def create_state(self) -> State:
+        return HomeState()
+
+
+class TodoApp(StatelessWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_APP, None)
+
+    def build(self, context: BuildContext) -> Widget:
+        return Theme(default_theme(), Overlay(Navigator(TodoHome())))

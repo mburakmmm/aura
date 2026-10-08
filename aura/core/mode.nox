@@ -1,0 +1,13 @@
+MODE_DEBUG: int = 0
+MODE_PROFILE: int = 1
+MODE_RELEASE: int = 2
+
+_mode: int = MODE_RELEASE
+
+
+def set_mode(mode: int) -> None:
+    _mode = mode
+
+
+def current_mode() -> int:
+    return _mode

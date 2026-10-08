@@ -1,0 +1,105 @@
+import nox.test
+from aura.core.diagnostics import FrameworkError
+from aura.foundation.insets import insets_all
+from aura.layout.boxes import Padding, SizedBox
+from aura.layout.flex import Column
+from aura.rendering.render_object import RenderBox
+from aura.testing.tester import WidgetTester
+from aura.widgets.framework import BuildContext, State, StatefulWidget, Widget
+from aura.widgets.key import GlobalKey, ValueKey
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_SWITCH: int = alloc_type_id()
+mode: int = 0
+holder: SwitchState | None = None
+
+
+class SwitchState(State):
+    def __init__(self) -> None:
+        super().__init__()
+        holder = self
+
+    def build(self, context: BuildContext) -> Widget:
+        if mode == 0:
+            return Column([
+                SizedBox(10.0, 10.0, None, 1, ValueKey("a")),
+                SizedBox(10.0, 10.0, None, 2, ValueKey("b")),
+                SizedBox(10.0, 10.0, None, 3, ValueKey("c")),
+                SizedBox(10.0, 10.0, None, 4, ValueKey("d")),
+            ])
+        if mode == 1:
+            return Column([
+                SizedBox(10.0, 10.0, None, 1, ValueKey("a")),
+                SizedBox(10.0, 10.0, None, 3, ValueKey("c")),
+                SizedBox(10.0, 10.0, None, 5, ValueKey("e")),
+                SizedBox(10.0, 10.0, None, 4, ValueKey("d")),
+            ])
+        return Column([
+            Padding(insets_all(0.0), SizedBox(10.0, 10.0), ValueKey("a")),
+        ])
+
+
+class SwitchPage(StatefulWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_SWITCH, None)
+
+    def create_state(self) -> State:
+        return SwitchState()
+
+
+def require_state() -> SwitchState:
+    current: SwitchState | None = holder
+    if current is None:
+        raise Exception("missing state")
+    return current
+
+
+def require_box(box: RenderBox | None) -> RenderBox:
+    if box is None:
+        raise Exception("missing box")
+    return box
+
+
+def check_duplicate() -> None:
+    shared: GlobalKey = GlobalKey()
+    duplicate: int = 0
+    try:
+        WidgetTester().pump_widget(Column([
+            SizedBox(8.0, 8.0, None, 1, shared),
+            SizedBox(8.0, 8.0, None, 2, shared),
+        ]), 80.0, 80.0)
+    except FrameworkError as error:
+        duplicate = 1
+        nox.test.assert_true(error.message == "Widget reused with incompatible key", "duplicate global key")
+    nox.test.assert_eq_int(duplicate, 1, "duplicate raised")
+
+
+def check_incompatible(tester: WidgetTester) -> None:
+    mode = 2
+    require_state().invalidate()
+    rejected: int = 0
+    try:
+        tester.pump_frame()
+    except FrameworkError as error:
+        rejected = 1
+        nox.test.assert_true(error.message == "Widget reused with incompatible key", "incompatible key")
+    nox.test.assert_eq_int(rejected, 1, "incompatible raised")
+
+
+tester: WidgetTester = WidgetTester()
+tester.pump_widget(SwitchPage(), 200.0, 200.0)
+column: RenderBox = require_box(tester.view().only_child)
+id_a: int = column.children[0].node_id
+id_c: int = column.children[2].node_id
+id_d: int = column.children[3].node_id
+mode = 1
+require_state().invalidate()
+tester.pump_frame()
+column = require_box(tester.view().only_child)
+nox.test.assert_eq_int(column.children[0].node_id, id_a, "kept a")
+nox.test.assert_eq_int(column.children[1].node_id, id_c, "moved c")
+nox.test.assert_eq_int(column.children[3].node_id, id_d, "kept d")
+nox.test.assert_eq_int(column.children[2].debug_tag, 5, "e tag")
+check_duplicate()
+check_incompatible(tester)
+print("reconcile ok")

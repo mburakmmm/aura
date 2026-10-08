@@ -1,0 +1,86 @@
+from aura.platform.bridge import open_image_file
+from aura.rendering.render_object import HitTestResult, RenderBox
+from aura.widgets.framework import dirty_element_id
+
+_next_drop: int = 1
+_drop_ids: list[int] = []
+_drop_paths: list[str] = []
+_drop_handles: list[int] = []
+_drop_elements: list[int] = []
+
+
+class DropController:
+    drop_id: int
+    path: str
+    handle: int
+    element_id: int
+
+    def __init__(self) -> None:
+        self.drop_id = _remember()
+        self.path = ""
+        self.handle = 0
+        self.element_id = 0
+
+    def bind(self, element_id: int) -> None:
+        self.element_id = element_id
+        index: int = _index(self.drop_id)
+        if index >= 0:
+            _drop_elements[index] = element_id
+            self.path = _drop_paths[index]
+            self.handle = _drop_handles[index]
+
+
+def _remember() -> int:
+    drop_id: int = _next_drop
+    _next_drop = _next_drop + 1
+    _drop_ids.append(drop_id)
+    _drop_paths.append("")
+    _drop_handles.append(0)
+    _drop_elements.append(0)
+    return drop_id
+
+
+def _index(drop_id: int) -> int:
+    i: int = 0
+    while i < len(_drop_ids):
+        if _drop_ids[i] == drop_id:
+            return i
+        i = i + 1
+    return -1
+
+
+def deliver_drop(root: RenderBox, x: float, y: float, path: str) -> None:
+    result: HitTestResult = HitTestResult()
+    root.hit_test(result, x, y)
+    i: int = 0
+    while i < len(result.targets):
+        target: RenderBox = result.targets[i]
+        if target.drop_id != 0:
+            _receive(target.drop_id, path)
+            return
+        i = i + 1
+
+
+def _receive(drop_id: int, path: str) -> None:
+    index: int = _index(drop_id)
+    if index < 0:
+        return
+    _drop_paths[index] = path
+    _drop_handles[index] = open_image_file(path)
+    element_id: int = _drop_elements[index]
+    if element_id != 0:
+        dirty_element_id(element_id)
+
+
+def drop_path(drop_id: int) -> str:
+    index: int = _index(drop_id)
+    if index < 0:
+        return ""
+    return _drop_paths[index]
+
+
+def drop_handle(drop_id: int) -> int:
+    index: int = _index(drop_id)
+    if index < 0:
+        return 0
+    return _drop_handles[index]

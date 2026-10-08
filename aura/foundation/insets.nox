@@ -1,0 +1,25 @@
+class EdgeInsets:
+    left: float
+    top: float
+    right: float
+    bottom: float
+
+    def __init__(self, left: float, top: float, right: float, bottom: float) -> None:
+        self.left = left
+        self.top = top
+        self.right = right
+        self.bottom = bottom
+
+    def horizontal(self) -> float:
+        return self.left + self.right
+
+    def vertical(self) -> float:
+        return self.top + self.bottom
+
+
+def insets_all(value: float) -> EdgeInsets:
+    return EdgeInsets(value, value, value, value)
+
+
+def insets_symmetric(horizontal: float, vertical: float) -> EdgeInsets:
+    return EdgeInsets(horizontal, vertical, horizontal, vertical)

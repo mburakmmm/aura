@@ -1,0 +1,25 @@
+from aura.core.diagnostics import FrameworkError
+from aura.graphics.canvas import Canvas
+
+
+class Surface:
+    width: float
+    height: float
+    scale: float
+    canvas: Canvas
+    closed: bool
+
+    def __init__(self, width: float, height: float, scale: float, canvas: Canvas) -> None:
+        self.width = width
+        self.height = height
+        self.scale = scale
+        self.canvas = canvas
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class GraphicsDevice:
+    def create_surface(self, width: int, height: int, title: str, visible: int) -> Surface:
+        raise FrameworkError("create_surface is not implemented")

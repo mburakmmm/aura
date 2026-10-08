@@ -1,0 +1,113 @@
+import nox.test
+from aura.controls.button import Button
+from aura.layout.flex import MAIN_MIN, Column
+from aura.rendering.render_object import RenderBox
+from aura.testing.tester import WidgetTester
+from aura.widgets.framework import BuildContext, Element, State, StatefulWidget, StatelessWidget, Widget
+from aura.widgets.overlay import DialogResult, MenuItem, Overlay, show_dialog, show_menu
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_PROBE: int = alloc_type_id()
+
+
+class ProbeState(State):
+    result: DialogResult
+    picks: int
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.result = DialogResult()
+        self.picks = 0
+
+    def open_dialog(self) -> None:
+        element: Element | None = self.element
+        if element is None:
+            return
+        show_dialog(BuildContext(element), "Confirm", "Delete this", self.result)
+
+    def open_menu(self) -> None:
+        element: Element | None = self.element
+        if element is None:
+            return
+        show_menu(BuildContext(element), 200.0, 180.0, [MenuItem("Remove", self.picked)])
+
+    def picked(self) -> None:
+        self.picks = self.picks + 1
+
+    def build(self, context: BuildContext) -> Widget:
+        return Column([
+            Button("Open", self.open_dialog),
+            Button("Menu", self.open_menu),
+        ], main_size=MAIN_MIN, cross_align=0, spacing=12.0)
+
+
+class Shell(StatelessWidget):
+    child: Widget
+
+    def __init__(self, child: Widget) -> None:
+        super().__init__(alloc_type_id(), None)
+        self.child = child
+
+    def build(self, context: BuildContext) -> Widget:
+        return Overlay(self.child)
+
+
+class Probe(StatefulWidget):
+    state: ProbeState
+
+    def __init__(self) -> None:
+        super().__init__(TYPE_PROBE, None)
+        self.state = ProbeState()
+
+    def create_state(self) -> State:
+        return self.state
+
+
+def find_label(box: RenderBox, label: str) -> RenderBox | None:
+    if box.semantics_label == label:
+        return box
+    only: RenderBox | None = box.only_child
+    if only is not None:
+        found: RenderBox | None = find_label(only, label)
+        if found is not None:
+            return found
+    i: int = 0
+    while i < len(box.children):
+        found = find_label(box.children[i], label)
+        if found is not None:
+            return found
+        i = i + 1
+    return None
+
+
+def tap_label(tester: WidgetTester, label: str) -> None:
+    found: RenderBox | None = find_label(tester.view(), label)
+    if found is None:
+        raise Exception(label)
+    tester.tap(found.absolute_x() + found.width / 2.0, found.absolute_y() + found.height / 2.0)
+
+
+probe: Probe = Probe()
+tester: WidgetTester = WidgetTester()
+tester.pump_widget(Shell(probe), 800.0, 600.0)
+nox.test.assert_true(find_label(tester.view(), "Confirm") is None, "dialog starts closed")
+tap_label(tester, "Open")
+nox.test.assert_true(find_label(tester.view(), "Confirm") is not None, "dialog opens")
+tester.tap(8.0, 8.0)
+nox.test.assert_true(find_label(tester.view(), "Confirm") is None, "outside click closes dialog")
+nox.test.assert_eq_int(probe.state.result.code, 0, "outside click cancels")
+nox.test.assert_eq_int(probe.state.result.chosen, 1, "cancel writes a result")
+tap_label(tester, "Open")
+tap_label(tester, "OK")
+nox.test.assert_eq_int(probe.state.result.code, 1, "ok writes the code")
+nox.test.assert_true(find_label(tester.view(), "Confirm") is None, "dialog closes")
+tap_label(tester, "Menu")
+nox.test.assert_true(find_label(tester.view(), "Remove") is not None, "menu opens")
+tester.tap(8.0, 8.0)
+nox.test.assert_true(find_label(tester.view(), "Remove") is None, "outside click closes menu")
+nox.test.assert_eq_int(probe.state.picks, 0, "dismiss does not pick")
+tap_label(tester, "Menu")
+tap_label(tester, "Remove")
+nox.test.assert_eq_int(probe.state.picks, 1, "menu item runs")
+nox.test.assert_true(find_label(tester.view(), "Remove") is None, "menu closes after pick")
+print("overlay ok")

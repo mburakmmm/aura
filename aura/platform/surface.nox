@@ -1,0 +1,28 @@
+from aura.graphics.canvas import Canvas
+from aura.graphics.device import GraphicsDevice, Surface
+from aura.platform.mac_canvas import HostCanvas
+from aura.platform.bridge import create_window, destroy_window, window_height, window_scale, window_width
+
+
+class MacSurface(Surface):
+    handle: int
+
+    def __init__(self, handle: int, width: float, height: float, scale: float, canvas: Canvas) -> None:
+        super().__init__(width, height, scale, canvas)
+        self.handle = handle
+
+    def close(self) -> None:
+        if self.closed:
+            return
+        destroy_window(self.handle)
+        self.closed = True
+
+
+class MacGraphicsDevice(GraphicsDevice):
+    def open_surface(self, width: int, height: int, title: str, visible: int) -> MacSurface:
+        handle: int = create_window(width, height, title, visible)
+        canvas: HostCanvas = HostCanvas(handle)
+        return MacSurface(handle, window_width(handle), window_height(handle), window_scale(handle), canvas)
+
+    def create_surface(self, width: int, height: int, title: str, visible: int) -> Surface:
+        return self.open_surface(width, height, title, visible)

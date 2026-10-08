@@ -1,0 +1,185 @@
+from aura.animation.ticker import AnimationController
+from aura.controls import Button
+from aura.core.mode import MODE_PROFILE, MODE_RELEASE, set_mode
+from aura.devtools.performance import format_frame
+from aura.foundation.insets import insets_all
+from aura.layout import Column, Padding, SizedBox
+from aura.layout.virtual_list import ItemSource, ScrollController, VirtualList
+from aura.rendering.render_object import RenderBox
+from aura.testing.tester import WidgetTester
+from aura.text import Text
+from aura.widgets import BuildContext, Signal, StatelessWidget, Widget
+from aura.widgets.framework import Element
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_READ: int = alloc_type_id()
+TYPE_LEAF: int = alloc_type_id()
+
+
+class PressMark:
+    count: int
+
+    def __init__(self) -> None:
+        self.count = 0
+
+    def press(self) -> None:
+        self.count = self.count + 1
+
+
+class ReadCount(StatelessWidget):
+    source: Signal
+
+    def __init__(self, source: Signal) -> None:
+        super().__init__(TYPE_READ, None)
+        self.source = source
+
+    def build(self, context: BuildContext) -> Widget:
+        return Text(str(self.source.get()))
+
+
+class Leaf(StatelessWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_LEAF, None)
+
+    def build(self, context: BuildContext) -> Widget:
+        return SizedBox(4.0, 4.0)
+
+
+class BenchSource(ItemSource):
+    total: int
+
+    def __init__(self, total: int) -> None:
+        self.total = total
+
+    def count(self) -> int:
+        return self.total
+
+    def widget_at(self, index: int) -> Widget:
+        return SizedBox(80.0, 20.0)
+
+    def keep_alive(self, index: int) -> bool:
+        return False
+
+
+def boxes(count: int) -> list[Widget]:
+    items: list[Widget] = []
+    i: int = 0
+    while i < count:
+        items.append(Leaf())
+        i = i + 1
+    return items
+
+
+def texts(count: int) -> list[Widget]:
+    items: list[Widget] = []
+    i: int = 0
+    while i < count:
+        items.append(Text("Aura"))
+        i = i + 1
+    return items
+
+
+def deep_tree(levels: int) -> Widget:
+    child: Widget = SizedBox(8.0, 8.0)
+    i: int = 0
+    while i < levels:
+        child = Padding(insets_all(1.0), child)
+        i = i + 1
+    return child
+
+
+def report(name: str, tester: WidgetTester) -> None:
+    print(name + " " + format_frame(tester.pump))
+
+
+def bench_build() -> None:
+    tester: WidgetTester = WidgetTester()
+    tester.pump_widget(Column(boxes(10000)), 800.0, 600.0)
+    report("build", tester)
+
+
+def bench_reconcile() -> None:
+    tester: WidgetTester = WidgetTester()
+    root: Element | None = None
+    tester.pump_widget(Column(boxes(10000)), 800.0, 600.0)
+    root = tester.pump.root
+    if root is None:
+        raise Exception("reconcile")
+    root.update(Column(boxes(10000)))
+    tester.pump_frame()
+    report("reconcile", tester)
+
+
+def bench_list() -> None:
+    tester: WidgetTester = WidgetTester()
+    tester.pump_widget(VirtualList(BenchSource(1000), 24.0, ScrollController()), 400.0, 400.0)
+    tester.pump.scroll(0.0, -40.0)
+    tester.pump_frame()
+    report("list", tester)
+
+
+def bench_deep() -> None:
+    tester: WidgetTester = WidgetTester()
+    tester.pump_widget(deep_tree(64), 400.0, 400.0)
+    report("deep", tester)
+
+
+def bench_text() -> None:
+    tester: WidgetTester = WidgetTester()
+    tester.pump_widget(Column(texts(200)), 400.0, 800.0)
+    report("text", tester)
+
+
+def bench_animation() -> None:
+    tester: WidgetTester = WidgetTester()
+    controller: AnimationController = AnimationController(1.0)
+    tester.pump.frame_time = 0.0
+    tester.pump_widget(SizedBox(20.0, 20.0), 100.0, 100.0)
+    controller.forward(tester.pump.scheduler)
+    tester.pump_frame()
+    tester.pump.frame_time = 0.5
+    tester.pump_frame()
+    if controller.value < 0.4:
+        raise Exception("animation")
+    print("animation value=" + str(controller.value))
+    report("animation", tester)
+
+
+def bench_signal() -> None:
+    source: Signal = Signal(0)
+    tester: WidgetTester = WidgetTester()
+    tester.pump_widget(ReadCount(source), 200.0, 80.0)
+    source.set(1)
+    tester.pump_frame()
+    report("signal", tester)
+
+
+def bench_button() -> None:
+    mark: PressMark = PressMark()
+    tester: WidgetTester = WidgetTester()
+    button: RenderBox | None = None
+    tester.pump_widget(Button("Go", mark.press), 200.0, 80.0)
+    button = tester.view().only_child
+    if button is None:
+        raise Exception("button")
+    tester.tap(button.absolute_x() + button.width / 2.0, button.absolute_y() + button.height / 2.0)
+    report("button", tester)
+    if mark.count != 1:
+        raise Exception("button")
+
+
+def run_benchmarks() -> None:
+    set_mode(MODE_PROFILE)
+    bench_build()
+    bench_reconcile()
+    bench_list()
+    bench_deep()
+    bench_text()
+    bench_animation()
+    bench_signal()
+    bench_button()
+    set_mode(MODE_RELEASE)
+    print("benchmarks ok")
+
+
+run_benchmarks()

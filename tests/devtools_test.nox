@@ -1,0 +1,98 @@
+import nox.test
+from aura.controls import Button
+from aura.core.mode import MODE_DEBUG, MODE_PROFILE, MODE_RELEASE, set_mode
+from aura.devtools.inspector import dump_tree
+from aura.devtools.performance import format_frame
+from aura.layout import Column
+from aura.runtime.binding import Binding
+from aura.semantics.bridge import publish_total
+from aura.text import Text
+from aura.testing.tester import WidgetTester
+from aura.widgets.framework import Element
+from examples.rectangle.page import RectanglePage
+
+
+class PressMark:
+    count: int
+
+    def __init__(self) -> None:
+        self.count = 0
+
+    def press(self) -> None:
+        self.count = self.count + 1
+
+
+def require_root(tester: WidgetTester) -> Element:
+    root: Element | None = tester.pump.root
+    if root is None:
+        raise Exception("missing root")
+    return root
+
+
+def contains(text: str, needle: str) -> int:
+    width: int = len(needle)
+    limit: int = len(text) - width
+    i: int = 0
+    if width == 0:
+        return 1
+    while i <= limit:
+        if text[i:i + width] == needle:
+            return 1
+        i = i + 1
+    return 0
+
+
+def check_dump() -> None:
+    mark: PressMark = PressMark()
+    tester: WidgetTester = WidgetTester()
+    tester.pump_widget(Column([Text("Hello"), Button("Save", mark.press)]), 400.0, 300.0)
+    dump: str = dump_tree(require_root(tester))
+    nox.test.assert_eq_int(contains(dump, "label=Hello"), 1, "hello label")
+    nox.test.assert_eq_int(contains(dump, "role=button"), 1, "button role")
+    nox.test.assert_eq_int(contains(dump, "label=Save"), 1, "save label")
+
+
+def check_overlay() -> None:
+    tester: WidgetTester = WidgetTester()
+    set_mode(MODE_RELEASE)
+    tester.pump_widget(Text("Bounds"), 200.0, 80.0)
+    release_count: int = len(tester.canvas.kinds)
+    set_mode(MODE_DEBUG)
+    tester.pump_frame()
+    debug_count: int = len(tester.canvas.kinds)
+    nox.test.assert_true(debug_count > release_count, "debug overlay")
+    set_mode(MODE_RELEASE)
+
+
+def check_profile() -> None:
+    tester: WidgetTester = WidgetTester()
+    set_mode(MODE_PROFILE)
+    tester.pump_widget(Text("Time"), 200.0, 80.0)
+    nox.test.assert_true(tester.pump.painted > 0, "painted")
+    nox.test.assert_true(tester.pump.laid_out > 0, "laid out")
+    nox.test.assert_eq_int(contains(format_frame(tester.pump), "painted="), 1, "frame text")
+    set_mode(MODE_RELEASE)
+
+
+def check_semantics_skip() -> None:
+    binding: Binding = Binding(320, 240, "Aura", 0)
+    before: int = publish_total()
+    binding.mount(RectanglePage())
+    binding.frame()
+    mid: int = publish_total()
+    binding.frame()
+    after: int = publish_total()
+    binding.close()
+    nox.test.assert_eq_int(mid, before + 1, "first publish")
+    nox.test.assert_eq_int(after, mid, "second publish skipped")
+
+
+def main_check() -> None:
+    check_dump()
+    check_overlay()
+    check_profile()
+    check_semantics_skip()
+    print("devtools ok")
+
+
+main_check()

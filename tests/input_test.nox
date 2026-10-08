@@ -1,0 +1,65 @@
+import nox.test
+from aura.layout.boxes import SizedBox
+from aura.rendering.render_object import HitTestResult, RenderBox
+from aura.testing.tester import WidgetTester
+from aura.widgets.framework import Element, RenderObjectWidget
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_TAP: int = alloc_type_id()
+clicks: int = 0
+
+
+def on_press() -> None:
+    clicks = clicks + 1
+
+
+class SizedRender(RenderBox):
+    def hit_test_self(self, x: float, y: float) -> bool:
+        return True
+
+    def perform_layout(self) -> None:
+        self.width = self.constraints.constrain_width(40.0)
+        self.height = self.constraints.constrain_height(40.0)
+
+
+class TapBox(RenderObjectWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_TAP, None)
+
+    def create_render(self) -> RenderBox | None:
+        return SizedRender()
+
+    def sync_render(self, element: Element) -> None:
+        box: RenderBox | None = element.render
+        if box is None:
+            return
+        box.debug_tag = 8
+        box.set_tap(on_press)
+
+
+def require_box(box: RenderBox | None, name: str) -> RenderBox:
+    if box is None:
+        raise Exception(name)
+    return box
+
+
+placed: WidgetTester = WidgetTester()
+placed.pump_widget(SizedBox(50.0, 40.0, None, 3), 200.0, 100.0)
+hit: HitTestResult = HitTestResult()
+nox.test.assert_true(placed.view().hit_test(hit, 10.0, 10.0), "hit inside")
+nox.test.assert_eq_int(hit.targets[0].debug_tag, 3, "leaf tag")
+miss: HitTestResult = HitTestResult()
+nox.test.assert_true(not placed.view().hit_test(miss, 180.0, 10.0), "miss outside")
+
+tester: WidgetTester = WidgetTester()
+tester.pump_widget(TapBox(), 100.0, 100.0)
+box: RenderBox = require_box(tester.view().find_tag(8), "tap box")
+x: float = box.absolute_x() + box.width / 2.0
+y: float = box.absolute_y() + box.height / 2.0
+tester.pump.pointer_down(x, y)
+tester.pump.pointer_move(x + 30.0, y)
+tester.pump.pointer_up(x + 30.0, y)
+nox.test.assert_eq_int(clicks, 0, "slop rejects tap")
+tester.tap(x, y)
+nox.test.assert_eq_int(clicks, 1, "tap accepted")
+print("input ok")

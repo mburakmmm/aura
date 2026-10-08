@@ -1,0 +1,67 @@
+from aura.app import run_app
+from aura.rendering.render_object import RenderBox
+from aura.runtime.binding import Binding
+from examples.calculator.page import CalculatorPage
+from nox.os import arg, arg_count
+
+
+def find_label(box: RenderBox, label: str) -> RenderBox | None:
+    if box.semantics_label == label:
+        return box
+    only: RenderBox | None = box.only_child
+    found: RenderBox | None = None
+    i: int = 0
+    if only is not None:
+        found = find_label(only, label)
+        if found is not None:
+            return found
+    while i < len(box.children):
+        found = find_label(box.children[i], label)
+        if found is not None:
+            return found
+        i = i + 1
+    return None
+
+
+def require_box(box: RenderBox | None, name: str) -> RenderBox:
+    if box is None:
+        raise Exception(name)
+    return box
+
+
+def click_label(binding: Binding, label: str) -> None:
+    root: RenderBox | None = binding.pump.view.only_child
+    box: RenderBox = require_box(find_label(require_box(root, "root"), label), label)
+    binding.post_click(box.absolute_x() + box.width / 2.0, box.absolute_y() + box.height / 2.0)
+    binding.frame()
+
+
+def self_check() -> None:
+    binding: Binding = Binding(800, 600, "Aura", 0)
+    binding.mount(CalculatorPage())
+    binding.frame()
+    click_label(binding, "1")
+    click_label(binding, "+")
+    click_label(binding, "2")
+    click_label(binding, "=")
+    root: RenderBox | None = binding.pump.view.only_child
+    shown: RenderBox = require_box(find_label(require_box(root, "root"), "3"), "3")
+    if shown.semantics_label != "3":
+        raise Exception("sum")
+    binding.close()
+    print("calculator self-check ok")
+
+
+def wants_self_check() -> bool:
+    i: int = 0
+    while i < arg_count():
+        if arg(i) == "--self-check":
+            return True
+        i = i + 1
+    return False
+
+
+if wants_self_check():
+    self_check()
+else:
+    run_app(CalculatorPage())

@@ -1,0 +1,110 @@
+from aura.core.diagnostics import FrameworkError
+from aura.runtime.binding import Binding
+from aura.widgets.framework import Widget
+
+
+class AppHost:
+    next_id: int
+    ids: list[int]
+    bindings: list[Binding]
+
+    def __init__(self) -> None:
+        self.next_id = 1
+        self.ids = []
+        self.bindings = []
+
+    def add(self, binding: Binding) -> int:
+        window_id: int = self.next_id
+        self.next_id = self.next_id + 1
+        self.ids.append(window_id)
+        self.bindings.append(binding)
+        return window_id
+
+    def alive_count(self) -> int:
+        return len(self.bindings)
+
+    def binding_for(self, window_id: int) -> Binding | None:
+        i: int = 0
+        while i < len(self.ids):
+            if self.ids[i] == window_id:
+                return self.bindings[i]
+            i = i + 1
+        return None
+
+    def close_window(self, window_id: int) -> None:
+        ids: list[int] = []
+        kept: list[Binding] = []
+        i: int = 0
+        while i < len(self.ids):
+            if self.ids[i] == window_id:
+                self.bindings[i].close()
+            else:
+                ids.append(self.ids[i])
+                kept.append(self.bindings[i])
+            i = i + 1
+        self.ids = ids
+        self.bindings = kept
+
+    def wait(self) -> None:
+        if len(self.bindings) == 0:
+            return
+        self.bindings[0].wait()
+
+    def frame(self) -> None:
+        i: int = 0
+        count: int = len(self.bindings)
+        while i < count:
+            self.bindings[i].frame()
+            i = i + 1
+        self._drop_closed()
+
+    def _drop_closed(self) -> None:
+        ids: list[int] = []
+        kept: list[Binding] = []
+        i: int = 0
+        while i < len(self.bindings):
+            if self.bindings[i].is_closed():
+                self.bindings[i].close()
+            else:
+                ids.append(self.ids[i])
+                kept.append(self.bindings[i])
+            i = i + 1
+        self.ids = ids
+        self.bindings = kept
+
+
+_host: AppHost | None = None
+
+
+def bind_host(host: AppHost | None) -> None:
+    _host = host
+
+
+def current_host() -> AppHost:
+    found: AppHost | None = _host
+    if found is None:
+        raise FrameworkError("window opened without an app host")
+    return found
+
+
+class WindowController:
+    def open(self, widget: Widget, width: int, height: int, title: str, visible: int = 1) -> int:
+        host: AppHost = current_host()
+        binding: Binding = Binding(width, height, title, visible)
+        binding.mount(widget)
+        window_id: int = host.add(binding)
+        binding.frame()
+        return window_id
+
+
+def run_app(root: Widget) -> None:
+    host: AppHost = AppHost()
+    bind_host(host)
+    binding: Binding = Binding(800, 600, "Aura", 1)
+    binding.mount(root)
+    host.add(binding)
+    binding.frame()
+    while host.alive_count() > 0:
+        host.wait()
+        host.frame()
+    bind_host(None)

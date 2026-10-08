@@ -1,0 +1,150 @@
+from aura.app import run_app
+from aura.platform.macos import image_dispose
+from aura.rendering.render_object import RenderBox
+from aura.runtime.binding import Binding
+from aura.runtime.host import AppHost, bind_host
+from examples.todo.book import notes
+from examples.todo.page import TodoApp
+from nox.os import arg, arg_count
+
+
+def find_label(box: RenderBox, label: str) -> RenderBox | None:
+    if box.semantics_label == label:
+        return box
+    only: RenderBox | None = box.only_child
+    if only is not None:
+        found: RenderBox | None = find_label(only, label)
+        if found is not None:
+            return found
+    i: int = 0
+    while i < len(box.children):
+        found = find_label(box.children[i], label)
+        if found is not None:
+            return found
+        i = i + 1
+    return None
+
+
+def find_empty_field(box: RenderBox) -> RenderBox | None:
+    if box.semantics_role == "text-field" and box.semantics_label == "":
+        return box
+    only: RenderBox | None = box.only_child
+    if only is not None:
+        found: RenderBox | None = find_empty_field(only)
+        if found is not None:
+            return found
+    i: int = 0
+    while i < len(box.children):
+        found = find_empty_field(box.children[i])
+        if found is not None:
+            return found
+        i = i + 1
+    return None
+
+
+def require_box(box: RenderBox | None, name: str) -> RenderBox:
+    if box is None:
+        raise Exception(name)
+    return box
+
+
+def find_role(box: RenderBox, role: str) -> RenderBox | None:
+    if box.semantics_role == role:
+        return box
+    only: RenderBox | None = box.only_child
+    if only is not None:
+        found: RenderBox | None = find_role(only, role)
+        if found is not None:
+            return found
+    i: int = 0
+    while i < len(box.children):
+        found = find_role(box.children[i], role)
+        if found is not None:
+            return found
+        i = i + 1
+    return None
+
+
+def click(host: AppHost, binding: Binding, box: RenderBox) -> None:
+    binding.post_click(box.absolute_x() + box.width / 2.0, box.absolute_y() + box.height / 2.0)
+    host.frame()
+
+
+def self_check() -> None:
+    notes.preview_visible = 0
+    host: AppHost = AppHost()
+    bind_host(host)
+    binding: Binding = Binding(800, 600, "Todo", 0)
+    binding.mount(TodoApp())
+    host.add(binding)
+    host.frame()
+    click(host, binding, require_box(find_label(binding.pump.view, "Add"), "Add"))
+    if len(notes.titles) != 1:
+        raise Exception("add did not create a row")
+    if notes.reveal > 0.05:
+        raise Exception("new row was visible before its animation")
+    click(host, binding, require_box(find_label(binding.pump.view, "Open"), "Open"))
+    binding.pump.frame_time = binding.pump.frame_time + 1.0
+    binding.pump.pump(binding.surface.canvas)
+    if notes.reveal < 0.99:
+        raise Exception("new row animation did not finish")
+    binding.insert_text("Market")
+    binding.frame()
+    click(host, binding, require_box(find_empty_field(binding.pump.view), "body field"))
+    binding.insert_text("milk")
+    binding.frame()
+    click(host, binding, require_box(find_label(binding.pump.view, "Save"), "Save"))
+    if notes.titles[0] != "Market" or notes.bodies[0] != "milk":
+        raise Exception("save did not keep the detail text")
+    if find_label(binding.pump.view, "Market") is None:
+        raise Exception("list did not show the saved title")
+    click(host, binding, require_box(find_label(binding.pump.view, "Done"), "Done"))
+    if notes.done[0] != 1:
+        raise Exception("toggle did not complete the row")
+    if find_role(binding.pump.view, "scrollbar") is None:
+        raise Exception("list has no scrollbar")
+    click(host, binding, require_box(find_label(binding.pump.view, "Menu"), "Menu"))
+    click(host, binding, require_box(find_label(binding.pump.view, "Picture"), "Picture"))
+    if host.alive_count() != 2:
+        raise Exception("picture window did not open")
+    picture: Binding | None = host.binding_for(host.ids[1])
+    if picture is None:
+        raise Exception("picture window missing")
+    image: RenderBox = require_box(find_role(picture.pump.view, "image"), "note image")
+    if image.width != 1.0 or image.height != 1.0:
+        raise Exception("note image did not use its measured size")
+    host.close_window(host.ids[1])
+    if notes.picture != 0:
+        image_dispose(notes.picture)
+        notes.picture = 0
+    if host.alive_count() != 1:
+        raise Exception("picture window stayed open")
+    click(host, binding, require_box(find_label(binding.pump.view, "Menu"), "Menu"))
+    click(host, binding, require_box(find_label(binding.pump.view, "Delete"), "Delete"))
+    binding.post_click(8.0, 8.0)
+    host.frame()
+    if len(notes.titles) != 1:
+        raise Exception("dismissed dialog deleted the note")
+    click(host, binding, require_box(find_label(binding.pump.view, "Menu"), "Menu"))
+    click(host, binding, require_box(find_label(binding.pump.view, "Delete"), "Delete"))
+    click(host, binding, require_box(find_label(binding.pump.view, "OK"), "OK"))
+    if len(notes.titles) != 0:
+        raise Exception("dialog did not delete the note")
+    host.close_window(host.ids[0])
+    bind_host(None)
+    print("todo self-check ok")
+
+
+def wants_self_check() -> bool:
+    i: int = 0
+    while i < arg_count():
+        if arg(i) == "--self-check":
+            return True
+        i = i + 1
+    return False
+
+
+if wants_self_check():
+    self_check()
+else:
+    run_app(TodoApp())

@@ -1,0 +1,43 @@
+import nox.test
+from aura.core.diagnostics import FrameworkError
+from aura.platform.macos import create_window, destroy_window, poll_events, window_width
+from aura.runtime.binding import Binding
+from examples.counter.page import CounterPage
+from aura.rendering.render_object import RenderBox
+
+def require_box(box: RenderBox | None, name: str) -> RenderBox:
+    if box is None:
+        raise Exception(name)
+    return box
+
+
+handle: int = create_window(320, 200, "Aura test", 0)
+nox.test.assert_true(window_width(handle) > 0.0, "hidden window width")
+destroy_window(handle)
+destroy_window(handle)
+closed: int = 0
+try:
+    poll_events(handle)
+except FrameworkError as error:
+    closed = 1
+    nox.test.assert_true(error.message == "use after close", "use after close")
+nox.test.assert_eq_int(closed, 1, "closed window rejected")
+
+binding: Binding = Binding(800, 600, "Aura", 0)
+binding.mount(CounterPage())
+binding.frame()
+center: RenderBox = require_box(binding.pump.view.only_child, "center")
+column: RenderBox = require_box(center.only_child, "column")
+header: RenderBox = column.children[0]
+count: RenderBox = column.children[1]
+button: RenderBox = column.children[2]
+binding.pump.view.reset_paint_marks()
+x: float = button.absolute_x() + button.width / 2.0
+y: float = button.absolute_y() + button.height / 2.0
+binding.post_click(x, y)
+binding.frame()
+nox.test.assert_eq_str(count.semantics_label, "1", "native click increments")
+nox.test.assert_eq_int(header.paint_mark_count, 0, "header stays clean")
+binding.close()
+binding.close()
+print("window ok")

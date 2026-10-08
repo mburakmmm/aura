@@ -1,0 +1,278 @@
+from aura.foundation.constraints import Constraints
+from aura.rendering.layer import PaintingContext
+from aura.rendering.render_object import HitTestResult, RenderBox
+from aura.widgets.framework import BuildContext, Element, RenderElement, StatelessWidget, Widget
+from aura.widgets.key import IntValueKey, Key
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_NAVIGATOR: int = alloc_type_id()
+TYPE_ROUTE_HOST: int = alloc_type_id()
+
+_nav_ids: list[int] = []
+_nav_elements: list[Element] = []
+
+
+class Route:
+    name: str
+    route_id: int
+    page: Widget
+
+    def __init__(self, name: str, page: Widget) -> None:
+        self.name = name
+        self.route_id = 0
+        self.page = page
+
+
+class NavEntry:
+    name: str
+    route_id: int
+    page: Widget
+
+    def __init__(self, name: str, route_id: int, page: Widget) -> None:
+        self.name = name
+        self.route_id = route_id
+        self.page = page
+
+
+def register_navigator(element: Element) -> None:
+    i: int = 0
+    while i < len(_nav_ids):
+        if _nav_ids[i] == element.element_id:
+            _nav_elements[i] = element
+            return
+        i = i + 1
+    _nav_ids.append(element.element_id)
+    _nav_elements.append(element)
+
+
+def unregister_navigator(element_id: int) -> None:
+    ids: list[int] = []
+    elements: list[Element] = []
+    i: int = 0
+    while i < len(_nav_ids):
+        if _nav_ids[i] != element_id:
+            ids.append(_nav_ids[i])
+            elements.append(_nav_elements[i])
+        i = i + 1
+    _nav_ids = ids
+    _nav_elements = elements
+
+
+def _navigator_at(element_id: int) -> Element | None:
+    i: int = 0
+    while i < len(_nav_ids):
+        if _nav_ids[i] == element_id:
+            return _nav_elements[i]
+        i = i + 1
+    return None
+
+
+class NavigatorHandle:
+    element_id: int
+
+    def __init__(self, element_id: int) -> None:
+        self.element_id = element_id
+
+    def push(self, route: Route) -> None:
+        found: Element | None = _navigator_at(self.element_id)
+        if found is None:
+            return
+        found.push_page(route.name, route.page)
+
+    def pop(self) -> None:
+        found: Element | None = _navigator_at(self.element_id)
+        if found is None:
+            return
+        found.pop_page()
+
+    def replace(self, route: Route) -> None:
+        found: Element | None = _navigator_at(self.element_id)
+        if found is None:
+            return
+        found.replace_page(route.name, route.page)
+
+    def can_pop(self) -> bool:
+        found: Element | None = _navigator_at(self.element_id)
+        if found is None:
+            return False
+        if found.can_pop_page() == 1:
+            return True
+        return False
+
+
+def _lookup(element: Element, depend: int) -> NavigatorHandle:
+    parent: Element | None = element.parent
+    while parent is not None:
+        found: Element | None = _navigator_at(parent.element_id)
+        if found is not None:
+            if depend == 1:
+                parent.add_dependent(element)
+            return NavigatorHandle(parent.element_id)
+        parent = parent.parent
+    raise Exception("Navigator.of called without a navigator")
+
+
+def navigator_of(context: BuildContext) -> NavigatorHandle:
+    return _lookup(context.element, 1)
+
+
+def navigator_handle(context: BuildContext) -> NavigatorHandle:
+    return _lookup(context.element, 0)
+
+
+class RenderNavigator(RenderBox):
+    active: int
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.multi_child = True
+        self.active = 0
+
+    def set_active_index(self, index: int) -> None:
+        if self.active == index:
+            return
+        self.active = index
+        self.mark_needs_layout()
+
+    def perform_layout(self) -> None:
+        self.width = self.constraints.constrain_width(self.constraints.max_width)
+        self.height = self.constraints.constrain_height(self.constraints.max_height)
+        limits: Constraints = Constraints(self.width, self.width, self.height, self.height)
+        i: int = 0
+        while i < len(self.children):
+            if i == self.active:
+                child: RenderBox = self.children[i]
+                child.layout(limits)
+                child.offset_x = 0.0
+                child.offset_y = 0.0
+            i = i + 1
+
+    def paint_children(self, context: PaintingContext) -> None:
+        if self.active < 0 or self.active >= len(self.children):
+            return
+        self.paint_child(context, self.children[self.active])
+
+    def hit_test_children(self, result: HitTestResult, x: float, y: float) -> bool:
+        if self.active < 0 or self.active >= len(self.children):
+            return False
+        return self.children[self.active].hit_test(result, x, y)
+
+
+class RouteHost(StatelessWidget):
+    page: Widget
+
+    def __init__(self, page: Widget, route_id: int) -> None:
+        super().__init__(TYPE_ROUTE_HOST, IntValueKey(route_id))
+        self.page = page
+
+    def build(self, context: BuildContext) -> Widget:
+        return self.page
+
+
+class NavigatorElement(RenderElement):
+    entries: list[NavEntry]
+    next_route_id: int
+    ready: int
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.entries = []
+        self.next_route_id = 1
+        self.ready = 0
+
+    def first_mount(self) -> None:
+        widget: Widget | None = self.widget
+        if widget is None:
+            return
+        created: RenderBox | None = widget.create_render()
+        if created is None:
+            return
+        self.render = created
+        if self.pipeline is not None:
+            created.pipeline = self.pipeline
+        register_navigator(self)
+        widget.seed_navigator(self)
+        self.rebuild()
+
+    def update(self, widget: Widget) -> None:
+        self.widget = widget
+        self.rebuild()
+        self.notify_dependents()
+
+    def rebuild(self) -> None:
+        if self.unmounted:
+            return
+        self.rebuild_count = self.rebuild_count + 1
+        hosts: list[Widget] = []
+        i: int = 0
+        while i < len(self.entries):
+            hosts.append(RouteHost(self.entries[i].page, self.entries[i].route_id))
+            i = i + 1
+        self.reconcile(hosts)
+        self.sync_render_children()
+        box: RenderBox | None = self.render
+        if box is not None:
+            box.set_active_index(len(self.entries) - 1)
+
+    def unmount(self) -> None:
+        unregister_navigator(self.element_id)
+        super().unmount()
+
+    def boot_home(self, page: Widget) -> None:
+        if self.ready == 1:
+            return
+        self.ready = 1
+        self._add("home", page)
+
+    def push_page(self, name: str, page: Widget) -> None:
+        self._add(name, page)
+        self.mark_dirty()
+
+    def pop_page(self) -> None:
+        if len(self.entries) <= 1:
+            return
+        kept: list[NavEntry] = []
+        i: int = 0
+        while i < len(self.entries) - 1:
+            kept.append(self.entries[i])
+            i = i + 1
+        self.entries = kept
+        self.mark_dirty()
+
+    def replace_page(self, name: str, page: Widget) -> None:
+        if len(self.entries) == 0:
+            self._add(name, page)
+        else:
+            last: int = len(self.entries) - 1
+            self.entries[last] = NavEntry(name, self._take_id(), page)
+        self.mark_dirty()
+
+    def can_pop_page(self) -> int:
+        if len(self.entries) > 1:
+            return 1
+        return 0
+
+    def _add(self, name: str, page: Widget) -> None:
+        self.entries.append(NavEntry(name, self._take_id(), page))
+
+    def _take_id(self) -> int:
+        route_id: int = self.next_route_id
+        self.next_route_id = self.next_route_id + 1
+        return route_id
+
+
+class Navigator(StatelessWidget):
+    home: Widget
+
+    def __init__(self, home: Widget, key: Key | None = None) -> None:
+        super().__init__(TYPE_NAVIGATOR, key)
+        self.home = home
+
+    def create_element(self) -> Element:
+        return NavigatorElement()
+
+    def create_render(self) -> RenderBox | None:
+        return RenderNavigator()
+
+    def seed_navigator(self, element: Element) -> None:
+        element.boot_home(self.home)

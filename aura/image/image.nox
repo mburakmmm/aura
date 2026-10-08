@@ -1,0 +1,49 @@
+from aura.platform.bridge import image_size_height, image_size_width
+from aura.rendering.layer import PaintingContext
+from aura.rendering.render_object import RenderBox
+from aura.widgets.framework import Element, RenderObjectWidget
+from aura.widgets.key import Key
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_IMAGE: int = alloc_type_id()
+
+
+class RenderImage(RenderBox):
+    handle: int
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.handle = 0
+        self.semantics_role = "image"
+
+    def set_image(self, handle: int) -> None:
+        if self.handle != handle:
+            self.handle = handle
+            self.mark_needs_layout()
+            self.mark_needs_paint()
+
+    def perform_layout(self) -> None:
+        width: float = float(image_size_width(self.handle))
+        height: float = float(image_size_height(self.handle))
+        self.width = self.constraints.constrain_width(width)
+        self.height = self.constraints.constrain_height(height)
+
+    def paint_self(self, context: PaintingContext) -> None:
+        context.draw_image(0.0, 0.0, self.width, self.height, self.handle)
+
+
+class Image(RenderObjectWidget):
+    handle: int
+
+    def __init__(self, handle: int, key: Key | None = None) -> None:
+        super().__init__(TYPE_IMAGE, key)
+        self.handle = handle
+
+    def create_render(self) -> RenderBox | None:
+        return RenderImage()
+
+    def sync_render(self, element: Element) -> None:
+        box: RenderBox | None = element.render
+        if box is None:
+            return
+        box.set_image(self.handle)

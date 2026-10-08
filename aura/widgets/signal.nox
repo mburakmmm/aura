@@ -1,0 +1,80 @@
+from aura.core.diagnostics import FrameworkError
+from aura.widgets.framework import begin_computed, computed_is_dirty, computed_is_evaluating, end_computed, notify_signal, set_computed_dirty, set_computed_evaluating, track_signal
+
+_next_reactive_id: int = 1
+
+
+def _alloc_reactive_id() -> int:
+    _next_reactive_id = _next_reactive_id + 1
+    return _next_reactive_id
+
+
+class Signal:
+    value: int
+    reactive_id: int
+
+    def __init__(self, value: int) -> None:
+        self.value = value
+        self.reactive_id = _alloc_reactive_id()
+
+    def get(self) -> int:
+        track_signal(self.reactive_id)
+        return self.value
+
+    def set(self, value: int) -> None:
+        if self.value == value:
+            return
+        self.value = value
+        notify_signal(self.reactive_id)
+
+
+class TextSignal:
+    value: str
+    reactive_id: int
+
+    def __init__(self, value: str) -> None:
+        self.value = value
+        self.reactive_id = _alloc_reactive_id()
+
+    def get(self) -> str:
+        track_signal(self.reactive_id)
+        return self.value
+
+    def set(self, value: str) -> None:
+        if self.value == value:
+            return
+        self.value = value
+        notify_signal(self.reactive_id)
+
+
+class IntReader:
+    def read(self) -> int:
+        return 0
+
+
+class Computed:
+    reader: IntReader
+    cached: int
+    has_value: bool
+    reactive_id: int
+
+    def __init__(self, reader: IntReader) -> None:
+        self.reader = reader
+        self.cached = 0
+        self.has_value = False
+        self.reactive_id = _alloc_reactive_id()
+        set_computed_dirty(self.reactive_id, 1)
+
+    def get(self) -> int:
+        if computed_is_evaluating(self.reactive_id) == 1:
+            raise FrameworkError("cyclic computed dependency")
+        if computed_is_dirty(self.reactive_id) == 1 or not self.has_value:
+            previous: int = begin_computed(self.reactive_id)
+            set_computed_evaluating(self.reactive_id, 1)
+            self.cached = self.reader.read()
+            end_computed(previous)
+            set_computed_evaluating(self.reactive_id, 0)
+            self.has_value = True
+            set_computed_dirty(self.reactive_id, 0)
+        track_signal(self.reactive_id)
+        return self.cached

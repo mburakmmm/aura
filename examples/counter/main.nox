@@ -1,0 +1,70 @@
+from aura.app import run_app
+from aura.rendering.render_object import RenderBox
+from aura.runtime.binding import Binding
+from aura.widgets.framework import Element
+from examples.counter.page import CounterPage
+from nox.os import arg, arg_count
+
+
+def require_box(box: RenderBox | None, name: str) -> RenderBox:
+    if box is None:
+        raise Exception(name)
+    return box
+
+
+def child_at(element: Element, index: int) -> Element:
+    found: Element | None = element.children[index]
+    if found is None:
+        raise Exception("missing child")
+    return found
+
+
+def self_check() -> None:
+    binding: Binding = Binding(800, 600, "Aura", 0)
+    binding.mount(CounterPage())
+    binding.frame()
+    center: RenderBox = require_box(binding.pump.view.only_child, "center")
+    column: RenderBox = require_box(center.only_child, "column")
+    header: RenderBox = column.children[0]
+    count: RenderBox = column.children[1]
+    button: RenderBox = column.children[2]
+    binding.pump.view.reset_paint_marks()
+    x: float = button.absolute_x() + button.width / 2.0
+    y: float = button.absolute_y() + button.height / 2.0
+    binding.post_click(x, y)
+    binding.frame()
+    if count.semantics_label != "1":
+        raise Exception("counter did not increment")
+    if header.paint_mark_count != 0:
+        raise Exception("static header was repainted")
+    if header.semantics_label != "Aura":
+        raise Exception("header text changed")
+    root: Element | None = binding.pump.root
+    if root is None:
+        raise Exception("missing counter root")
+    column_element: Element = child_at(child_at(root, 0), 0)
+    header_element: Element = child_at(column_element, 0)
+    reader_element: Element = child_at(column_element, 1)
+    if root.rebuild_count != 1:
+        raise Exception("state rebuilt")
+    if header_element.rebuild_count != 0:
+        raise Exception("header element rebuilt")
+    if reader_element.rebuild_count < 2:
+        raise Exception("reader did not rebuild")
+    binding.close()
+    print("counter self-check ok")
+
+
+def wants_self_check() -> bool:
+    i: int = 0
+    while i < arg_count():
+        if arg(i) == "--self-check":
+            return True
+        i = i + 1
+    return False
+
+
+if wants_self_check():
+    self_check()
+else:
+    run_app(CounterPage())

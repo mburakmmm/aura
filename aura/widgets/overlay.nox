@@ -1,0 +1,486 @@
+from aura.controls.button import Button
+from aura.foundation.color import COLOR_BUTTON, rgba
+from aura.foundation.constraints import Constraints
+from aura.foundation.insets import insets_all
+from aura.layout.boxes import ColoredBox, Padding
+from aura.layout.flex import MAIN_MIN, Column
+from aura.rendering.layer import PaintingContext
+from aura.rendering.render_object import HitTestResult, RenderBox
+from aura.text.text import Text
+from aura.widgets.framework import BuildContext, Element, RenderElement, RenderObjectWidget, StatelessWidget, StatefulWidget, State, Widget
+from aura.widgets.key import IntValueKey, Key
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_OVERLAY: int = alloc_type_id()
+TYPE_PAGE_HOST: int = alloc_type_id()
+TYPE_ENTRY_HOST: int = alloc_type_id()
+TYPE_MODAL: int = alloc_type_id()
+TYPE_DIALOG: int = alloc_type_id()
+TYPE_MENU: int = alloc_type_id()
+TYPE_MENU_ROW: int = alloc_type_id()
+DIM: int = rgba(20, 18, 16, 160)
+
+_overlay_ids: list[int] = []
+_overlay_elements: list[Element] = []
+
+
+class DialogResult:
+    code: int
+    chosen: int
+
+    def __init__(self) -> None:
+        self.code = 0
+        self.chosen = 0
+
+    def choose(self, code: int) -> None:
+        self.code = code
+        self.chosen = 1
+
+
+class MenuItem:
+    label: str
+    on_press: () -> None
+
+    def __init__(self, label: str, on_press: () -> None) -> None:
+        self.label = label
+        self.on_press = on_press
+
+
+def register_overlay(element: Element) -> None:
+    i: int = 0
+    while i < len(_overlay_ids):
+        if _overlay_ids[i] == element.element_id:
+            _overlay_elements[i] = element
+            return
+        i = i + 1
+    _overlay_ids.append(element.element_id)
+    _overlay_elements.append(element)
+
+
+def unregister_overlay(element_id: int) -> None:
+    ids: list[int] = []
+    elements: list[Element] = []
+    i: int = 0
+    while i < len(_overlay_ids):
+        if _overlay_ids[i] != element_id:
+            ids.append(_overlay_ids[i])
+            elements.append(_overlay_elements[i])
+        i = i + 1
+    _overlay_ids = ids
+    _overlay_elements = elements
+
+
+def _overlay_at(element_id: int) -> Element | None:
+    i: int = 0
+    while i < len(_overlay_ids):
+        if _overlay_ids[i] == element_id:
+            return _overlay_elements[i]
+        i = i + 1
+    return None
+
+
+class OverlayHandle:
+    element_id: int
+
+    def __init__(self, element_id: int) -> None:
+        self.element_id = element_id
+
+    def push(self, page: Widget) -> None:
+        found: Element | None = _overlay_at(self.element_id)
+        if found is None:
+            return
+        found.push_entry(page)
+
+    def pop(self) -> None:
+        found: Element | None = _overlay_at(self.element_id)
+        if found is None:
+            return
+        found.pop_entry()
+
+    def count(self) -> int:
+        found: Element | None = _overlay_at(self.element_id)
+        if found is None:
+            return 0
+        return found.entry_count()
+
+
+def _lookup(element: Element, depend: int) -> OverlayHandle:
+    parent: Element | None = element.parent
+    while parent is not None:
+        found: Element | None = _overlay_at(parent.element_id)
+        if found is not None:
+            if depend == 1:
+                parent.add_dependent(element)
+            return OverlayHandle(parent.element_id)
+        parent = parent.parent
+    raise Exception("Overlay.of called without an overlay")
+
+
+def overlay_of(context: BuildContext) -> OverlayHandle:
+    return _lookup(context.element, 1)
+
+
+def overlay_handle(context: BuildContext) -> OverlayHandle:
+    return _lookup(context.element, 0)
+
+
+class RenderOverlay(RenderBox):
+    def __init__(self) -> None:
+        super().__init__()
+        self.multi_child = True
+
+    def perform_layout(self) -> None:
+        self.width = self.constraints.constrain_width(self.constraints.max_width)
+        self.height = self.constraints.constrain_height(self.constraints.max_height)
+        limits: Constraints = Constraints(self.width, self.width, self.height, self.height)
+        i: int = 0
+        while i < len(self.children):
+            child: RenderBox = self.children[i]
+            child.layout(limits)
+            child.offset_x = 0.0
+            child.offset_y = 0.0
+            i = i + 1
+
+    def hit_test_children(self, result: HitTestResult, x: float, y: float) -> bool:
+        if len(self.children) == 0:
+            return False
+        if len(self.children) == 1:
+            return self.children[0].hit_test(result, x, y)
+        return self.children[len(self.children) - 1].hit_test(result, x, y)
+
+
+class PageHost(StatelessWidget):
+    page: Widget
+
+    def __init__(self, page: Widget) -> None:
+        super().__init__(TYPE_PAGE_HOST, IntValueKey(1))
+        self.page = page
+
+    def build(self, context: BuildContext) -> Widget:
+        return self.page
+
+
+class EntryHost(StatelessWidget):
+    page: Widget
+
+    def __init__(self, page: Widget, entry_id: int) -> None:
+        super().__init__(TYPE_ENTRY_HOST, IntValueKey(entry_id))
+        self.page = page
+
+    def build(self, context: BuildContext) -> Widget:
+        return self.page
+
+
+class OverlayElement(RenderElement):
+    page: Widget | None
+    entries: list[Widget]
+    entry_ids: list[int]
+    next_entry_id: int
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.page = None
+        self.entries = []
+        self.entry_ids = []
+        self.next_entry_id = 10
+
+    def first_mount(self) -> None:
+        widget: Widget | None = self.widget
+        if widget is None:
+            return
+        created: RenderBox | None = widget.create_render()
+        if created is None:
+            return
+        self.render = created
+        if self.pipeline is not None:
+            created.pipeline = self.pipeline
+        register_overlay(self)
+        widget.seed_overlay(self)
+        self.rebuild()
+
+    def update(self, widget: Widget) -> None:
+        self.widget = widget
+        widget.seed_overlay(self)
+        self.rebuild()
+        self.notify_dependents()
+
+    def rebuild(self) -> None:
+        if self.unmounted:
+            return
+        page: Widget | None = self.page
+        if page is None:
+            return
+        self.rebuild_count = self.rebuild_count + 1
+        hosts: list[Widget] = [PageHost(page)]
+        i: int = 0
+        while i < len(self.entries):
+            hosts.append(EntryHost(self.entries[i], self.entry_ids[i]))
+            i = i + 1
+        self.reconcile(hosts)
+        self.sync_render_children()
+
+    def unmount(self) -> None:
+        unregister_overlay(self.element_id)
+        super().unmount()
+
+    def set_page(self, page: Widget) -> None:
+        self.page = page
+
+    def push_entry(self, page: Widget) -> None:
+        entry_id: int = self.next_entry_id
+        self.next_entry_id = self.next_entry_id + 1
+        self.entries.append(page)
+        self.entry_ids.append(entry_id)
+        self.mark_dirty()
+
+    def pop_entry(self) -> None:
+        if len(self.entries) == 0:
+            return
+        pages: list[Widget] = []
+        ids: list[int] = []
+        i: int = 0
+        while i < len(self.entries) - 1:
+            pages.append(self.entries[i])
+            ids.append(self.entry_ids[i])
+            i = i + 1
+        self.entries = pages
+        self.entry_ids = ids
+        self.mark_dirty()
+
+    def entry_count(self) -> int:
+        return len(self.entries)
+
+
+class Overlay(StatelessWidget):
+    child: Widget
+
+    def __init__(self, child: Widget, key: Key | None = None) -> None:
+        super().__init__(TYPE_OVERLAY, key)
+        self.child = child
+
+    def create_element(self) -> Element:
+        return OverlayElement()
+
+    def create_render(self) -> RenderBox | None:
+        return RenderOverlay()
+
+    def seed_overlay(self, element: Element) -> None:
+        element.set_page(self.child)
+
+
+class RenderModal(RenderBox):
+    mode: int
+    place_x: float
+    place_y: float
+    dim: int
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.mode = 0
+        self.place_x = 0.0
+        self.place_y = 0.0
+        self.dim = DIM
+
+    def set_modal(self, mode: int, x: float, y: float, dim: int) -> None:
+        self.mode = mode
+        self.place_x = x
+        self.place_y = y
+        self.dim = dim
+        self.mark_needs_layout()
+
+    def perform_layout(self) -> None:
+        self.width = self.constraints.constrain_width(self.constraints.max_width)
+        self.height = self.constraints.constrain_height(self.constraints.max_height)
+        child: RenderBox | None = self.only_child
+        if child is None:
+            return
+        child.layout(self.constraints.loosen())
+        if self.mode == 0:
+            child.offset_x = (self.width - child.width) / 2.0
+            child.offset_y = (self.height - child.height) / 2.0
+        else:
+            child.offset_x = self.place_x
+            child.offset_y = self.place_y
+        if child.offset_x < 0.0:
+            child.offset_x = 0.0
+        if child.offset_y < 0.0:
+            child.offset_y = 0.0
+        if child.offset_x + child.width > self.width:
+            child.offset_x = self.width - child.width
+        if child.offset_y + child.height > self.height:
+            child.offset_y = self.height - child.height
+
+    def paint_self(self, context: PaintingContext) -> None:
+        context.fill_rect(0.0, 0.0, self.width, self.height, self.dim)
+
+    def hit_test_self(self, x: float, y: float) -> bool:
+        return True
+
+
+class ModalLayer(RenderObjectWidget):
+    child: Widget
+    on_barrier: () -> None
+    mode: int
+    place_x: float
+    place_y: float
+
+    def __init__(self, child: Widget, on_barrier: () -> None, mode: int, place_x: float, place_y: float) -> None:
+        super().__init__(TYPE_MODAL, None)
+        self.child = child
+        self.on_barrier = on_barrier
+        self.mode = mode
+        self.place_x = place_x
+        self.place_y = place_y
+
+    def create_render(self) -> RenderBox | None:
+        return RenderModal()
+
+    def child_widgets(self) -> list[Widget]:
+        return [self.child]
+
+    def sync_render(self, element: Element) -> None:
+        element.remember_press(self.on_barrier)
+        element.apply_modal(self.mode, self.place_x, self.place_y, DIM, element.press_and_focus)
+
+
+class DialogState(State):
+    title: str
+    body: str
+    result: DialogResult
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.title = ""
+        self.body = ""
+        self.result = DialogResult()
+
+    def accept(self) -> None:
+        self.result.choose(1)
+        self._close()
+
+    def dismiss(self) -> None:
+        self.result.choose(0)
+        self._close()
+
+    def _close(self) -> None:
+        element: Element | None = self.element
+        if element is None:
+            return
+        overlay_handle(BuildContext(element)).pop()
+
+    def build(self, context: BuildContext) -> Widget:
+        card: Widget = ColoredBox(COLOR_BUTTON, Padding(insets_all(16.0), Column([
+            Text(self.title, font_size=24.0),
+            Text(self.body),
+            Button("OK", self.accept),
+        ], main_size=MAIN_MIN, spacing=12.0)))
+        return ModalLayer(card, self.dismiss, 0, 0.0, 0.0)
+
+
+class DialogBox(StatefulWidget):
+    title: str
+    body: str
+    result: DialogResult
+
+    def __init__(self, title: str, body: str, result: DialogResult) -> None:
+        super().__init__(TYPE_DIALOG, None)
+        self.title = title
+        self.body = body
+        self.result = result
+
+    def create_state(self) -> State:
+        state: DialogState = DialogState()
+        state.title = self.title
+        state.body = self.body
+        state.result = self.result
+        return state
+
+
+def show_dialog(context: BuildContext, title: str, body: str, result: DialogResult) -> None:
+    overlay_handle(context).push(DialogBox(title, body, result))
+
+
+class MenuRowState(State):
+    item: MenuItem | None
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.item = None
+
+    def press(self) -> None:
+        item: MenuItem | None = self.item
+        element: Element | None = self.element
+        if element is not None:
+            overlay_handle(BuildContext(element)).pop()
+        if item is not None:
+            item.on_press()
+
+    def build(self, context: BuildContext) -> Widget:
+        item: MenuItem | None = self.item
+        label: str = ""
+        if item is not None:
+            label = item.label
+        return Button(label, self.press)
+
+
+class MenuRow(StatefulWidget):
+    item: MenuItem
+
+    def __init__(self, item: MenuItem) -> None:
+        super().__init__(TYPE_MENU_ROW, None)
+        self.item = item
+
+    def create_state(self) -> State:
+        state: MenuRowState = MenuRowState()
+        state.item = self.item
+        return state
+
+
+class MenuState(State):
+    items: list[MenuItem]
+    place_x: float
+    place_y: float
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.items = []
+        self.place_x = 0.0
+        self.place_y = 0.0
+
+    def dismiss(self) -> None:
+        element: Element | None = self.element
+        if element is None:
+            return
+        overlay_handle(BuildContext(element)).pop()
+
+    def build(self, context: BuildContext) -> Widget:
+        rows: list[Widget] = []
+        i: int = 0
+        while i < len(self.items):
+            rows.append(MenuRow(self.items[i]))
+            i = i + 1
+        card: Widget = ColoredBox(COLOR_BUTTON, Padding(insets_all(8.0), Column(rows, main_size=MAIN_MIN, spacing=8.0)))
+        return ModalLayer(card, self.dismiss, 1, self.place_x, self.place_y)
+
+
+class MenuBox(StatefulWidget):
+    items: list[MenuItem]
+    place_x: float
+    place_y: float
+
+    def __init__(self, items: list[MenuItem], place_x: float, place_y: float) -> None:
+        super().__init__(TYPE_MENU, None)
+        self.items = items
+        self.place_x = place_x
+        self.place_y = place_y
+
+    def create_state(self) -> State:
+        state: MenuState = MenuState()
+        state.items = self.items
+        state.place_x = self.place_x
+        state.place_y = self.place_y
+        return state
+
+
+def show_menu(context: BuildContext, x: float, y: float, items: list[MenuItem]) -> None:
+    overlay_handle(context).push(MenuBox(items, x, y))

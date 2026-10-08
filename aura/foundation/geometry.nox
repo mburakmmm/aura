@@ -1,0 +1,185 @@
+class Offset:
+    x: float
+    y: float
+
+    def __init__(self, x: float, y: float) -> None:
+        self.x = x
+        self.y = y
+
+    def add(self, other: Offset) -> Offset:
+        return Offset(self.x + other.x, self.y + other.y)
+
+    def subtract(self, other: Offset) -> Offset:
+        return Offset(self.x - other.x, self.y - other.y)
+
+
+class Size:
+    width: float
+    height: float
+
+    def __init__(self, width: float, height: float) -> None:
+        self.width = width
+        self.height = height
+
+    def is_empty(self) -> bool:
+        if self.width <= 0.0:
+            return True
+        if self.height <= 0.0:
+            return True
+        return False
+
+
+class Rect:
+    x: float
+    y: float
+    width: float
+    height: float
+
+    def __init__(self, x: float, y: float, width: float, height: float) -> None:
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+
+    def right(self) -> float:
+        return self.x + self.width
+
+    def bottom(self) -> float:
+        return self.y + self.height
+
+    def contains(self, x: float, y: float) -> bool:
+        if x < self.x:
+            return False
+        if y < self.y:
+            return False
+        if x >= self.x + self.width:
+            return False
+        if y >= self.y + self.height:
+            return False
+        return True
+
+
+class Radius:
+    x: float
+    y: float
+
+    def __init__(self, x: float, y: float) -> None:
+        self.x = x
+        self.y = y
+
+    def scale(self, factor: float) -> Radius:
+        return Radius(self.x * factor, self.y * factor)
+
+
+def radius_circular(value: float) -> Radius:
+    return Radius(value, value)
+
+
+class RRect:
+    rect: Rect
+    top_left: Radius
+    top_right: Radius
+    bottom_right: Radius
+    bottom_left: Radius
+
+    def __init__(self, rect: Rect, top_left: Radius, top_right: Radius, bottom_right: Radius, bottom_left: Radius) -> None:
+        self.rect = rect
+        self.top_left = top_left
+        self.top_right = top_right
+        self.bottom_right = bottom_right
+        self.bottom_left = bottom_left
+
+    def shift(self, dx: float, dy: float) -> RRect:
+        moved: Rect = Rect(self.rect.x + dx, self.rect.y + dy, self.rect.width, self.rect.height)
+        return RRect(moved, self.top_left, self.top_right, self.bottom_right, self.bottom_left)
+
+
+def rrect_all(rect: Rect, radius: Radius) -> RRect:
+    return RRect(rect, radius, radius, radius, radius)
+
+
+class Alignment:
+    x: float
+    y: float
+
+    def __init__(self, x: float, y: float) -> None:
+        self.x = x
+        self.y = y
+
+    def offset_x(self, parent_width: float, child_width: float) -> float:
+        return (parent_width - child_width) * (self.x + 1.0) / 2.0
+
+    def offset_y(self, parent_height: float, child_height: float) -> float:
+        return (parent_height - child_height) * (self.y + 1.0) / 2.0
+
+
+ALIGNMENT_CENTER: Alignment = Alignment(0.0, 0.0)
+ALIGNMENT_TOP_LEFT: Alignment = Alignment(-1.0, -1.0)
+
+
+class Matrix4:
+    m00: float
+    m01: float
+    m02: float
+    m03: float
+    m10: float
+    m11: float
+    m12: float
+    m13: float
+    m20: float
+    m21: float
+    m22: float
+    m23: float
+    m30: float
+    m31: float
+    m32: float
+    m33: float
+
+    def __init__(self, m00: float, m01: float, m02: float, m03: float, m10: float, m11: float, m12: float, m13: float, m20: float, m21: float, m22: float, m23: float, m30: float, m31: float, m32: float, m33: float) -> None:
+        self.m00 = m00
+        self.m01 = m01
+        self.m02 = m02
+        self.m03 = m03
+        self.m10 = m10
+        self.m11 = m11
+        self.m12 = m12
+        self.m13 = m13
+        self.m20 = m20
+        self.m21 = m21
+        self.m22 = m22
+        self.m23 = m23
+        self.m30 = m30
+        self.m31 = m31
+        self.m32 = m32
+        self.m33 = m33
+
+    def multiply(self, other: Matrix4) -> Matrix4:
+        return Matrix4(
+            self.m00 * other.m00 + self.m01 * other.m10 + self.m02 * other.m20 + self.m03 * other.m30,
+            self.m00 * other.m01 + self.m01 * other.m11 + self.m02 * other.m21 + self.m03 * other.m31,
+            self.m00 * other.m02 + self.m01 * other.m12 + self.m02 * other.m22 + self.m03 * other.m32,
+            self.m00 * other.m03 + self.m01 * other.m13 + self.m02 * other.m23 + self.m03 * other.m33,
+            self.m10 * other.m00 + self.m11 * other.m10 + self.m12 * other.m20 + self.m13 * other.m30,
+            self.m10 * other.m01 + self.m11 * other.m11 + self.m12 * other.m21 + self.m13 * other.m31,
+            self.m10 * other.m02 + self.m11 * other.m12 + self.m12 * other.m22 + self.m13 * other.m32,
+            self.m10 * other.m03 + self.m11 * other.m13 + self.m12 * other.m23 + self.m13 * other.m33,
+            self.m20 * other.m00 + self.m21 * other.m10 + self.m22 * other.m20 + self.m23 * other.m30,
+            self.m20 * other.m01 + self.m21 * other.m11 + self.m22 * other.m21 + self.m23 * other.m31,
+            self.m20 * other.m02 + self.m21 * other.m12 + self.m22 * other.m22 + self.m23 * other.m32,
+            self.m20 * other.m03 + self.m21 * other.m13 + self.m22 * other.m23 + self.m23 * other.m33,
+            self.m30 * other.m00 + self.m31 * other.m10 + self.m32 * other.m20 + self.m33 * other.m30,
+            self.m30 * other.m01 + self.m31 * other.m11 + self.m32 * other.m21 + self.m33 * other.m31,
+            self.m30 * other.m02 + self.m31 * other.m12 + self.m32 * other.m22 + self.m33 * other.m32,
+            self.m30 * other.m03 + self.m31 * other.m13 + self.m32 * other.m23 + self.m33 * other.m33
+        )
+
+    def translate(self, x: float, y: float) -> Matrix4:
+        return self.multiply(matrix4_translation(x, y))
+
+
+def matrix4_identity() -> Matrix4:
+    return Matrix4(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0)
+
+
+def matrix4_translation(x: float, y: float) -> Matrix4:
+    return Matrix4(1.0, 0.0, 0.0, x, 0.0, 1.0, 0.0, y, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0)

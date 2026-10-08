@@ -1,0 +1,91 @@
+from aura.widgets.scheduler import Scheduler, Ticker
+
+
+class Curve:
+    def transform(self, t: float) -> float:
+        return t
+
+
+class LinearCurve(Curve):
+    def transform(self, t: float) -> float:
+        return t
+
+
+class EaseInCurve(Curve):
+    def transform(self, t: float) -> float:
+        return t * t
+
+
+class Tween:
+    begin: float
+    end: float
+
+    def __init__(self, begin: float, end: float) -> None:
+        self.begin = begin
+        self.end = end
+
+    def lerp(self, t: float) -> float:
+        return self.begin + (self.end - self.begin) * t
+
+
+def _noop_tick() -> None:
+    pass
+
+
+class AnimationController(Ticker):
+    duration_s: float
+    value: float
+    from_v: float
+    to_v: float
+    playing: bool
+    has_start: bool
+    start_s: float
+    curve: Curve
+    on_tick: () -> None
+    has_listener: bool
+
+    def __init__(self, duration_s: float) -> None:
+        self.duration_s = duration_s
+        self.value = 0.0
+        self.from_v = 0.0
+        self.to_v = 1.0
+        self.playing = False
+        self.has_start = False
+        self.start_s = 0.0
+        self.curve = LinearCurve()
+        self.on_tick = _noop_tick
+        self.has_listener = False
+
+    def forward(self, scheduler: Scheduler) -> None:
+        self.from_v = self.value
+        self.to_v = 1.0
+        self.playing = True
+        self.has_start = False
+        scheduler.add(self)
+
+    def tick(self, time_s: float) -> None:
+        if not self.playing:
+            return
+        if not self.has_start:
+            self.has_start = True
+            self.start_s = time_s
+        elapsed: float = time_s - self.start_s
+        span: float = self.duration_s
+        t: float = 1.0
+        if span > 0.0:
+            t = elapsed / span
+        if t < 0.0:
+            t = 0.0
+        if t > 1.0:
+            t = 1.0
+        curved: float = self.curve.transform(t)
+        self.value = self.from_v + (self.to_v - self.from_v) * curved
+        if t >= 1.0:
+            self.playing = False
+        if self.has_listener:
+            self.on_tick()
+
+    def dispose(self, scheduler: Scheduler) -> None:
+        self.playing = False
+        self.has_listener = False
+        scheduler.remove(self)

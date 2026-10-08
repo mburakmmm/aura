@@ -1,0 +1,7 @@
+from aura.layout.boxes import SizedBox
+from aura.testing.tester import WidgetTester
+
+tester: WidgetTester = WidgetTester()
+tester.pump_widget(SizedBox(40.0, 20.0), 100.0, 80.0)
+print(tester.view().width)
+print("smoke")

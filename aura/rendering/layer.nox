@@ -1,0 +1,136 @@
+from aura.graphics.canvas import Canvas
+
+KIND_CLEAR: int = 1
+KIND_RECT: int = 2
+KIND_TEXT: int = 3
+KIND_OPACITY: int = 4
+KIND_OPACITY_POP: int = 5
+KIND_IMAGE: int = 6
+
+
+class DrawCommand:
+    kind: int
+    x: float
+    y: float
+    w: float
+    h: float
+    size: float
+    weight: int
+    argb: int
+    text: str
+    family: str
+
+    def __init__(self, kind: int, x: float, y: float, w: float, h: float, size: float, weight: int, argb: int, text: str, family: str) -> None:
+        self.kind = kind
+        self.x = x
+        self.y = y
+        self.w = w
+        self.h = h
+        self.size = size
+        self.weight = weight
+        self.argb = argb
+        self.text = text
+        self.family = family
+
+
+class PictureLayer:
+    commands: list[DrawCommand]
+
+    def __init__(self) -> None:
+        self.commands = []
+
+    def clear(self, argb: int) -> None:
+        self.commands.append(DrawCommand(KIND_CLEAR, 0.0, 0.0, 0.0, 0.0, 0.0, 0, argb, "", ""))
+
+    def fill_rect(self, x: float, y: float, w: float, h: float, argb: int) -> None:
+        self.commands.append(DrawCommand(KIND_RECT, x, y, w, h, 0.0, 0, argb, "", ""))
+
+    def fill_text(self, x: float, y: float, text: str, size: float, weight: int, argb: int, family: str) -> None:
+        self.commands.append(DrawCommand(KIND_TEXT, x, y, 0.0, 0.0, size, weight, argb, text, family))
+
+    def push_opacity(self, opacity: float) -> None:
+        self.commands.append(DrawCommand(KIND_OPACITY, 0.0, 0.0, opacity, 0.0, 0.0, 0, 0, "", ""))
+
+    def draw_image(self, x: float, y: float, w: float, h: float, image: int) -> None:
+        self.commands.append(DrawCommand(KIND_IMAGE, x, y, w, h, 0.0, image, 0, "", ""))
+
+    def pop_opacity(self) -> None:
+        self.commands.append(DrawCommand(KIND_OPACITY_POP, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0, "", ""))
+
+    def replay(self, canvas: Canvas) -> None:
+        i: int = 0
+        while i < len(self.commands):
+            cmd: DrawCommand = self.commands[i]
+            if cmd.kind == KIND_CLEAR:
+                canvas.clear(cmd.argb)
+            elif cmd.kind == KIND_RECT:
+                canvas.fill_rect(cmd.x, cmd.y, cmd.w, cmd.h, cmd.argb)
+            elif cmd.kind == KIND_TEXT:
+                canvas.fill_text(cmd.x, cmd.y, cmd.text, cmd.size, cmd.weight, cmd.argb, cmd.family)
+            elif cmd.kind == KIND_OPACITY:
+                canvas.push_opacity(cmd.w)
+            elif cmd.kind == KIND_OPACITY_POP:
+                canvas.pop_opacity()
+            elif cmd.kind == KIND_IMAGE:
+                canvas.draw_image(cmd.x, cmd.y, cmd.w, cmd.h, cmd.weight)
+            i = i + 1
+
+
+class PaintingContext:
+    layer: PictureLayer
+    ox: float
+    oy: float
+
+    def __init__(self, layer: PictureLayer) -> None:
+        self.layer = layer
+        self.ox = 0.0
+        self.oy = 0.0
+
+    def push_offset(self, x: float, y: float) -> None:
+        self.ox = self.ox + x
+        self.oy = self.oy + y
+
+    def pop_offset(self, x: float, y: float) -> None:
+        self.ox = self.ox - x
+        self.oy = self.oy - y
+
+    def fill_rect(self, x: float, y: float, w: float, h: float, argb: int) -> None:
+        self.layer.fill_rect(self.ox + x, self.oy + y, w, h, argb)
+
+    def fill_text(self, x: float, y: float, text: str, size: float, weight: int, argb: int, family: str) -> None:
+        self.layer.fill_text(self.ox + x, self.oy + y, text, size, weight, argb, family)
+
+    def push_opacity(self, opacity: float) -> None:
+        self.layer.push_opacity(opacity)
+
+    def draw_image(self, x: float, y: float, w: float, h: float, image: int) -> None:
+        self.layer.draw_image(self.ox + x, self.oy + y, w, h, image)
+
+    def pop_opacity(self) -> None:
+        self.layer.pop_opacity()
+
+    def blit(self, source: PictureLayer) -> None:
+        i: int = 0
+        while i < len(source.commands):
+            cmd: DrawCommand = source.commands[i]
+            if cmd.kind == KIND_RECT:
+                self.layer.fill_rect(self.ox + cmd.x, self.oy + cmd.y, cmd.w, cmd.h, cmd.argb)
+            elif cmd.kind == KIND_TEXT:
+                self.layer.fill_text(self.ox + cmd.x, self.oy + cmd.y, cmd.text, cmd.size, cmd.weight, cmd.argb, cmd.family)
+            elif cmd.kind == KIND_OPACITY:
+                self.layer.push_opacity(cmd.w)
+            elif cmd.kind == KIND_OPACITY_POP:
+                self.layer.pop_opacity()
+            elif cmd.kind == KIND_IMAGE:
+                self.layer.draw_image(self.ox + cmd.x, self.oy + cmd.y, cmd.w, cmd.h, cmd.weight)
+            i = i + 1
+
+
+class Scene:
+    layer: PictureLayer
+
+    def __init__(self, layer: PictureLayer) -> None:
+        self.layer = layer
+
+    def submit(self, canvas: Canvas) -> None:
+        self.layer.replay(canvas)

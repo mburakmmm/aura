@@ -1,0 +1,159 @@
+from aura.foundation.color import COLOR_ACCENT, COLOR_TEXT, rgba
+from aura.input.focus import FocusManager, FocusNode
+from aura.platform.bridge import sync_text_input
+from aura.rendering.layer import PaintingContext
+from aura.rendering.render_object import RenderBox
+from aura.semantics.semantics_node import SemanticsNode
+from aura.text.editing import TextEditingController
+from aura.text.measure import measure_height, measure_width, wrap_text
+from aura.widgets.framework import Element, RenderObjectWidget
+from aura.widgets.key import Key
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_FIELD: int = alloc_type_id()
+
+
+SELECTION: int = rgba(196, 122, 74, 90)
+
+
+class RenderTextField(RenderBox):
+    value: str
+    composing: str
+    cursor: int
+    anchor: int
+    multiline: int
+    lines: list[str]
+    line_height: float
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.value = ""
+        self.composing = ""
+        self.cursor = 0
+        self.anchor = 0
+        self.multiline = 0
+        self.lines = []
+        self.line_height = 16.0
+        self.semantics_role = "text-field"
+
+    def set_text_field(self, value: str, composing: str, cursor: int, anchor: int, multiline: int) -> None:
+        changed: bool = False
+        if self.value != value or self.composing != composing or self.cursor != cursor or self.anchor != anchor or self.multiline != multiline:
+            changed = True
+        self.value = value
+        self.composing = composing
+        self.cursor = cursor
+        self.anchor = anchor
+        self.multiline = multiline
+        self.semantics_label = value
+        if changed:
+            self.mark_needs_layout()
+            self.mark_needs_paint()
+
+    def perform_layout(self) -> None:
+        self.line_height = measure_height(16.0, 400, "")
+        shown: str = self.value
+        if self.composing != "":
+            shown = shown + self.composing
+        if self.multiline == 0:
+            self.lines = [shown]
+        else:
+            self.lines = wrap_text(shown, self.constraints.max_width - 16.0, 16.0, 400, "")
+        if len(self.lines) == 0:
+            self.lines = [""]
+        self.width = self.constraints.constrain_width(self.constraints.max_width)
+        if self.multiline == 0:
+            self.height = self.constraints.constrain_height(self.line_height + 16.0)
+        else:
+            self.height = self.constraints.constrain_height(self.line_height * float(len(self.lines)) + 16.0)
+
+    def paint_self(self, context: PaintingContext) -> None:
+        context.fill_rect(0.0, 0.0, self.width, self.height, 4294967295)
+        start: int = self.cursor
+        end: int = self.anchor
+        if start > end:
+            start = self.anchor
+            end = self.cursor
+        if start != end:
+            left: float = 8.0 + measure_width(self.value[0:start], 16.0, 400, "")
+            right: float = 8.0 + measure_width(self.value[0:end], 16.0, 400, "")
+            context.fill_rect(left, 8.0, right - left, self.line_height, SELECTION)
+        i: int = 0
+        while i < len(self.lines):
+            context.fill_text(8.0, 8.0 + float(i) * self.line_height, self.lines[i], 16.0, 400, COLOR_TEXT, "")
+            i = i + 1
+        caret_text: str = self.value
+        if self.composing != "":
+            caret_text = self.value + self.composing
+        caret: str = caret_text[0:self.cursor + len(self.composing)]
+        caret_x: float = 8.0 + measure_width(caret, 16.0, 400, "")
+        context.fill_rect(caret_x, 8.0, 1.0, self.line_height, COLOR_ACCENT)
+
+    def hit_test_self(self, x: float, y: float) -> bool:
+        return True
+
+    def describe_semantics(self, node: SemanticsNode) -> None:
+        node.role = "text-field"
+        node.label = ""
+        node.value = self.value
+        node.enabled = True
+        node.checked = False
+
+
+class TextField(RenderObjectWidget):
+    controller: TextEditingController
+    multiline: int
+
+    def __init__(self, controller: TextEditingController, multiline: int = 0, key: Key | None = None) -> None:
+        super().__init__(TYPE_FIELD, key)
+        self.controller = controller
+        self.multiline = multiline
+
+    def create_render(self) -> RenderBox | None:
+        return RenderTextField()
+
+    def sync_render(self, element: Element) -> None:
+        self.controller.bind(element.element_id)
+        _ensure_focus(element, self.controller.target_id)
+        box: RenderBox | None = element.render
+        if box is None:
+            return
+        box.set_tap(element.focus_field)
+        box.set_text_target(self.controller.target_id)
+        box.set_text_field(self.controller.text, self.controller.composing, self.controller.cursor, self.controller.anchor, self.multiline)
+        if _field_is_focused(element):
+            start: int = self.controller.sel_start()
+            length: int = self.controller.sel_end() - start
+            sync_text_input(self.controller.text, start, length)
+
+
+def _field_is_focused(element: Element) -> bool:
+    node: FocusNode | None = element.focus_node
+    manager: FocusManager | None = element.focus_manager
+    if node is None or manager is None:
+        return False
+    focused: FocusNode | None = manager.focused
+    if focused is None:
+        return False
+    return focused.node_id == node.node_id
+
+
+def _ensure_focus(element: Element, target_id: int) -> None:
+    manager: FocusManager | None = element.focus_manager
+    if manager is None:
+        return
+    node: FocusNode | None = element.focus_node
+    if node is None:
+        created: FocusNode = FocusNode()
+        created.insert_target = target_id
+        element.focus_node = created
+        manager.attach(created)
+        focused: FocusNode | None = manager.focused
+        claim: bool = True
+        if focused is not None:
+            if focused.insert_target != 0:
+                claim = False
+        if claim:
+            manager.focus(created)
+        return
+    node.insert_target = target_id

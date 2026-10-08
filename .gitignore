@@ -1,0 +1,15 @@
+.nox/
+native/macos/*.dylib
+native/macos/*.o
+native/libaura_host.dylib
+native/plugins/*.dylib
+native/plugins/*.so
+native/plugins/*.dll
+.DS_Store
+native/linux/xdg-shell-client-protocol.h
+native/linux/xdg-shell-protocol.c
+native/linux/text-input-unstable-v3-client-protocol.h
+native/linux/text-input-unstable-v3-protocol.c
+third_party/
+*.o
+test-results.xml

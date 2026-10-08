@@ -1,0 +1,45 @@
+from aura.graphics.canvas import Canvas
+from aura.platform.bridge import cmd_clear, cmd_image, cmd_opacity, cmd_opacity_pop, cmd_rect, cmd_text, frame_begin, frame_end
+
+
+class HostCanvas(Canvas):
+    handle: int
+    begun: bool
+
+    def __init__(self, handle: int) -> None:
+        self.handle = handle
+        self.begun = False
+
+    def _begin(self) -> None:
+        if not self.begun:
+            frame_begin(self.handle)
+            self.begun = True
+
+    def clear(self, argb: int) -> None:
+        self._begin()
+        cmd_clear(self.handle, argb)
+
+    def fill_rect(self, x: float, y: float, w: float, h: float, argb: int) -> None:
+        self._begin()
+        cmd_rect(self.handle, x, y, w, h, argb)
+
+    def fill_text(self, x: float, y: float, text: str, size: float, weight: int, argb: int, family: str) -> None:
+        self._begin()
+        cmd_text(self.handle, x, y, text, size, weight, argb, family)
+
+    def push_opacity(self, opacity: float) -> None:
+        self._begin()
+        cmd_opacity(self.handle, opacity)
+
+    def pop_opacity(self) -> None:
+        self._begin()
+        cmd_opacity_pop(self.handle)
+
+    def draw_image(self, x: float, y: float, w: float, h: float, image: int) -> None:
+        self._begin()
+        cmd_image(self.handle, image, x, y, w, h)
+
+    def present(self) -> None:
+        if self.begun:
+            frame_end(self.handle)
+            self.begun = False

@@ -1,0 +1,132 @@
+from aura.foundation.constraints import Constraints
+from aura.foundation.geometry import Matrix4
+from aura.rendering.layer import PaintingContext
+from aura.rendering.render_object import HitTestResult, RenderBox
+from aura.widgets.framework import Element, RenderObjectWidget, Widget
+from aura.widgets.key import Key
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_OPACITY: int = alloc_type_id()
+TYPE_TRANSFORM: int = alloc_type_id()
+
+
+class RenderOpacity(RenderBox):
+    opacity: float
+    seen: int
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.opacity = 1.0
+        self.seen = 0
+
+    def set_opacity(self, opacity: float) -> None:
+        if self.seen == 1 and self.opacity == opacity:
+            return
+        self.opacity = opacity
+        self.seen = 1
+        self.mark_needs_paint()
+
+    def perform_layout(self) -> None:
+        child: RenderBox | None = self.only_child
+        if child is None:
+            self.width = self.constraints.constrain_width(0.0)
+            self.height = self.constraints.constrain_height(0.0)
+            return
+        child.layout(self.constraints)
+        child.offset_x = 0.0
+        child.offset_y = 0.0
+        self.width = child.width
+        self.height = child.height
+
+    def paint(self, context: PaintingContext) -> None:
+        self.needs_paint = False
+        context.push_opacity(self.opacity)
+        self.paint_self(context)
+        self.paint_children(context)
+        context.pop_opacity()
+
+
+class RenderTransform(RenderBox):
+    dx: float
+    dy: float
+    seen: int
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.dx = 0.0
+        self.dy = 0.0
+        self.seen = 0
+
+    def set_translation(self, x: float, y: float) -> None:
+        if self.seen == 1 and self.dx == x and self.dy == y:
+            return
+        self.dx = x
+        self.dy = y
+        self.seen = 1
+        self.mark_needs_paint()
+
+    def perform_layout(self) -> None:
+        child: RenderBox | None = self.only_child
+        if child is None:
+            self.width = self.constraints.constrain_width(0.0)
+            self.height = self.constraints.constrain_height(0.0)
+            return
+        limits: Constraints = self.constraints
+        child.layout(limits)
+        child.offset_x = 0.0
+        child.offset_y = 0.0
+        self.width = child.width
+        self.height = child.height
+
+    def paint(self, context: PaintingContext) -> None:
+        self.needs_paint = False
+        context.push_offset(self.dx, self.dy)
+        self.paint_self(context)
+        self.paint_children(context)
+        context.pop_offset(self.dx, self.dy)
+
+    def hit_test(self, result: HitTestResult, x: float, y: float) -> bool:
+        local_x: float = x - self.offset_x - self.dx
+        local_y: float = y - self.offset_y - self.dy
+        if self.hit_test_children(result, local_x, local_y):
+            result.add(self, local_x, local_y)
+            return True
+        return False
+
+
+class Opacity(RenderObjectWidget):
+    opacity: float
+    child: Widget
+
+    def __init__(self, opacity: float, child: Widget, key: Key | None = None) -> None:
+        super().__init__(TYPE_OPACITY, key)
+        self.opacity = opacity
+        self.child = child
+
+    def create_render(self) -> RenderBox | None:
+        return RenderOpacity()
+
+    def child_widgets(self) -> list[Widget]:
+        return [self.child]
+
+    def sync_render(self, element: Element) -> None:
+        element.apply_opacity(self.opacity)
+
+
+class Transform(RenderObjectWidget):
+    matrix: Matrix4
+    child: Widget
+
+    def __init__(self, matrix: Matrix4, child: Widget, key: Key | None = None) -> None:
+        super().__init__(TYPE_TRANSFORM, key)
+        self.matrix = matrix
+        self.child = child
+
+    def create_render(self) -> RenderBox | None:
+        return RenderTransform()
+
+    def child_widgets(self) -> list[Widget]:
+        return [self.child]
+
+    def sync_render(self, element: Element) -> None:
+        element.apply_translation(self.matrix.m03, self.matrix.m13)

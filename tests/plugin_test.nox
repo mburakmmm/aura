@@ -1,0 +1,62 @@
+import nox.test
+from aura.core.diagnostics import FrameworkError
+from aura.platform.macos import plugin_close, plugin_frame, plugin_load
+from aura.runtime.binding import Binding
+from aura.text import Text
+from aura.widgets import PlatformView, build_view, register_view
+from aura.widgets.framework import Widget
+
+
+def make_label() -> Widget:
+    return Text("plugin")
+
+
+def check_registry() -> None:
+    built: Widget = Text("")
+    missing: int = 0
+    register_view("label", make_label)
+    built = build_view("label")
+    nox.test.assert_true(built.type_id != 0, "registered view")
+    try:
+        build_view("missing-view")
+    except FrameworkError as error:
+        missing = 1
+        if error.message != "plugin view is not registered":
+            raise Exception("registry message")
+    nox.test.assert_eq_int(missing, 1, "missing view")
+
+
+def check_native() -> None:
+    handle: int = plugin_load("native/plugins/libaura_probe.dylib")
+    partial: int = 0
+    closed: int = 0
+    binding: Binding = Binding(200, 120, "Aura", 0)
+    nox.test.assert_eq_int(plugin_frame(handle, 3, 5), 8, "probe frame")
+    try:
+        plugin_load("native/plugins/libaura_probe_partial.dylib")
+    except FrameworkError as error:
+        partial = 1
+        if error.message != "failed to load plugin":
+            raise Exception("partial message")
+    nox.test.assert_eq_int(partial, 1, "partial load")
+    binding.mount(PlatformView(handle))
+    binding.frame()
+    binding.close()
+    plugin_close(handle)
+    plugin_close(handle)
+    try:
+        plugin_frame(handle, 1, 1)
+    except FrameworkError as error:
+        closed = 1
+        if error.message != "use after close":
+            raise Exception("close message")
+    nox.test.assert_eq_int(closed, 1, "use after close")
+
+
+def main_check() -> None:
+    check_registry()
+    check_native()
+    print("plugin ok")
+
+
+main_check()

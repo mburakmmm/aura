@@ -1,0 +1,97 @@
+from aura.rendering.layer import PaintingContext
+from aura.rendering.render_object import RenderBox
+from aura.semantics.semantics_node import SemanticsNode
+from aura.text.measure import measure_height, measure_width
+from aura.widgets.framework import Element, RenderObjectWidget
+from aura.widgets.key import Key
+from aura.widgets.theme import theme_for_element
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_TOGGLE: int = alloc_type_id()
+
+
+class RenderToggle(RenderBox):
+    checked: bool
+    label: str
+    text: int
+    track: int
+    thumb: int
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.checked = False
+        self.label = ""
+        self.text = 0
+        self.track = 0
+        self.thumb = 0
+        self.semantics_role = "toggle"
+
+    def set_toggle(self, checked: bool, label: str, text: int, track: int, thumb: int) -> None:
+        changed: bool = False
+        if self.checked != checked or self.label != label or self.text != text or self.track != track or self.thumb != thumb:
+            changed = True
+        self.checked = checked
+        self.label = label
+        self.text = text
+        self.track = track
+        self.thumb = thumb
+        self.semantics_role = "toggle"
+        self.semantics_label = label
+        self.takes_focus = True
+        if changed:
+            self.mark_needs_layout()
+            self.mark_needs_paint()
+
+    def perform_layout(self) -> None:
+        text_w: float = measure_width(self.label, 16.0, 400, "")
+        text_h: float = measure_height(16.0, 400, "")
+        width: float = 44.0 + text_w
+        height: float = 24.0
+        if text_h > height:
+            height = text_h
+        self.width = self.constraints.constrain_width(width)
+        self.height = self.constraints.constrain_height(height)
+
+    def paint_self(self, context: PaintingContext) -> None:
+        context.fill_rect(0.0, (self.height - 20.0) / 2.0, 36.0, 20.0, self.track)
+        thumb_x: float = 3.0
+        if self.checked:
+            thumb_x = 19.0
+        context.fill_rect(thumb_x, (self.height - 14.0) / 2.0, 14.0, 14.0, self.thumb)
+        context.fill_text(44.0, (self.height - measure_height(16.0, 400, "")) / 2.0, self.label, 16.0, 400, self.text, "")
+
+    def hit_test_self(self, x: float, y: float) -> bool:
+        return True
+
+    def describe_semantics(self, node: SemanticsNode) -> None:
+        node.role = "toggle"
+        node.label = self.label
+        node.value = ""
+        node.enabled = True
+        node.checked = self.checked
+        node.add_action("tap")
+
+
+class Toggle(RenderObjectWidget):
+    checked: bool
+    label: str
+    on_toggle: () -> None
+
+    def __init__(self, checked: bool, label: str, on_toggle: () -> None, key: Key | None = None) -> None:
+        super().__init__(TYPE_TOGGLE, key)
+        self.checked = checked
+        self.label = label
+        self.on_toggle = on_toggle
+
+    def create_render(self) -> RenderBox | None:
+        return RenderToggle()
+
+    def sync_render(self, element: Element) -> None:
+        element.remember_press(self.on_toggle)
+        element.ensure_button_focus()
+        scheme_text: int = theme_for_element(element).scheme.text
+        scheme_track: int = theme_for_element(element).scheme.button
+        scheme_thumb: int = theme_for_element(element).scheme.button_text
+        if self.checked:
+            scheme_thumb = theme_for_element(element).scheme.accent
+        element.apply_toggle(self.checked, self.label, scheme_text, scheme_track, scheme_thumb, element.press_and_focus)

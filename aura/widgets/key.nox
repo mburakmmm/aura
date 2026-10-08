@@ -1,0 +1,121 @@
+KEY_NONE: int = 0
+KEY_VALUE_TEXT: int = 1
+KEY_VALUE_INT: int = 2
+KEY_OBJECT: int = 3
+KEY_GLOBAL: int = 4
+
+_next_key_id: int = 1
+
+
+def _alloc_key_id() -> int:
+    _next_key_id = _next_key_id + 1
+    return _next_key_id
+
+
+class Key:
+    def kind(self) -> int:
+        return KEY_NONE
+
+    def text_value(self) -> str:
+        return ""
+
+    def int_value(self) -> int:
+        return 0
+
+    def equals(self, other: Key) -> bool:
+        return False
+
+    def token(self) -> str:
+        return ""
+
+
+class ValueKey(Key):
+    text: str
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+    def kind(self) -> int:
+        return KEY_VALUE_TEXT
+
+    def text_value(self) -> str:
+        return self.text
+
+    def equals(self, other: Key) -> bool:
+        if other.kind() != KEY_VALUE_TEXT:
+            return False
+        if self.text == other.text_value():
+            return True
+        return False
+
+    def token(self) -> str:
+        return "t:" + self.text
+
+
+class IntValueKey(Key):
+    number: int
+
+    def __init__(self, number: int) -> None:
+        self.number = number
+
+    def kind(self) -> int:
+        return KEY_VALUE_INT
+
+    def int_value(self) -> int:
+        return self.number
+
+    def equals(self, other: Key) -> bool:
+        if other.kind() != KEY_VALUE_INT:
+            return False
+        if self.number == other.int_value():
+            return True
+        return False
+
+    def token(self) -> str:
+        return "i:" + str(self.number)
+
+
+class ObjectKey(Key):
+    identity: int
+
+    def __init__(self) -> None:
+        self.identity = _alloc_key_id()
+
+    def kind(self) -> int:
+        return KEY_OBJECT
+
+    def int_value(self) -> int:
+        return self.identity
+
+    def equals(self, other: Key) -> bool:
+        if other.kind() != KEY_OBJECT:
+            return False
+        if self.identity == other.int_value():
+            return True
+        return False
+
+    def token(self) -> str:
+        return "o:" + str(self.identity)
+
+
+class GlobalKey(Key):
+    identity: int
+
+    def __init__(self) -> None:
+        self.identity = _alloc_key_id()
+
+    def kind(self) -> int:
+        return KEY_GLOBAL
+
+    def int_value(self) -> int:
+        return self.identity
+
+    def equals(self, other: Key) -> bool:
+        if other.kind() != KEY_GLOBAL:
+            return False
+        if self.identity == other.int_value():
+            return True
+        return False
+
+    def token(self) -> str:
+        return "g:" + str(self.identity)

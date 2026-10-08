@@ -1,0 +1,107 @@
+import nox.test
+from aura.controls.button import Button
+from aura.controls.draggable import Draggable
+from aura.controls.drop_target import DropTarget
+from aura.input.drag import DragController, drag_y
+from aura.input.drop import DropController, drop_handle
+from aura.platform.macos import image_dispose, image_size_width
+from aura.rendering.render_object import RenderBox
+from aura.runtime.binding import Binding
+from aura.text.text import Text
+from aura.testing.tester import WidgetTester
+from aura.widgets.framework import Element, RenderObjectWidget
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_RACE: int = alloc_type_id()
+race_scrolls: int = 0
+
+
+class Tally:
+    count: int
+
+    def __init__(self) -> None:
+        self.count = 0
+
+    def press(self) -> None:
+        self.count = self.count + 1
+
+
+class RaceBox(RenderBox):
+    def __init__(self) -> None:
+        super().__init__()
+        self.has_scroll = True
+
+    def scroll_by(self, delta: float) -> None:
+        race_scrolls = race_scrolls + 1
+
+    def perform_layout(self) -> None:
+        self.width = self.constraints.constrain_width(self.constraints.max_width)
+        self.height = self.constraints.constrain_height(self.constraints.max_height)
+
+    def hit_test_self(self, x: float, y: float) -> bool:
+        return True
+
+
+class Race(RenderObjectWidget):
+    controller: DragController
+
+    def __init__(self, controller: DragController) -> None:
+        super().__init__(TYPE_RACE, None)
+        self.controller = controller
+
+    def create_render(self) -> RenderBox | None:
+        return RaceBox()
+
+    def sync_render(self, element: Element) -> None:
+        self.controller.bind(element.element_id)
+        box: RenderBox | None = element.render
+        if box is None:
+            return
+        box.drag_id = self.controller.drag_id
+        box.has_scroll = True
+
+
+def require_box(box: RenderBox | None, name: str) -> RenderBox:
+    if box is None:
+        raise Exception(name)
+    return box
+
+
+tally: Tally = Tally()
+controller: DragController = DragController()
+tester: WidgetTester = WidgetTester()
+tester.pump_widget(Draggable(controller, Button("Move", tally.press)), 400.0, 300.0)
+button: RenderBox = require_box(require_box(tester.view().only_child, "drag").only_child, "button")
+x: float = button.absolute_x() + 4.0
+y: float = button.absolute_y() + 4.0
+tester.pump.pointer_down(x, y)
+tester.pump.pointer_move(x, y + 40.0)
+tester.pump.pointer_up(x, y + 40.0)
+tester.pump_frame()
+nox.test.assert_true(drag_y(controller.drag_id) > 20.0, "drag moves the widget")
+nox.test.assert_eq_int(tally.count, 0, "drag wins against tap")
+moved: RenderBox = require_box(require_box(tester.view().only_child, "drag").only_child, "moved")
+nox.test.assert_true(moved.offset_y > 20.0, "drag offset is applied")
+
+race: DragController = DragController()
+race_tester: WidgetTester = WidgetTester()
+race_tester.pump_widget(Race(race), 400.0, 300.0)
+race_tester.pump.pointer_down(20.0, 20.0)
+race_tester.pump.pointer_move(20.0, 60.0)
+race_tester.pump.pointer_up(20.0, 60.0)
+race_tester.pump_frame()
+nox.test.assert_true(drag_y(race.drag_id) > 20.0, "drag wins against scroll")
+nox.test.assert_eq_int(race_scrolls, 0, "scroll does not take the pointer")
+
+drop: DropController = DropController()
+binding: Binding = Binding(400, 300, "Aura", 0)
+binding.mount(DropTarget(drop, Text("Drop")))
+binding.frame()
+binding.post_file(24.0, 24.0, "tests/fixtures/pixel.png")
+binding.frame()
+handle: int = drop_handle(drop.drop_id)
+nox.test.assert_true(handle != 0, "file drop opens an image")
+nox.test.assert_eq_int(image_size_width(handle), 1, "dropped file decodes")
+image_dispose(handle)
+binding.close()
+print("drag ok")

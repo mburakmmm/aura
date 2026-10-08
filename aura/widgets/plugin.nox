@@ -1,0 +1,34 @@
+from aura.core.diagnostics import FrameworkError
+from aura.widgets.framework import Widget
+
+
+class ViewFactory:
+    name: str
+    make: () -> Widget
+
+    def __init__(self, name: str, make: () -> Widget) -> None:
+        self.name = name
+        self.make = make
+
+
+_entries: list[ViewFactory] = []
+
+
+def register_view(name: str, make: () -> Widget) -> None:
+    i: int = 0
+    while i < len(_entries):
+        if _entries[i].name == name:
+            _entries[i] = ViewFactory(name, make)
+            return
+        i = i + 1
+    _entries.append(ViewFactory(name, make))
+
+
+def build_view(name: str) -> Widget:
+    i: int = 0
+    while i < len(_entries):
+        entry: ViewFactory = _entries[i]
+        if entry.name == name:
+            return entry.make()
+        i = i + 1
+    raise FrameworkError("plugin view is not registered")

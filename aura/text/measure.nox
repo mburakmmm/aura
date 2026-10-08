@@ -1,0 +1,44 @@
+from aura.platform.bridge import text_height, text_width
+
+
+def measure_width(text: str, font_size: float, weight: int, family: str) -> float:
+    return text_width(text, font_size, weight, family)
+
+
+def measure_height(font_size: float, weight: int, family: str) -> float:
+    return text_height(font_size, weight, family)
+
+
+def wrap_text(text: str, max_width: float, font_size: float, weight: int, family: str) -> list[str]:
+    lines: list[str] = []
+    if text == "":
+        lines.append("")
+        return lines
+    paragraphs: list[str] = text.split("\n")
+    p: int = 0
+    while p < len(paragraphs):
+        para: str = paragraphs[p]
+        if para == "":
+            lines.append("")
+        else:
+            words: list[str] = para.split(" ")
+            current: str = ""
+            w: int = 0
+            while w < len(words):
+                word: str = words[w]
+                trial: str = word
+                if current != "":
+                    trial = current + " " + word
+                width: float = measure_width(trial, font_size, weight, family)
+                if current == "" or width <= max_width:
+                    current = trial
+                else:
+                    lines.append(current)
+                    current = word
+                w = w + 1
+            if current != "" or len(words) == 0:
+                lines.append(current)
+        p = p + 1
+    if len(lines) == 0:
+        lines.append("")
+    return lines

@@ -1,0 +1,144 @@
+from aura.foundation.color import COLOR_TEXT
+from aura.rendering.layer import PaintingContext
+from aura.rendering.render_object import RenderBox
+from aura.semantics.semantics_node import SemanticsNode
+from aura.text.measure import measure_height, measure_width, wrap_text
+from aura.widgets.framework import Element, RenderObjectWidget
+from aura.widgets.theme import theme_for_element
+from aura.widgets.key import Key
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_TEXT: int = alloc_type_id()
+
+
+class TextStyle:
+    font_size: float
+    weight: int
+    color: int
+    family: str
+
+    def __init__(self, font_size: float = 16.0, weight: int = 400, color: int = 4294242794, family: str = "") -> None:
+        self.font_size = font_size
+        self.weight = weight
+        self.color = color
+        self.family = family
+
+
+class Paragraph:
+    text: str
+    style: TextStyle
+    lines: list[str]
+    width: float
+    height: float
+    line_height: float
+
+    def __init__(self, text: str, style: TextStyle) -> None:
+        self.text = text
+        self.style = style
+        self.lines = []
+        self.width = 0.0
+        self.height = 0.0
+        self.line_height = measure_height(style.font_size, style.weight, style.family)
+
+    def layout(self, max_width: float) -> None:
+        self.lines = wrap_text(self.text, max_width, self.style.font_size, self.style.weight, self.style.family)
+        self.line_height = measure_height(self.style.font_size, self.style.weight, self.style.family)
+        widest: float = 0.0
+        i: int = 0
+        while i < len(self.lines):
+            line_w: float = measure_width(self.lines[i], self.style.font_size, self.style.weight, self.style.family)
+            if line_w > widest:
+                widest = line_w
+            i = i + 1
+        self.width = widest
+        self.height = self.line_height * float(len(self.lines))
+        if len(self.lines) == 0:
+            self.height = self.line_height
+
+
+class RenderParagraph(RenderBox):
+    value: str
+    font_size: float
+    color: int
+    weight: int
+    family: str
+    lines: list[str]
+    line_height: float
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.value = ""
+        self.font_size = 16.0
+        self.color = COLOR_TEXT
+        self.weight = 400
+        self.family = ""
+        self.lines = []
+        self.line_height = 16.0
+
+    def set_paragraph(self, value: str, font_size: float, color: int, weight: int, family: str) -> None:
+        changed: bool = False
+        if self.value != value or self.font_size != font_size or self.color != color or self.weight != weight or self.family != family:
+            changed = True
+        self.value = value
+        self.font_size = font_size
+        self.color = color
+        self.weight = weight
+        self.family = family
+        self.semantics_role = "text"
+        self.semantics_label = value
+        if changed:
+            self.mark_needs_layout()
+
+    def perform_layout(self) -> None:
+        paragraph: Paragraph = Paragraph(self.value, TextStyle(self.font_size, self.weight, self.color, self.family))
+        paragraph.layout(self.constraints.max_width)
+        self.lines = paragraph.lines
+        self.line_height = paragraph.line_height
+        self.width = self.constraints.constrain_width(paragraph.width)
+        self.height = self.constraints.constrain_height(paragraph.height)
+
+    def paint_self(self, context: PaintingContext) -> None:
+        i: int = 0
+        while i < len(self.lines):
+            context.fill_text(0.0, float(i) * self.line_height, self.lines[i], self.font_size, self.weight, self.color, self.family)
+            i = i + 1
+
+    def hit_test_self(self, x: float, y: float) -> bool:
+        return True
+
+    def describe_semantics(self, node: SemanticsNode) -> None:
+        node.role = "text"
+        node.label = self.value
+        node.value = self.value
+        node.enabled = True
+        node.checked = False
+
+
+class Text(RenderObjectWidget):
+    value: str
+    font_size: float
+    weight: int
+    color: int
+    has_color: int
+    family: str
+
+    def __init__(self, value: str, font_size: float = 16.0, weight: int = 400, color: int | None = None, family: str = "", key: Key | None = None) -> None:
+        super().__init__(TYPE_TEXT, key)
+        self.value = value
+        self.font_size = font_size
+        self.weight = weight
+        self.color = 0
+        self.has_color = 0
+        if color is not None:
+            self.color = color
+            self.has_color = 1
+        self.family = family
+
+    def create_render(self) -> RenderBox | None:
+        return RenderParagraph()
+
+    def sync_render(self, element: Element) -> None:
+        color: int = self.color
+        if self.has_color == 0:
+            color = theme_for_element(element).scheme.text
+        element.apply_text(self.value, self.font_size, color, self.weight, self.family)

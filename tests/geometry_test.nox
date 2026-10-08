@@ -1,0 +1,36 @@
+import nox.test
+from aura.foundation.geometry import ALIGNMENT_CENTER, ALIGNMENT_TOP_LEFT, Alignment, Matrix4, Offset, RRect, Radius, Rect, Size, matrix4_identity, radius_circular, rrect_all
+
+origin: Offset = Offset(1.0, 2.0)
+moved: Offset = origin.add(Offset(3.0, 4.0))
+nox.test.assert_eq_float(moved.x, 4.0, "offset x")
+nox.test.assert_eq_float(moved.y, 6.0, "offset y")
+
+size: Size = Size(10.0, 0.0)
+nox.test.assert_true(size.is_empty(), "empty size")
+nox.test.assert_true(not Size(2.0, 3.0).is_empty(), "non-empty size")
+
+rect: Rect = Rect(10.0, 20.0, 30.0, 40.0)
+nox.test.assert_true(rect.contains(10.0, 20.0), "origin inside")
+nox.test.assert_true(not rect.contains(40.0, 20.0), "right edge outside")
+nox.test.assert_eq_float(rect.right(), 40.0, "right")
+nox.test.assert_eq_float(rect.bottom(), 60.0, "bottom")
+
+corner: Radius = radius_circular(4.0).scale(2.0)
+nox.test.assert_eq_float(corner.x, 8.0, "radius x")
+nox.test.assert_eq_float(corner.y, 8.0, "radius y")
+round_rect: RRect = rrect_all(rect, corner).shift(5.0, 0.0)
+nox.test.assert_eq_float(round_rect.rect.x, 15.0, "rrect x")
+nox.test.assert_eq_float(round_rect.top_left.x, 8.0, "rrect radius")
+
+nox.test.assert_eq_float(ALIGNMENT_CENTER.offset_x(100.0, 20.0), 40.0, "center x")
+nox.test.assert_eq_float(ALIGNMENT_CENTER.offset_y(80.0, 10.0), 35.0, "center y")
+nox.test.assert_eq_float(ALIGNMENT_TOP_LEFT.offset_x(100.0, 20.0), 0.0, "top left x")
+custom: Alignment = Alignment(1.0, -1.0)
+nox.test.assert_eq_float(custom.offset_x(100.0, 20.0), 80.0, "end x")
+
+moved_matrix: Matrix4 = matrix4_identity().translate(3.0, 4.0)
+nox.test.assert_eq_float(moved_matrix.m03, 3.0, "translate x")
+nox.test.assert_eq_float(moved_matrix.m13, 4.0, "translate y")
+nox.test.assert_eq_float(moved_matrix.m00, 1.0, "translate scale")
+print("geometry ok")

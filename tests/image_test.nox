@@ -1,0 +1,66 @@
+import nox.test
+from aura.core.diagnostics import FrameworkError
+from aura.graphics.recording import KIND_IMAGE
+from aura.image.image import Image
+from aura.layout.boxes import Center
+from aura.platform.macos import image_dispose, image_size_height, image_size_width, open_image_bytes, open_image_file
+from aura.rendering.render_object import RenderBox
+from aura.runtime.binding import Binding, canvas_of
+from aura.testing.tester import WidgetTester
+
+PIXEL: list[int] = [137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 2, 0, 0, 0, 144, 119, 83, 222, 0, 0, 0, 12, 73, 68, 65, 84, 120, 156, 99, 248, 207, 192, 0, 0, 3, 1, 1, 0, 201, 254, 146, 239, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130]
+
+
+def require_box(box: RenderBox | None, name: str) -> RenderBox:
+    if box is None:
+        raise Exception(name)
+    return box
+
+
+decoded: int = open_image_bytes(PIXEL)
+nox.test.assert_eq_int(image_size_width(decoded), 1, "decoded width")
+nox.test.assert_eq_int(image_size_height(decoded), 1, "decoded height")
+opened: int = open_image_file("tests/fixtures/pixel.png")
+nox.test.assert_eq_int(image_size_width(opened), 1, "file width")
+jpeg: int = open_image_file("tests/fixtures/pixel.jpg")
+nox.test.assert_eq_int(image_size_width(jpeg), 1, "jpeg width")
+nox.test.assert_eq_int(image_size_height(jpeg), 1, "jpeg height")
+image_dispose(jpeg)
+
+tester: WidgetTester = WidgetTester()
+tester.pump_widget(Center(Image(decoded)), 800.0, 600.0)
+image: RenderBox = require_box(require_box(tester.view().only_child, "center").only_child, "image")
+nox.test.assert_eq_float(image.width, 1.0, "image lays out to its width")
+nox.test.assert_eq_float(image.height, 1.0, "image lays out to its height")
+painted: int = 0
+i: int = 0
+while i < len(tester.canvas.kinds):
+    if tester.canvas.kinds[i] == KIND_IMAGE:
+        painted = 1
+        nox.test.assert_eq_float(tester.canvas.ws[i], 1.0, "draw_image uses the measured width")
+        nox.test.assert_eq_int(tester.canvas.weights[i], decoded, "draw_image keeps the handle")
+    i = i + 1
+nox.test.assert_eq_int(painted, 1, "image paints a draw_image command")
+
+binding: Binding = Binding(200, 200, "Aura", 0)
+canvas_of(binding).draw_image(0.0, 0.0, 1.0, 1.0, opened)
+canvas_of(binding).present()
+image_dispose(opened)
+image_dispose(opened)
+rejected: int = 0
+try:
+    canvas_of(binding).draw_image(0.0, 0.0, 1.0, 1.0, opened)
+except FrameworkError as error:
+    rejected = 1
+    nox.test.assert_true(error.message == "use after close", "draw after dispose")
+nox.test.assert_eq_int(rejected, 1, "disposed image cannot be drawn")
+closed: int = 0
+try:
+    image_size_width(opened)
+except FrameworkError as error:
+    closed = 1
+    nox.test.assert_true(error.message == "use after close", "size after dispose")
+nox.test.assert_eq_int(closed, 1, "disposed image reports close")
+image_dispose(decoded)
+binding.close()
+print("image ok")

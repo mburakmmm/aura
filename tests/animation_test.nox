@@ -1,0 +1,128 @@
+import nox.test
+from aura.animation.effects import Opacity, Transform
+from aura.animation.ticker import AnimationController, EaseInCurve, Tween
+from aura.foundation.color import COLOR_ACCENT
+from aura.foundation.geometry import matrix4_translation
+from aura.graphics.recording import KIND_OPACITY, KIND_RECT
+from aura.layout.boxes import ColoredBox, SizedBox
+from aura.rendering.layer import PaintingContext
+from aura.rendering.render_object import RenderBox
+from aura.testing.tester import WidgetTester
+from aura.widgets import BuildContext, Element, RenderObjectWidget, State, StatefulWidget, Widget
+from aura.widgets.scheduler import Scheduler
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_FADE: int = alloc_type_id()
+TYPE_DEFER: int = alloc_type_id()
+
+
+def scheduler_of(state: State) -> Scheduler | None:
+    element: Element | None = state.element
+    if element is None:
+        return None
+    return element.scheduler
+
+
+class FadeState(State):
+    controller: AnimationController
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.controller = AnimationController(1.0)
+
+    def init_state(self) -> None:
+        self.controller.curve = EaseInCurve()
+        self.controller.on_tick = self.refresh
+        self.controller.has_listener = True
+        found: Scheduler | None = scheduler_of(self)
+        if found is not None:
+            self.controller.forward(found)
+
+    def refresh(self) -> None:
+        self.invalidate()
+
+    def dispose(self) -> None:
+        found: Scheduler | None = scheduler_of(self)
+        if found is not None:
+            self.controller.dispose(found)
+        super().dispose()
+
+    def build(self, context: BuildContext) -> Widget:
+        return Opacity(self.controller.value, SizedBox(20.0, 10.0, ColoredBox(COLOR_ACCENT)))
+
+
+class FadePage(StatefulWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_FADE, None)
+
+    def create_state(self) -> State:
+        return FadeState()
+
+
+class DeferBox(RenderBox):
+    def paint_self(self, context: PaintingContext) -> None:
+        self.mark_needs_layout()
+
+
+class Defer(RenderObjectWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_DEFER, None)
+
+    def create_render(self) -> RenderBox | None:
+        box: DeferBox = DeferBox()
+        box.debug_tag = 11
+        return box
+
+
+def require_box(box: RenderBox | None, name: str) -> RenderBox:
+    if box is None:
+        raise Exception(name)
+    return box
+
+
+def opacity_at(tester: WidgetTester) -> float:
+    found: float = -1.0
+    seen: int = 0
+    i: int = 0
+    while i < len(tester.canvas.kinds):
+        if tester.canvas.kinds[i] == KIND_OPACITY:
+            found = tester.canvas.ws[i]
+            seen = seen + 1
+        i = i + 1
+    if seen == 0:
+        raise Exception("missing opacity command")
+    return found
+
+
+def rect_origin(tester: WidgetTester) -> float:
+    i: int = 0
+    while i < len(tester.canvas.kinds):
+        if tester.canvas.kinds[i] == KIND_RECT:
+            return tester.canvas.xs[i]
+        i = i + 1
+    raise Exception("missing rect")
+
+
+tween: Tween = Tween(0.0, 10.0)
+nox.test.assert_eq_float(tween.lerp(0.5), 5.0, "tween midpoint")
+
+fade: WidgetTester = WidgetTester()
+fade.pump.frame_time = 0.0
+fade.pump_widget(FadePage(), 80.0, 40.0)
+nox.test.assert_eq_float(opacity_at(fade), 0.0, "opacity starts at zero")
+fade.pump.frame_time = 0.5
+fade.pump_frame()
+nox.test.assert_eq_float(opacity_at(fade), 0.25, "ease-in at half duration")
+nox.test.assert_eq_int(fade.canvas.opacity_count(), 1, "one opacity command")
+
+moved: WidgetTester = WidgetTester()
+moved.pump_widget(Transform(matrix4_translation(12.0, 8.0), SizedBox(20.0, 10.0, ColoredBox(COLOR_ACCENT))), 80.0, 40.0)
+nox.test.assert_eq_float(rect_origin(moved), 12.0, "transform shifts x")
+
+deferred: WidgetTester = WidgetTester()
+deferred.pump_widget(Defer(), 40.0, 40.0)
+deferred_box: RenderBox = require_box(deferred.view().find_tag(11), "defer box")
+nox.test.assert_eq_int(deferred_box.layout_count, 1, "layout before deferred flush")
+deferred.pump_frame()
+nox.test.assert_eq_int(deferred_box.layout_count, 2, "deferred layout next frame")
+print("animation ok")

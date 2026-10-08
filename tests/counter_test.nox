@@ -1,0 +1,60 @@
+import nox.test
+from aura.input.focus import FocusNode
+from aura.rendering.render_object import RenderBox
+from aura.testing.tester import WidgetTester
+from aura.widgets.framework import Element
+from examples.counter.page import CounterPage
+
+def require_box(box: RenderBox | None, name: str) -> RenderBox:
+    if box is None:
+        raise Exception(name)
+    return box
+
+
+def child_at(element: Element, index: int) -> Element:
+    found: Element | None = element.children[index]
+    if found is None:
+        raise Exception("missing child")
+    return found
+
+
+def require_root(element: Element | None) -> Element:
+    if element is None:
+        raise Exception("missing counter root")
+    return element
+
+
+def check_focus(node: FocusNode | None) -> None:
+    if node is None:
+        raise Exception("button did not take focus")
+    tester.pump.key_down(13)
+    nox.test.assert_eq_int(node.last_key, 13, "focused key")
+
+
+tester: WidgetTester = WidgetTester()
+tester.pump_widget(CounterPage(), 800.0, 600.0)
+center: RenderBox = require_box(tester.view().only_child, "center")
+column: RenderBox = require_box(center.only_child, "column")
+header: RenderBox = column.children[0]
+count: RenderBox = column.children[1]
+button: RenderBox = column.children[2]
+nox.test.assert_eq_str(header.semantics_label, "Aura", "header")
+nox.test.assert_eq_str(count.semantics_label, "0", "initial count")
+nox.test.assert_eq_str(button.semantics_label, "Continue", "button label")
+tester.view().reset_paint_marks()
+x: float = button.absolute_x() + button.width / 2.0
+y: float = button.absolute_y() + button.height / 2.0
+tester.tap(x, y)
+nox.test.assert_eq_str(count.semantics_label, "1", "incremented")
+nox.test.assert_eq_int(header.paint_mark_count, 0, "header not repainted")
+nox.test.assert_true(count.paint_mark_count > 0, "count repainted")
+root: Element = require_root(tester.pump.root)
+center_element: Element = child_at(root, 0)
+column_element: Element = child_at(center_element, 0)
+header_element: Element = child_at(column_element, 0)
+reader_element: Element = child_at(column_element, 1)
+nox.test.assert_eq_int(root.rebuild_count, 1, "state not rebuilt")
+nox.test.assert_eq_int(header_element.rebuild_count, 0, "header element stays")
+nox.test.assert_true(reader_element.rebuild_count >= 2, "reader rebuilt")
+check_focus(tester.pump.focus.focused)
+print("counter ok")

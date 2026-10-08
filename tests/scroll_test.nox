@@ -1,0 +1,180 @@
+import nox.test
+from aura.controls import Button
+from aura.foundation.color import COLOR_ACCENT
+from aura.graphics.recording import KIND_RECT
+from aura.layout.boxes import SizedBox
+from aura.layout.flex import Expanded, Row
+from aura.layout.repaint import RepaintBoundary
+from aura.layout.scrollbar import Scrollbar
+from aura.layout.virtual_list import ItemSource, ScrollController, VirtualList
+from aura.rendering.render_object import RenderBox
+from aura.testing.tester import WidgetTester
+from aura.widgets import Element, RenderObjectWidget, Widget
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_VISIT: int = alloc_type_id()
+
+
+class VisitBox(RenderBox):
+    def __init__(self) -> None:
+        super().__init__()
+        self.debug_tag = 21
+
+
+class Visit(RenderObjectWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_VISIT, None)
+
+    def create_render(self) -> RenderBox | None:
+        return VisitBox()
+
+
+class Many(ItemSource):
+    def count(self) -> int:
+        return 10000
+
+    def widget_at(self, index: int) -> Widget:
+        return SizedBox(80.0, 20.0)
+
+    def keep_alive(self, index: int) -> bool:
+        return index == 0
+
+
+class PressMark:
+    count: int
+
+    def __init__(self) -> None:
+        self.count = 0
+
+    def press(self) -> None:
+        self.count = self.count + 1
+
+
+class Mixed(ItemSource):
+    mark: PressMark
+
+    def __init__(self, mark: PressMark) -> None:
+        self.mark = mark
+
+    def count(self) -> int:
+        return 30
+
+    def press(self) -> None:
+        self.mark.press()
+
+    def widget_at(self, index: int) -> Widget:
+        if index == 0:
+            return Button("Go", self.press)
+        return SizedBox(40.0, 40.0)
+
+
+def require_box(box: RenderBox | None, name: str) -> RenderBox:
+    if box is None:
+        raise Exception(name)
+    return box
+
+
+def require_root(tester: WidgetTester) -> Element:
+    root: Element | None = tester.pump.root
+    if root is None:
+        raise Exception("missing root")
+    return root
+
+
+def child_at(element: Element, index: int) -> Element:
+    found: Element | None = element.children[index]
+    if found is None:
+        raise Exception("missing child")
+    return found
+
+
+def has_slot(element: Element, index: int) -> int:
+    i: int = 0
+    while i < len(element.children):
+        slot: Element = element.children[i]
+        if len(slot.children) > 0:
+            box: RenderBox | None = slot.children[0].outermost_render()
+            if box is not None:
+                if box.slot_index == index:
+                    return 1
+        i = i + 1
+    return 0
+
+
+boundary: WidgetTester = WidgetTester()
+boundary.pump_widget(RepaintBoundary(Visit()), 40.0, 40.0)
+visited: RenderBox = require_box(boundary.view().find_tag(21), "visit box")
+nox.test.assert_eq_int(visited.paint_visit_count, 1, "boundary paints child once")
+boundary.pump_frame()
+nox.test.assert_eq_int(visited.paint_visit_count, 1, "clean boundary skips child")
+
+listed: VirtualList = VirtualList(Many(), 20.0)
+rows: WidgetTester = WidgetTester()
+rows.pump_widget(listed, 120.0, 400.0)
+viewport: Element = child_at(require_root(rows), 0)
+mounted: int = len(viewport.children)
+nox.test.assert_true(mounted > 0, "visible rows mounted")
+nox.test.assert_true(mounted < 40, "ten thousand rows stay virtual")
+listed.controller.jump(listed.controller.position.max_pixels)
+rows.pump_frame()
+viewport = child_at(require_root(rows), 0)
+nox.test.assert_true(len(viewport.children) < 40, "jumped window stays virtual")
+nox.test.assert_eq_int(has_slot(viewport, 0), 1, "keep alive zero remains")
+
+mark: PressMark = PressMark()
+mixed: VirtualList = VirtualList(Mixed(mark), 48.0)
+arena: WidgetTester = WidgetTester()
+arena.pump_widget(mixed, 160.0, 200.0)
+button: RenderBox = require_box(arena.view().find_role("button"), "row button")
+x: float = button.absolute_x() + 8.0
+y: float = button.absolute_y() + 8.0
+arena.pump.pointer_down(x, y + 20.0)
+arena.pump.pointer_move(x, y - 30.0)
+arena.pump.pointer_up(x, y - 30.0)
+arena.pump_frame()
+nox.test.assert_eq_int(mark.count, 0, "scroll wins over tap")
+nox.test.assert_true(mixed.controller.position.pixels > 0.0, "drag scrolled")
+mixed.controller.jump(0.0)
+arena.pump_frame()
+button = require_box(arena.view().find_role("button"), "row button after scroll")
+arena.tap(button.absolute_x() + 8.0, button.absolute_y() + 8.0)
+nox.test.assert_eq_int(mark.count, 1, "tap still clicks")
+
+
+def thumb_y(tester: WidgetTester) -> float:
+    found: float = -1.0
+    i: int = 0
+    while i < len(tester.canvas.kinds):
+        if tester.canvas.kinds[i] == KIND_RECT and tester.canvas.argbs[i] == COLOR_ACCENT:
+            found = tester.canvas.ys[i]
+        i = i + 1
+    return found
+
+
+bar_controller: ScrollController = ScrollController()
+bar_list: VirtualList = VirtualList(Many(), 20.0, bar_controller)
+bar: WidgetTester = WidgetTester()
+bar.pump_widget(Row([Expanded(bar_list), Scrollbar(bar_controller, Visit())]), 160.0, 400.0)
+bar.pump_frame()
+marker: RenderBox = require_box(bar.view().find_tag(21), "bar child")
+resting: float = thumb_y(bar)
+nox.test.assert_true(resting >= 0.0, "scrollbar paints a thumb")
+bar_controller.jump(bar_controller.position.max_pixels)
+bar.pump_frame()
+nox.test.assert_true(thumb_y(bar) > resting, "thumb follows the scroll position")
+nox.test.assert_eq_int(marker.paint_visit_count, 1, "scrollbar keeps its child cached")
+
+coast: VirtualList = VirtualList(Many(), 20.0)
+coast_tester: WidgetTester = WidgetTester()
+coast_tester.pump_widget(coast, 120.0, 400.0)
+coast_tester.pump_frame()
+coast_tester.pump.frame_time = 1.0
+coast_tester.pump.pointer_down(20.0, 200.0)
+coast_tester.pump.frame_time = 1.05
+coast_tester.pump.pointer_move(20.0, 140.0)
+coast_tester.pump.pointer_up(20.0, 140.0)
+held: float = coast.controller.position.pixels
+coast_tester.pump.frame_time = 1.2
+coast_tester.pump_frame()
+nox.test.assert_true(coast.controller.position.pixels > held, "released drag keeps scrolling")
+print("scroll ok")

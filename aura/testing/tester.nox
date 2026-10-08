@@ -1,0 +1,29 @@
+from aura.graphics.recording import RecordingCanvas
+from aura.rendering.render_object import RenderBox
+from aura.runtime.frame import FramePump
+from aura.widgets.framework import Widget
+
+
+class WidgetTester:
+    pump: FramePump
+    canvas: RecordingCanvas
+
+    def __init__(self) -> None:
+        self.pump = FramePump()
+        self.canvas = RecordingCanvas()
+
+    def pump_widget(self, widget: Widget, width: float, height: float) -> None:
+        self.pump.mount(widget, width, height)
+        self.pump_frame()
+
+    def pump_frame(self) -> None:
+        self.canvas.reset()
+        self.pump.pump(self.canvas)
+
+    def tap(self, x: float, y: float) -> None:
+        self.pump.pointer_down(x, y)
+        self.pump.pointer_up(x, y)
+        self.pump_frame()
+
+    def view(self) -> RenderBox:
+        return self.pump.view

@@ -1,0 +1,113 @@
+from aura.core.diagnostics import FrameworkError
+
+def infinity() -> float:
+    return 1.0 / 0.0
+
+
+def is_nan(value: float) -> bool:
+    if value != value:
+        return True
+    return False
+
+
+class Constraints:
+    min_width: float
+    max_width: float
+    min_height: float
+    max_height: float
+
+    def __init__(self, min_width: float, max_width: float, min_height: float, max_height: float) -> None:
+        self.min_width = min_width
+        self.max_width = max_width
+        self.min_height = min_height
+        self.max_height = max_height
+
+    def validate(self) -> None:
+        if is_nan(self.min_width) or is_nan(self.max_width) or is_nan(self.min_height) or is_nan(self.max_height):
+            raise FrameworkError("invalid constraints: NaN")
+        if self.min_width < 0.0 or self.min_height < 0.0:
+            raise FrameworkError("invalid constraints: negative minimum")
+        if self.min_width > self.max_width or self.min_height > self.max_height:
+            raise FrameworkError("invalid constraints: min greater than max")
+
+    def has_bounded_width(self) -> bool:
+        if self.max_width < infinity():
+            return True
+        return False
+
+    def has_bounded_height(self) -> bool:
+        if self.max_height < infinity():
+            return True
+        return False
+
+    def constrain_width(self, width: float) -> float:
+        if width < self.min_width:
+            return self.min_width
+        if width > self.max_width:
+            return self.max_width
+        return width
+
+    def constrain_height(self, height: float) -> float:
+        if height < self.min_height:
+            return self.min_height
+        if height > self.max_height:
+            return self.max_height
+        return height
+
+    def loosen(self) -> Constraints:
+        return Constraints(0.0, self.max_width, 0.0, self.max_height)
+
+    def tighten(self, width: float, height: float) -> Constraints:
+        w: float = self.constrain_width(width)
+        h: float = self.constrain_height(height)
+        return Constraints(w, w, h, h)
+
+    def tighten_width(self, width: float) -> Constraints:
+        w: float = self.constrain_width(width)
+        return Constraints(w, w, self.min_height, self.max_height)
+
+    def tighten_height(self, height: float) -> Constraints:
+        h: float = self.constrain_height(height)
+        return Constraints(self.min_width, self.max_width, h, h)
+
+    def deflate(self, left: float, top: float, right: float, bottom: float) -> Constraints:
+        if left < 0.0 or top < 0.0 or right < 0.0 or bottom < 0.0:
+            raise FrameworkError("invalid constraints: negative padding")
+        min_w: float = self.min_width - left - right
+        max_w: float = self.max_width - left - right
+        min_h: float = self.min_height - top - bottom
+        max_h: float = self.max_height - top - bottom
+        if min_w < 0.0:
+            min_w = 0.0
+        if min_h < 0.0:
+            min_h = 0.0
+        if max_w < 0.0:
+            max_w = 0.0
+        if max_h < 0.0:
+            max_h = 0.0
+        if min_w > max_w:
+            min_w = max_w
+        if min_h > max_h:
+            min_h = max_h
+        return Constraints(min_w, max_w, min_h, max_h)
+
+
+def tight_constraints(width: float, height: float) -> Constraints:
+    return Constraints(width, width, height, height)
+
+
+def loose_constraints(width: float, height: float) -> Constraints:
+    return Constraints(0.0, width, 0.0, height)
+
+
+class BoxConstraints(Constraints):
+    def __init__(self, min_width: float, max_width: float, min_height: float, max_height: float) -> None:
+        super().__init__(min_width, max_width, min_height, max_height)
+
+
+def tight_box(width: float, height: float) -> BoxConstraints:
+    return BoxConstraints(width, width, height, height)
+
+
+def loose_box(width: float, height: float) -> BoxConstraints:
+    return BoxConstraints(0.0, width, 0.0, height)

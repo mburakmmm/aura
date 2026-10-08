@@ -1,0 +1,92 @@
+from aura.widgets.framework import dirty_element_id
+
+_next_drag: int = 1
+_drag_ids: list[int] = []
+_drag_xs: list[float] = []
+_drag_ys: list[float] = []
+_drag_elements: list[int] = []
+
+
+class DragController:
+    drag_id: int
+    x: float
+    y: float
+    element_id: int
+
+    def __init__(self) -> None:
+        self.drag_id = _remember()
+        self.x = 0.0
+        self.y = 0.0
+        self.element_id = 0
+
+    def bind(self, element_id: int) -> None:
+        self.element_id = element_id
+        _set_element(self.drag_id, element_id)
+
+    def add(self, dx: float, dy: float) -> None:
+        self.x = self.x + dx
+        self.y = self.y + dy
+        _set_offset(self.drag_id, self.x, self.y)
+        if self.element_id != 0:
+            dirty_element_id(self.element_id)
+
+
+def _remember() -> int:
+    drag_id: int = _next_drag
+    _next_drag = _next_drag + 1
+    _drag_ids.append(drag_id)
+    _drag_xs.append(0.0)
+    _drag_ys.append(0.0)
+    _drag_elements.append(0)
+    return drag_id
+
+
+def _index(drag_id: int) -> int:
+    i: int = 0
+    while i < len(_drag_ids):
+        if _drag_ids[i] == drag_id:
+            return i
+        i = i + 1
+    return -1
+
+
+def _set_element(drag_id: int, element_id: int) -> None:
+    index: int = _index(drag_id)
+    if index < 0:
+        return
+    _drag_elements[index] = element_id
+
+
+def _set_offset(drag_id: int, x: float, y: float) -> None:
+    index: int = _index(drag_id)
+    if index < 0:
+        return
+    _drag_xs[index] = x
+    _drag_ys[index] = y
+
+
+def drag_by(drag_id: int, dx: float, dy: float) -> None:
+    index: int = _index(drag_id)
+    if index < 0:
+        return
+    x: float = _drag_xs[index] + dx
+    y: float = _drag_ys[index] + dy
+    _drag_xs[index] = x
+    _drag_ys[index] = y
+    element_id: int = _drag_elements[index]
+    if element_id != 0:
+        dirty_element_id(element_id)
+
+
+def drag_x(drag_id: int) -> float:
+    index: int = _index(drag_id)
+    if index < 0:
+        return 0.0
+    return _drag_xs[index]
+
+
+def drag_y(drag_id: int) -> float:
+    index: int = _index(drag_id)
+    if index < 0:
+        return 0.0
+    return _drag_ys[index]

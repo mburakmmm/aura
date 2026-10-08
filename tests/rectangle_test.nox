@@ -1,0 +1,21 @@
+import nox.test
+from aura.foundation.color import COLOR_ACCENT
+from aura.graphics.recording import KIND_RECT
+from aura.testing.tester import WidgetTester
+from examples.rectangle.page import RectanglePage
+
+tester: WidgetTester = WidgetTester()
+tester.pump_widget(RectanglePage(), 800.0, 600.0)
+nox.test.assert_eq_int(tester.canvas.rect_count(), 1, "one rectangle")
+nox.test.assert_eq_int(tester.canvas.text_count(), 0, "no text")
+found: int = 0
+i: int = 0
+while i < len(tester.canvas.kinds):
+    if tester.canvas.kinds[i] == KIND_RECT:
+        nox.test.assert_eq_float(tester.canvas.ws[i], 160.0, "rectangle width")
+        nox.test.assert_eq_float(tester.canvas.hs[i], 100.0, "rectangle height")
+        nox.test.assert_eq_int(tester.canvas.argbs[i], COLOR_ACCENT, "rectangle color")
+        found = found + 1
+    i = i + 1
+nox.test.assert_eq_int(found, 1, "recorded rectangle")
+print("rectangle ok")

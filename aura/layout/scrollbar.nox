@@ -1,0 +1,120 @@
+from aura.foundation.color import COLOR_ACCENT, COLOR_BUTTON
+from aura.layout.virtual_list import ScrollController
+from aura.rendering.layer import PaintingContext, PictureLayer
+from aura.rendering.render_object import PipelineOwner, RenderBox
+from aura.widgets.framework import Element, RenderObjectWidget, Widget
+from aura.widgets.key import Key
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_BAR: int = alloc_type_id()
+BAR_WIDTH: float = 12.0
+
+
+class RenderScrollbar(RenderBox):
+    pixels: float
+    max_pixels: float
+    viewport: float
+    content: float
+    cache: PictureLayer
+    has_cache: int
+    child_dirty: int
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.pixels = 0.0
+        self.max_pixels = 0.0
+        self.viewport = 0.0
+        self.content = 0.0
+        self.cache = PictureLayer()
+        self.has_cache = 0
+        self.child_dirty = 1
+        self.is_repaint_boundary = True
+        self.semantics_role = "scrollbar"
+
+    def set_scroll(self, pixels: float, max_pixels: float, viewport: float, content: float) -> None:
+        if self.pixels == pixels and self.max_pixels == max_pixels and self.viewport == viewport and self.content == content:
+            return
+        self.pixels = pixels
+        self.max_pixels = max_pixels
+        self.viewport = viewport
+        self.content = content
+        self.mark_thumb()
+
+    def mark_thumb(self) -> None:
+        self.needs_paint = True
+        pipeline: PipelineOwner | None = self.pipeline
+        if pipeline is not None:
+            pipeline.schedule_paint(self)
+
+    def mark_needs_paint(self) -> None:
+        self.child_dirty = 1
+        self.has_cache = 0
+        super().mark_needs_paint()
+
+    def perform_layout(self) -> None:
+        self.width = self.constraints.constrain_width(BAR_WIDTH)
+        self.height = self.constraints.constrain_height(self.constraints.max_height)
+        child: RenderBox | None = self.only_child
+        if child is None:
+            return
+        child.layout(self.constraints.loosen())
+        child.offset_x = 0.0
+        child.offset_y = 0.0
+
+    def paint(self, context: PaintingContext) -> None:
+        self.paint_visit_count = self.paint_visit_count + 1
+        if self.child_dirty == 1 or self.has_cache == 0:
+            self.cache = PictureLayer()
+            local: PaintingContext = PaintingContext(self.cache)
+            self.paint_children(local)
+            self.has_cache = 1
+            self.child_dirty = 0
+        context.blit(self.cache)
+        self._paint_thumb(context)
+        self.needs_paint = False
+
+    def _paint_thumb(self, context: PaintingContext) -> None:
+        context.fill_rect(0.0, 0.0, self.width, self.height, COLOR_BUTTON)
+        span: float = self.content
+        if span < 1.0:
+            span = 1.0
+        thumb: float = self.height * self.viewport / span
+        if thumb < 24.0:
+            thumb = 24.0
+        if thumb > self.height:
+            thumb = self.height
+        travel: float = self.height - thumb
+        y: float = 0.0
+        if self.max_pixels > 0.0:
+            y = travel * self.pixels / self.max_pixels
+        if y < 0.0:
+            y = 0.0
+        if y > travel:
+            y = travel
+        context.fill_rect(2.0, y, self.width - 4.0, thumb, COLOR_ACCENT)
+
+
+class Scrollbar(RenderObjectWidget):
+    controller: ScrollController
+    child: Widget | None
+
+    def __init__(self, controller: ScrollController, child: Widget | None = None, key: Key | None = None) -> None:
+        super().__init__(TYPE_BAR, key)
+        self.controller = controller
+        self.child = child
+
+    def create_render(self) -> RenderBox | None:
+        return RenderScrollbar()
+
+    def child_widgets(self) -> list[Widget]:
+        shown: Widget | None = self.child
+        if shown is None:
+            return []
+        return [shown]
+
+    def sync_render(self, element: Element) -> None:
+        self.controller.watch(element.element_id)
+        box: RenderBox | None = element.render
+        if box is None:
+            return
+        box.set_scroll(self.controller.position.pixels, self.controller.position.max_pixels, self.controller.position.viewport, self.controller.position.content)

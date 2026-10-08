@@ -1,0 +1,292 @@
+from aura.foundation.constraints import Constraints
+from aura.foundation.geometry import ALIGNMENT_CENTER
+from aura.foundation.insets import EdgeInsets
+from aura.rendering.layer import PaintingContext
+from aura.rendering.render_object import RenderBox
+from aura.widgets.framework import BuildContext, Element, RenderObjectWidget, StatelessWidget, Widget
+from aura.widgets.key import Key
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_SIZED: int = alloc_type_id()
+TYPE_PADDING: int = alloc_type_id()
+TYPE_CENTER: int = alloc_type_id()
+TYPE_COLORED: int = alloc_type_id()
+TYPE_CONTAINER: int = alloc_type_id()
+
+
+class RenderSizedBox(RenderBox):
+    has_w: int
+    has_h: int
+    want_w: float
+    want_h: float
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.has_w = 0
+        self.has_h = 0
+        self.want_w = 0.0
+        self.want_h = 0.0
+
+    def set_sized(self, has_w: int, w: float, has_h: int, h: float) -> None:
+        changed: bool = False
+        if self.has_w != has_w or self.has_h != has_h or self.want_w != w or self.want_h != h:
+            changed = True
+        self.has_w = has_w
+        self.has_h = has_h
+        self.want_w = w
+        self.want_h = h
+        if has_w != 0 and has_h != 0:
+            self.force_boundary = True
+        if changed:
+            self.mark_needs_layout()
+
+    def hit_test_self(self, x: float, y: float) -> bool:
+        return True
+
+    def perform_layout(self) -> None:
+        inner: Constraints = self.constraints
+        if self.has_w != 0:
+            inner = inner.tighten_width(self.want_w)
+        if self.has_h != 0:
+            inner = inner.tighten_height(self.want_h)
+        child: RenderBox | None = self.only_child
+        if child is not None:
+            child.layout(inner)
+            child.offset_x = 0.0
+            child.offset_y = 0.0
+            self.width = child.width
+            self.height = child.height
+        else:
+            if self.has_w != 0:
+                self.width = inner.constrain_width(self.want_w)
+            else:
+                self.width = inner.constrain_width(inner.min_width)
+            if self.has_h != 0:
+                self.height = inner.constrain_height(self.want_h)
+            else:
+                self.height = inner.constrain_height(inner.min_height)
+
+
+class RenderPadding(RenderBox):
+    left: float
+    top: float
+    right: float
+    bottom: float
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.left = 0.0
+        self.top = 0.0
+        self.right = 0.0
+        self.bottom = 0.0
+
+    def set_padding(self, left: float, top: float, right: float, bottom: float) -> None:
+        changed: bool = False
+        if self.left != left or self.top != top or self.right != right or self.bottom != bottom:
+            changed = True
+        self.left = left
+        self.top = top
+        self.right = right
+        self.bottom = bottom
+        if changed:
+            self.mark_needs_layout()
+
+    def perform_layout(self) -> None:
+        child: RenderBox | None = self.only_child
+        if child is None:
+            self.width = self.constraints.constrain_width(self.left + self.right)
+            self.height = self.constraints.constrain_height(self.top + self.bottom)
+            return
+        inner: Constraints = self.constraints.deflate(self.left, self.top, self.right, self.bottom)
+        child.layout(inner)
+        child.offset_x = self.left
+        child.offset_y = self.top
+        self.width = self.constraints.constrain_width(child.width + self.left + self.right)
+        self.height = self.constraints.constrain_height(child.height + self.top + self.bottom)
+
+
+class RenderCenter(RenderBox):
+    def perform_layout(self) -> None:
+        loose: Constraints = self.constraints.loosen()
+        child_w: float = 0.0
+        child_h: float = 0.0
+        child: RenderBox | None = self.only_child
+        if child is not None:
+            child.layout(loose)
+            child_w = child.width
+            child_h = child.height
+        if self.constraints.has_bounded_width():
+            self.width = self.constraints.max_width
+        else:
+            self.width = self.constraints.constrain_width(child_w)
+        if self.constraints.has_bounded_height():
+            self.height = self.constraints.max_height
+        else:
+            self.height = self.constraints.constrain_height(child_h)
+        if child is not None:
+            child.offset_x = ALIGNMENT_CENTER.offset_x(self.width, child_w)
+            child.offset_y = ALIGNMENT_CENTER.offset_y(self.height, child_h)
+
+
+class RenderColoredBox(RenderBox):
+    color: int
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.color = 0
+
+    def set_color(self, argb: int) -> None:
+        if self.color != argb:
+            self.color = argb
+            self.mark_needs_paint()
+        else:
+            self.color = argb
+
+    def perform_layout(self) -> None:
+        child: RenderBox | None = self.only_child
+        if child is not None:
+            child.layout(self.constraints)
+            child.offset_x = 0.0
+            child.offset_y = 0.0
+            self.width = self.constraints.constrain_width(child.width)
+            self.height = self.constraints.constrain_height(child.height)
+        else:
+            if self.constraints.has_bounded_width():
+                self.width = self.constraints.max_width
+            else:
+                self.width = self.constraints.min_width
+            if self.constraints.has_bounded_height():
+                self.height = self.constraints.max_height
+            else:
+                self.height = self.constraints.min_height
+
+    def paint_self(self, context: PaintingContext) -> None:
+        context.fill_rect(0.0, 0.0, self.width, self.height, self.color)
+
+
+class SizedBox(RenderObjectWidget):
+    width: float | None
+    height: float | None
+    child: Widget | None
+    tag: int
+
+    def __init__(self, width: float | None, height: float | None, child: Widget | None = None, tag: int = 0, key: Key | None = None) -> None:
+        super().__init__(TYPE_SIZED, key)
+        self.width = width
+        self.height = height
+        self.child = child
+        self.tag = tag
+
+    def create_render(self) -> RenderBox | None:
+        return RenderSizedBox()
+
+    def child_widgets(self) -> list[Widget]:
+        child: Widget | None = self.child
+        if child is None:
+            empty: list[Widget] = []
+            return empty
+        return [child]
+
+    def sync_render(self, element: Element) -> None:
+        has_w: int = 0
+        has_h: int = 0
+        w: float = 0.0
+        h: float = 0.0
+        width: float | None = self.width
+        height: float | None = self.height
+        if width is not None:
+            has_w = 1
+            w = width
+        if height is not None:
+            has_h = 1
+            h = height
+        element.apply_sized(has_w, w, has_h, h, self.tag)
+
+
+class Padding(RenderObjectWidget):
+    insets: EdgeInsets
+    child: Widget
+
+    def __init__(self, insets: EdgeInsets, child: Widget, key: Key | None = None) -> None:
+        super().__init__(TYPE_PADDING, key)
+        self.insets = insets
+        self.child = child
+
+    def create_render(self) -> RenderBox | None:
+        return RenderPadding()
+
+    def child_widgets(self) -> list[Widget]:
+        return [self.child]
+
+    def sync_render(self, element: Element) -> None:
+        element.apply_padding(self.insets.left, self.insets.top, self.insets.right, self.insets.bottom)
+
+
+class Center(RenderObjectWidget):
+    child: Widget
+
+    def __init__(self, child: Widget, key: Key | None = None) -> None:
+        super().__init__(TYPE_CENTER, key)
+        self.child = child
+
+    def create_render(self) -> RenderBox | None:
+        return RenderCenter()
+
+    def child_widgets(self) -> list[Widget]:
+        return [self.child]
+
+
+class ColoredBox(RenderObjectWidget):
+    color: int
+    child: Widget | None
+
+    def __init__(self, color: int, child: Widget | None = None, key: Key | None = None) -> None:
+        super().__init__(TYPE_COLORED, key)
+        self.color = color
+        self.child = child
+
+    def create_render(self) -> RenderBox | None:
+        return RenderColoredBox()
+
+    def child_widgets(self) -> list[Widget]:
+        child: Widget | None = self.child
+        if child is None:
+            empty: list[Widget] = []
+            return empty
+        return [child]
+
+    def sync_render(self, element: Element) -> None:
+        element.apply_color(self.color)
+
+
+class Container(StatelessWidget):
+    child: Widget | None
+    padding: EdgeInsets | None
+    color: int | None
+    width: float | None
+    height: float | None
+
+    def __init__(self, child: Widget | None = None, padding: EdgeInsets | None = None, color: int | None = None, width: float | None = None, height: float | None = None, key: Key | None = None) -> None:
+        super().__init__(TYPE_CONTAINER, key)
+        self.child = child
+        self.padding = padding
+        self.color = color
+        self.width = width
+        self.height = height
+
+    def build(self, context: BuildContext) -> Widget:
+        start: Widget | None = self.child
+        built: Widget = SizedBox(0.0, 0.0)
+        if start is not None:
+            built = start
+        padding: EdgeInsets | None = self.padding
+        if padding is not None:
+            built = Padding(padding, built)
+        color: int | None = self.color
+        if color is not None:
+            built = ColoredBox(color, built)
+        width: float | None = self.width
+        height: float | None = self.height
+        if width is not None or height is not None:
+            built = SizedBox(width, height, built)
+        return built

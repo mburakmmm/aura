@@ -1,0 +1,298 @@
+from aura.core.diagnostics import FrameworkError
+from aura.foundation.constraints import Constraints, infinity
+from aura.rendering.render_object import FLEX_LOOSE, FLEX_TIGHT, RenderBox
+from aura.widgets.framework import Element, ParentDataWidget, RenderObjectWidget, Widget
+from aura.widgets.key import Key
+from aura.widgets.type_ids import alloc_type_id
+
+AXIS_HORIZONTAL: int = 0
+AXIS_VERTICAL: int = 1
+MAIN_START: int = 0
+MAIN_CENTER: int = 1
+MAIN_END: int = 2
+MAIN_SPACE_BETWEEN: int = 3
+CROSS_START: int = 0
+CROSS_CENTER: int = 1
+CROSS_END: int = 2
+CROSS_STRETCH: int = 3
+MAIN_MIN: int = 0
+MAIN_MAX: int = 1
+
+TYPE_ROW: int = alloc_type_id()
+TYPE_COLUMN: int = alloc_type_id()
+TYPE_EXPANDED: int = alloc_type_id()
+TYPE_FLEXIBLE: int = alloc_type_id()
+TYPE_SPACER: int = alloc_type_id()
+
+
+class RenderFlex(RenderBox):
+    axis: int
+    main_align: int
+    cross_align: int
+    main_size: int
+    spacing: float
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.multi_child = True
+        self.axis = AXIS_VERTICAL
+        self.main_align = MAIN_START
+        self.cross_align = CROSS_CENTER
+        self.main_size = MAIN_MAX
+        self.spacing = 0.0
+
+    def set_flex_style(self, axis: int, main_align: int, cross_align: int, main_size: int, spacing: float) -> None:
+        changed: bool = False
+        if self.axis != axis or self.main_align != main_align or self.cross_align != cross_align or self.main_size != main_size or self.spacing != spacing:
+            changed = True
+        self.axis = axis
+        self.main_align = main_align
+        self.cross_align = cross_align
+        self.main_size = main_size
+        self.spacing = spacing
+        if changed:
+            self.mark_needs_layout()
+
+    def perform_layout(self) -> None:
+        horizontal: bool = self.axis == AXIS_HORIZONTAL
+        count: int = len(self.children)
+        main_max: float = self.constraints.max_height
+        main_min: float = self.constraints.min_height
+        cross_min: float = self.constraints.min_width
+        cross_max: float = self.constraints.max_width
+        if horizontal:
+            main_max = self.constraints.max_width
+            main_min = self.constraints.min_width
+            cross_min = self.constraints.min_height
+            cross_max = self.constraints.max_height
+        flex_total: int = 0
+        i: int = 0
+        while i < count:
+            if self.children[i].flex > 0:
+                flex_total = flex_total + self.children[i].flex
+            i = i + 1
+        main_bounded: bool = main_max < infinity()
+        if flex_total > 0 and not main_bounded:
+            raise FrameworkError("RenderFlex Expanded in unbounded main axis")
+        child_cross_min: float = 0.0
+        child_cross_max: float = cross_max
+        if self.cross_align == CROSS_STRETCH and cross_max < infinity():
+            child_cross_min = cross_max
+            child_cross_max = cross_max
+        spacing_total: float = 0.0
+        if count > 1:
+            spacing_total = self.spacing * float(count - 1)
+        fixed_main: float = 0.0
+        i = 0
+        while i < count:
+            child: RenderBox = self.children[i]
+            if child.flex == 0:
+                child.layout(_child_constraints(horizontal, child_cross_min, child_cross_max, 0.0, main_max))
+                fixed_main = fixed_main + _main_of(child, horizontal)
+            i = i + 1
+        free: float = 0.0
+        if main_bounded:
+            free = main_max - fixed_main - spacing_total
+        if free < 0.0:
+            self.overflow = -free
+            if not self.overflow_reported:
+                self.overflow_reported = True
+                print("RenderFlex overflow by " + str(self.overflow))
+            free = 0.0
+        else:
+            self.overflow = 0.0
+        i = 0
+        while i < count:
+            child_flex: RenderBox = self.children[i]
+            if child_flex.flex > 0:
+                share: float = 0.0
+                if flex_total > 0:
+                    share = free * float(child_flex.flex) / float(flex_total)
+                if child_flex.flex_fit == FLEX_TIGHT:
+                    child_flex.layout(_child_constraints(horizontal, child_cross_min, child_cross_max, share, share))
+                else:
+                    child_flex.layout(_child_constraints(horizontal, child_cross_min, child_cross_max, 0.0, share))
+            i = i + 1
+        flex_main: float = 0.0
+        cross_size: float = 0.0
+        i = 0
+        while i < count:
+            child_size: RenderBox = self.children[i]
+            if child_size.flex > 0:
+                flex_main = flex_main + _main_of(child_size, horizontal)
+            cross: float = _cross_of(child_size, horizontal)
+            if cross > cross_size:
+                cross_size = cross
+            i = i + 1
+        content_main: float = fixed_main + flex_main + spacing_total
+        final_main: float = content_main
+        if self.main_size == MAIN_MAX and main_bounded:
+            final_main = main_max
+        if final_main < main_min:
+            final_main = main_min
+        final_cross: float = cross_size
+        if self.cross_align == CROSS_STRETCH and cross_max < infinity():
+            final_cross = cross_max
+        if final_cross < cross_min:
+            final_cross = cross_min
+        if horizontal:
+            self.width = final_main
+            self.height = final_cross
+        else:
+            self.width = final_cross
+            self.height = final_main
+        remaining: float = final_main - content_main
+        if remaining < 0.0:
+            remaining = 0.0
+        leading: float = 0.0
+        gap: float = self.spacing
+        if self.main_align == MAIN_CENTER:
+            leading = remaining / 2.0
+        elif self.main_align == MAIN_END:
+            leading = remaining
+        elif self.main_align == MAIN_SPACE_BETWEEN and count > 1:
+            gap = self.spacing + remaining / float(count - 1)
+        cursor: float = leading
+        i = 0
+        while i < count:
+            placed: RenderBox = self.children[i]
+            main_s: float = _main_of(placed, horizontal)
+            cross_s: float = _cross_of(placed, horizontal)
+            cross_pos: float = 0.0
+            if self.cross_align == CROSS_CENTER:
+                cross_pos = (final_cross - cross_s) / 2.0
+            elif self.cross_align == CROSS_END:
+                cross_pos = final_cross - cross_s
+            if horizontal:
+                placed.offset_x = cursor
+                placed.offset_y = cross_pos
+            else:
+                placed.offset_x = cross_pos
+                placed.offset_y = cursor
+            cursor = cursor + main_s
+            if i < count - 1:
+                cursor = cursor + gap
+            i = i + 1
+
+
+def _main_of(box: RenderBox, horizontal: bool) -> float:
+    if horizontal:
+        return box.width
+    return box.height
+
+
+def _cross_of(box: RenderBox, horizontal: bool) -> float:
+    if horizontal:
+        return box.height
+    return box.width
+
+
+def _child_constraints(horizontal: bool, cross_min: float, cross_max: float, main_min: float, main_max: float) -> Constraints:
+    if horizontal:
+        return Constraints(main_min, main_max, cross_min, cross_max)
+    return Constraints(cross_min, cross_max, main_min, main_max)
+
+
+class Flex(RenderObjectWidget):
+    axis: int
+    children: list[Widget]
+    main_align: int
+    cross_align: int
+    main_size: int
+    spacing: float
+
+    def __init__(self, axis: int, children: list[Widget], main_align: int = 0, cross_align: int = 1, main_size: int = 1, spacing: float = 0.0, key: Key | None = None) -> None:
+        type_id: int = TYPE_COLUMN
+        if axis == AXIS_HORIZONTAL:
+            type_id = TYPE_ROW
+        super().__init__(type_id, key)
+        self.axis = axis
+        self.children = children
+        self.main_align = main_align
+        self.cross_align = cross_align
+        self.main_size = main_size
+        self.spacing = spacing
+
+    def create_render(self) -> RenderBox | None:
+        return RenderFlex()
+
+    def child_widgets(self) -> list[Widget]:
+        return self.children
+
+    def sync_render(self, element: Element) -> None:
+        element.apply_flex(self.axis, self.main_align, self.cross_align, self.main_size, self.spacing)
+
+
+def Row(children: list[Widget], main_align: int = 0, cross_align: int = 1, main_size: int = 1, spacing: float = 0.0, key: Key | None = None) -> Flex:
+    return Flex(AXIS_HORIZONTAL, children, main_align, cross_align, main_size, spacing, key)
+
+
+def Column(children: list[Widget], main_align: int = 0, cross_align: int = 1, main_size: int = 1, spacing: float = 0.0, key: Key | None = None) -> Flex:
+    return Flex(AXIS_VERTICAL, children, main_align, cross_align, main_size, spacing, key)
+
+
+class Expanded(ParentDataWidget):
+    flex: int
+    child: Widget
+
+    def __init__(self, child: Widget, flex: int = 1, key: Key | None = None) -> None:
+        super().__init__(TYPE_EXPANDED, key)
+        self.flex = flex
+        self.child = child
+
+    def child_widgets(self) -> list[Widget]:
+        return [self.child]
+
+    def push_parent_data_element(self, element: Element) -> None:
+        _push_flex(element, self.flex, FLEX_TIGHT)
+
+
+class Flexible(ParentDataWidget):
+    flex: int
+    child: Widget
+
+    def __init__(self, child: Widget, flex: int = 1, key: Key | None = None) -> None:
+        super().__init__(TYPE_FLEXIBLE, key)
+        self.flex = flex
+        self.child = child
+
+    def child_widgets(self) -> list[Widget]:
+        return [self.child]
+
+    def push_parent_data_element(self, element: Element) -> None:
+        _push_flex(element, self.flex, FLEX_LOOSE)
+
+
+class Spacer(RenderObjectWidget):
+    flex: int
+
+    def __init__(self, flex: int = 1, key: Key | None = None) -> None:
+        super().__init__(TYPE_SPACER, key)
+        self.flex = flex
+
+    def create_render(self) -> RenderBox | None:
+        box: RenderBox = RenderBox()
+        box.flex = self.flex
+        box.flex_fit = FLEX_TIGHT
+        return box
+
+    def sync_render(self, element: Element) -> None:
+        box: RenderBox | None = element.render
+        if box is None:
+            return
+        if box.flex == self.flex and box.flex_fit == FLEX_TIGHT:
+            return
+        box.flex = self.flex
+        box.flex_fit = FLEX_TIGHT
+        box.mark_needs_layout()
+
+
+def _push_flex(element: Element, flex: int, fit: int) -> None:
+    if len(element.children) == 0:
+        raise FrameworkError("Expanded child has no render object")
+    box: RenderBox | None = element.children[0].outermost_render()
+    if box is None:
+        raise FrameworkError("Expanded child has no render object")
+    box.flex = flex
+    box.flex_fit = fit
+    box.mark_needs_layout()

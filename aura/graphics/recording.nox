@@ -1,0 +1,150 @@
+from aura.graphics.canvas import Canvas
+
+KIND_CLEAR: int = 1
+KIND_RECT: int = 2
+KIND_TEXT: int = 3
+KIND_OPACITY: int = 4
+KIND_OPACITY_POP: int = 5
+KIND_IMAGE: int = 6
+
+
+class RecordingCanvas(Canvas):
+    kinds: list[int]
+    xs: list[float]
+    ys: list[float]
+    ws: list[float]
+    hs: list[float]
+    sizes: list[float]
+    weights: list[int]
+    argbs: list[int]
+    texts: list[str]
+    families: list[str]
+    presented: int
+
+    def __init__(self) -> None:
+        self.kinds = []
+        self.xs = []
+        self.ys = []
+        self.ws = []
+        self.hs = []
+        self.sizes = []
+        self.weights = []
+        self.argbs = []
+        self.texts = []
+        self.families = []
+        self.presented = 0
+
+    def clear(self, argb: int) -> None:
+        self.kinds.append(KIND_CLEAR)
+        self.xs.append(0.0)
+        self.ys.append(0.0)
+        self.ws.append(0.0)
+        self.hs.append(0.0)
+        self.sizes.append(0.0)
+        self.weights.append(0)
+        self.argbs.append(argb)
+        self.texts.append("")
+        self.families.append("")
+
+    def fill_rect(self, x: float, y: float, w: float, h: float, argb: int) -> None:
+        self.kinds.append(KIND_RECT)
+        self.xs.append(x)
+        self.ys.append(y)
+        self.ws.append(w)
+        self.hs.append(h)
+        self.sizes.append(0.0)
+        self.weights.append(0)
+        self.argbs.append(argb)
+        self.texts.append("")
+        self.families.append("")
+
+    def fill_text(self, x: float, y: float, text: str, size: float, weight: int, argb: int, family: str) -> None:
+        self.kinds.append(KIND_TEXT)
+        self.xs.append(x)
+        self.ys.append(y)
+        self.ws.append(0.0)
+        self.hs.append(0.0)
+        self.sizes.append(size)
+        self.weights.append(weight)
+        self.argbs.append(argb)
+        self.texts.append(text)
+        self.families.append(family)
+
+    def push_opacity(self, opacity: float) -> None:
+        self.kinds.append(KIND_OPACITY)
+        self.xs.append(0.0)
+        self.ys.append(0.0)
+        self.ws.append(opacity)
+        self.hs.append(0.0)
+        self.sizes.append(0.0)
+        self.weights.append(0)
+        self.argbs.append(0)
+        self.texts.append("")
+        self.families.append("")
+
+    def draw_image(self, x: float, y: float, w: float, h: float, image: int) -> None:
+        self.kinds.append(KIND_IMAGE)
+        self.xs.append(x)
+        self.ys.append(y)
+        self.ws.append(w)
+        self.hs.append(h)
+        self.sizes.append(0.0)
+        self.weights.append(image)
+        self.argbs.append(0)
+        self.texts.append("")
+        self.families.append("")
+
+    def pop_opacity(self) -> None:
+        self.kinds.append(KIND_OPACITY_POP)
+        self.xs.append(0.0)
+        self.ys.append(0.0)
+        self.ws.append(0.0)
+        self.hs.append(0.0)
+        self.sizes.append(0.0)
+        self.weights.append(0)
+        self.argbs.append(0)
+        self.texts.append("")
+        self.families.append("")
+
+    def present(self) -> None:
+        self.presented = self.presented + 1
+
+    def reset(self) -> None:
+        self.kinds = []
+        self.xs = []
+        self.ys = []
+        self.ws = []
+        self.hs = []
+        self.sizes = []
+        self.weights = []
+        self.argbs = []
+        self.texts = []
+        self.families = []
+        self.presented = 0
+
+    def rect_count(self) -> int:
+        count: int = 0
+        i: int = 0
+        while i < len(self.kinds):
+            if self.kinds[i] == KIND_RECT:
+                count = count + 1
+            i = i + 1
+        return count
+
+    def opacity_count(self) -> int:
+        count: int = 0
+        i: int = 0
+        while i < len(self.kinds):
+            if self.kinds[i] == KIND_OPACITY:
+                count = count + 1
+            i = i + 1
+        return count
+
+    def text_count(self) -> int:
+        count: int = 0
+        i: int = 0
+        while i < len(self.kinds):
+            if self.kinds[i] == KIND_TEXT:
+                count = count + 1
+            i = i + 1
+        return count

@@ -1,0 +1,14 @@
+from aura.foundation.color import COLOR_ACCENT
+from aura.layout import Center, ColoredBox, SizedBox
+from aura.widgets import BuildContext, StatelessWidget, Widget
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_RECTANGLE: int = alloc_type_id()
+
+
+class RectanglePage(StatelessWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_RECTANGLE, None)
+
+    def build(self, context: BuildContext) -> Widget:
+        return Center(SizedBox(160.0, 100.0, ColoredBox(COLOR_ACCENT)))

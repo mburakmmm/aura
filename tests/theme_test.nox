@@ -1,0 +1,90 @@
+import nox.test
+from aura.foundation.color import COLOR_ACCENT, COLOR_TEXT
+from aura.graphics.recording import KIND_TEXT
+from aura.layout import Column
+from aura.testing.tester import WidgetTester
+from aura.text import Text
+from aura.widgets import BuildContext, Element, State, StatefulWidget, Theme, ThemeData, Widget
+from aura.widgets.theme import ColorScheme, Typography, default_scheme
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_WRAP: int = alloc_type_id()
+holder: WrapState | None = None
+
+
+class WrapState(State):
+    text_color: int
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.text_color = COLOR_ACCENT
+        holder = self
+
+    def build(self, context: BuildContext) -> Widget:
+        scheme: ColorScheme = default_scheme()
+        scheme.text = self.text_color
+        return Theme(ThemeData(scheme, Typography()), Column([
+            Text("plain"),
+            Text("fixed", color=COLOR_TEXT),
+        ]))
+
+
+class WrapPage(StatefulWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_WRAP, None)
+
+    def create_state(self) -> State:
+        return WrapState()
+
+
+def require_state() -> WrapState:
+    current: WrapState | None = holder
+    if current is None:
+        raise Exception("missing theme state")
+    return current
+
+
+def require_root(tester: WidgetTester) -> Element:
+    root: Element | None = tester.pump.root
+    if root is None:
+        raise Exception("missing root")
+    return root
+
+
+def child_at(element: Element, index: int) -> Element:
+    found: Element | None = element.children[index]
+    if found is None:
+        raise Exception("missing child")
+    return found
+
+
+def text_color_at(tester: WidgetTester, index: int) -> int:
+    seen: int = 0
+    i: int = 0
+    while i < len(tester.canvas.kinds):
+        if tester.canvas.kinds[i] == KIND_TEXT:
+            if seen == index:
+                return tester.canvas.argbs[i]
+            seen = seen + 1
+        i = i + 1
+    raise Exception("missing text command")
+
+
+tester: WidgetTester = WidgetTester()
+tester.pump_widget(WrapPage(), 200.0, 120.0)
+nox.test.assert_eq_int(text_color_at(tester, 0), COLOR_ACCENT, "plain text uses theme")
+nox.test.assert_eq_int(text_color_at(tester, 1), COLOR_TEXT, "explicit color stays")
+column: Element = child_at(child_at(require_root(tester), 0), 0)
+plain: Element = child_at(column, 0)
+fixed: Element = child_at(column, 1)
+nox.test.assert_eq_int(plain.rebuild_count, 0, "plain mounted")
+nox.test.assert_eq_int(fixed.rebuild_count, 0, "fixed mounted")
+require_state().text_color = COLOR_TEXT
+require_state().invalidate()
+tester.pump_frame()
+nox.test.assert_eq_int(text_color_at(tester, 0), COLOR_TEXT, "theme change reaches plain text")
+plain = child_at(child_at(child_at(require_root(tester), 0), 0), 0)
+fixed = child_at(child_at(child_at(require_root(tester), 0), 0), 1)
+nox.test.assert_true(plain.rebuild_count >= 1, "dependent text rebuilt")
+nox.test.assert_eq_int(fixed.rebuild_count, 0, "explicit text is not a dependent")
+print("theme ok")

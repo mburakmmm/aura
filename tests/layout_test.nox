@@ -1,0 +1,184 @@
+import nox.test
+from aura.core.diagnostics import FrameworkError
+from aura.foundation.color import COLOR_ACCENT
+from aura.foundation.constraints import Constraints, infinity
+from aura.foundation.insets import insets_all
+from aura.layout.boxes import Center, Container, Padding, SizedBox
+from aura.layout.flex import CROSS_END, CROSS_START, CROSS_STRETCH, Column, Expanded, Flexible, MAIN_CENTER, MAIN_END, MAIN_MAX, MAIN_MIN, MAIN_SPACE_BETWEEN, MAIN_START, RenderFlex, Row, Spacer
+from aura.rendering.render_object import FLEX_TIGHT, RenderBox
+from aura.testing.tester import WidgetTester
+from aura.widgets.framework import Widget
+
+def require_box(box: RenderBox | None, name: str) -> RenderBox:
+    if box is None:
+        raise Exception(name)
+    return box
+
+
+tester: WidgetTester = WidgetTester()
+page: Widget = Column([
+    SizedBox(100.0, 20.0, None, 1),
+    SizedBox(40.0, 30.0, None, 2),
+], 0, CROSS_START, MAIN_MIN, 0.0)
+tester.pump_widget(page, 300.0, 400.0)
+
+column: RenderBox = require_box(tester.view().only_child, "column missing")
+nox.test.assert_eq_float(column.width, 100.0, "column width")
+nox.test.assert_eq_float(column.height, 50.0, "column height")
+nox.test.assert_eq_int(len(column.children), 2, "child count")
+first: RenderBox = column.children[0]
+second: RenderBox = column.children[1]
+nox.test.assert_eq_float(first.offset_x, 0.0, "a x")
+nox.test.assert_eq_float(first.offset_y, 0.0, "a y")
+nox.test.assert_eq_float(first.width, 100.0, "a width")
+nox.test.assert_eq_float(first.height, 20.0, "a height")
+nox.test.assert_eq_float(second.offset_x, 0.0, "b x")
+nox.test.assert_eq_float(second.offset_y, 20.0, "b y")
+nox.test.assert_eq_float(second.width, 40.0, "b width")
+nox.test.assert_eq_float(second.height, 30.0, "b height")
+
+spaced: WidgetTester = WidgetTester()
+spaced.pump_widget(Column([
+    SizedBox(100.0, 20.0),
+    SizedBox(100.0, 30.0),
+], 0, CROSS_START, MAIN_MIN, 10.0), 300.0, 400.0)
+spaced_column: RenderBox = require_box(spaced.view().only_child, "spaced column missing")
+nox.test.assert_eq_float(spaced_column.children[1].offset_y, 30.0, "spacing")
+
+overflow: WidgetTester = WidgetTester()
+overflow.pump_widget(Column([
+    SizedBox(100.0, 300.0),
+    SizedBox(100.0, 300.0),
+], 0, CROSS_START, 1, 0.0), 300.0, 400.0)
+flex: RenderBox = require_box(overflow.view().only_child, "overflow column missing")
+nox.test.assert_eq_float(flex.overflow, 200.0, "overflow")
+
+grown: WidgetTester = WidgetTester()
+grown.pump_widget(Column([
+    Expanded(SizedBox(10.0, 10.0, None, 7)),
+], 0, CROSS_START, 1, 0.0), 100.0, 100.0)
+grown_column: RenderBox = require_box(grown.view().only_child, "expanded column missing")
+nox.test.assert_eq_float(grown_column.children[0].height, 100.0, "expanded height")
+nox.test.assert_eq_float(grown_column.children[0].width, 10.0, "expanded width")
+
+padded: WidgetTester = WidgetTester()
+padded.pump_widget(Padding(insets_all(8.0), SizedBox(10.0, 10.0, None, 4)), 200.0, 200.0)
+pad_box: RenderBox = require_box(padded.view().only_child, "padding missing")
+inner: RenderBox = require_box(pad_box.only_child, "padded child missing")
+nox.test.assert_eq_float(pad_box.width, 26.0, "padding width")
+nox.test.assert_eq_float(pad_box.height, 26.0, "padding height")
+nox.test.assert_eq_float(inner.offset_x, 8.0, "padding child x")
+nox.test.assert_eq_float(inner.offset_y, 8.0, "padding child y")
+
+centered: WidgetTester = WidgetTester()
+centered.pump_widget(Center(SizedBox(20.0, 10.0)), 100.0, 80.0)
+center_box: RenderBox = require_box(centered.view().only_child, "center missing")
+centered_child: RenderBox = require_box(center_box.only_child, "centered child missing")
+nox.test.assert_eq_float(center_box.width, 100.0, "center width")
+nox.test.assert_eq_float(center_box.height, 80.0, "center height")
+nox.test.assert_eq_float(centered_child.offset_x, 40.0, "center child x")
+nox.test.assert_eq_float(centered_child.offset_y, 35.0, "center child y")
+
+loose: RenderFlex = RenderFlex()
+loose.axis = 1
+flex_child: RenderBox = RenderBox()
+flex_child.flex = 1
+flex_child.flex_fit = FLEX_TIGHT
+loose.set_children([flex_child])
+unbounded: int = 0
+try:
+    loose.layout(Constraints(0.0, 100.0, 0.0, infinity()))
+except FrameworkError as error:
+    unbounded = 1
+    nox.test.assert_true(error.message == "RenderFlex Expanded in unbounded main axis", "unbounded expanded")
+nox.test.assert_eq_int(unbounded, 1, "unbounded raised")
+
+boxed: WidgetTester = WidgetTester()
+boxed.pump_widget(Container(SizedBox(10.0, 10.0), insets_all(8.0), COLOR_ACCENT, 80.0, 40.0), 200.0, 200.0)
+outer: RenderBox = require_box(boxed.view().only_child, "container missing")
+colored: RenderBox = require_box(outer.only_child, "colored missing")
+pad: RenderBox = require_box(colored.only_child, "container padding missing")
+content: RenderBox = require_box(pad.only_child, "container child missing")
+nox.test.assert_eq_float(outer.width, 80.0, "container width")
+nox.test.assert_eq_float(outer.height, 40.0, "container height")
+nox.test.assert_eq_float(content.offset_x, 8.0, "container child x")
+nox.test.assert_eq_float(content.offset_y, 8.0, "container child y")
+
+rowed: WidgetTester = WidgetTester()
+rowed.pump_widget(Row([
+    SizedBox(100.0, 20.0),
+    SizedBox(40.0, 30.0),
+], MAIN_START, CROSS_START, MAIN_MIN, 0.0), 300.0, 400.0)
+row: RenderBox = require_box(rowed.view().only_child, "row missing")
+nox.test.assert_eq_float(row.width, 140.0, "row width")
+nox.test.assert_eq_float(row.children[0].offset_x, 0.0, "row a x")
+nox.test.assert_eq_float(row.children[1].offset_x, 100.0, "row b x")
+
+loose_flex: WidgetTester = WidgetTester()
+loose_flex.pump_widget(Column([
+    Flexible(SizedBox(10.0, 10.0)),
+], MAIN_START, CROSS_START, MAIN_MAX, 0.0), 100.0, 100.0)
+loose_column: RenderBox = require_box(loose_flex.view().only_child, "flexible column missing")
+nox.test.assert_eq_float(loose_column.height, 100.0, "flexible column height")
+nox.test.assert_eq_float(loose_column.children[0].height, 10.0, "flexible child height")
+nox.test.assert_eq_float(loose_column.children[0].width, 10.0, "flexible child width")
+
+spaced_out: WidgetTester = WidgetTester()
+spaced_out.pump_widget(Column([
+    SizedBox(10.0, 20.0),
+    Spacer(),
+], MAIN_START, CROSS_START, MAIN_MAX, 0.0), 100.0, 100.0)
+spacer_column: RenderBox = require_box(spaced_out.view().only_child, "spacer column missing")
+nox.test.assert_eq_float(spacer_column.children[0].offset_y, 0.0, "spacer lead y")
+nox.test.assert_eq_float(spacer_column.children[1].offset_y, 20.0, "spacer y")
+nox.test.assert_eq_float(spacer_column.children[1].height, 80.0, "spacer height")
+
+centered_main: WidgetTester = WidgetTester()
+centered_main.pump_widget(Column([
+    SizedBox(100.0, 20.0),
+    SizedBox(40.0, 30.0),
+], MAIN_CENTER, CROSS_START, MAIN_MAX, 0.0), 300.0, 400.0)
+center_column: RenderBox = require_box(centered_main.view().only_child, "center column missing")
+nox.test.assert_eq_float(center_column.children[0].offset_y, 175.0, "main center a")
+nox.test.assert_eq_float(center_column.children[1].offset_y, 195.0, "main center b")
+
+ended: WidgetTester = WidgetTester()
+ended.pump_widget(Column([
+    SizedBox(100.0, 20.0),
+    SizedBox(40.0, 30.0),
+], MAIN_END, CROSS_START, MAIN_MAX, 0.0), 300.0, 400.0)
+end_column: RenderBox = require_box(ended.view().only_child, "end column missing")
+nox.test.assert_eq_float(end_column.children[0].offset_y, 350.0, "main end a")
+nox.test.assert_eq_float(end_column.children[1].offset_y, 370.0, "main end b")
+
+between: WidgetTester = WidgetTester()
+between.pump_widget(Column([
+    SizedBox(100.0, 20.0),
+    SizedBox(40.0, 30.0),
+], MAIN_SPACE_BETWEEN, CROSS_START, MAIN_MAX, 0.0), 300.0, 400.0)
+between_column: RenderBox = require_box(between.view().only_child, "between column missing")
+nox.test.assert_eq_float(between_column.children[0].offset_y, 0.0, "space between a")
+nox.test.assert_eq_float(between_column.children[1].offset_y, 370.0, "space between b")
+
+cross_end: WidgetTester = WidgetTester()
+cross_end.pump_widget(Column([
+    SizedBox(100.0, 20.0),
+    SizedBox(40.0, 30.0),
+], MAIN_START, CROSS_END, MAIN_MIN, 0.0), 300.0, 400.0)
+cross_end_column: RenderBox = require_box(cross_end.view().only_child, "cross end column missing")
+nox.test.assert_eq_float(cross_end_column.width, 100.0, "cross end width")
+nox.test.assert_eq_float(cross_end_column.children[0].offset_x, 0.0, "cross end a")
+nox.test.assert_eq_float(cross_end_column.children[1].offset_x, 60.0, "cross end b")
+
+stretched: WidgetTester = WidgetTester()
+stretched.pump_widget(Column([
+    SizedBox(100.0, 20.0),
+    SizedBox(40.0, 30.0),
+], MAIN_START, CROSS_STRETCH, MAIN_MIN, 0.0), 300.0, 400.0)
+stretch_column: RenderBox = require_box(stretched.view().only_child, "stretch column missing")
+nox.test.assert_eq_float(stretch_column.width, 300.0, "stretch width")
+nox.test.assert_eq_float(stretch_column.children[0].width, 300.0, "stretch a width")
+nox.test.assert_eq_float(stretch_column.children[1].width, 300.0, "stretch b width")
+nox.test.assert_eq_float(stretch_column.children[0].offset_x, 0.0, "stretch a x")
+nox.test.assert_eq_float(stretch_column.children[1].offset_x, 0.0, "stretch b x")
+print("layout ok")

@@ -1,0 +1,53 @@
+EVENT_POINTER_DOWN: int = 1
+EVENT_POINTER_MOVE: int = 2
+EVENT_POINTER_UP: int = 3
+EVENT_POINTER_CANCEL: int = 4
+EVENT_KEY_DOWN: int = 5
+EVENT_KEY_UP: int = 6
+EVENT_RESIZE: int = 7
+EVENT_SCROLL: int = 8
+EVENT_TEXT: int = 9
+EVENT_IME_INSERT: int = 10
+EVENT_IME_DELETE: int = 11
+EVENT_IME_MARK: int = 12
+EVENT_WINDOW_FOCUS: int = 13
+EVENT_FILE_DROP: int = 14
+EVENT_AX_ACTION: int = 15
+
+
+class PointerEvent:
+    kind: int
+    x: float
+    y: float
+    button: int
+
+    def __init__(self, kind: int, x: float, y: float, button: int) -> None:
+        self.kind = kind
+        self.x = x
+        self.y = y
+        self.button = button
+
+
+class KeyEvent:
+    kind: int
+    key_code: int
+
+    def __init__(self, kind: int, key_code: int) -> None:
+        self.kind = kind
+        self.key_code = key_code
+
+
+class TextInputEvent:
+    code_point: int
+
+    def __init__(self, code_point: int) -> None:
+        self.code_point = code_point
+
+
+class ScrollEvent:
+    dx: float
+    dy: float
+
+    def __init__(self, dx: float, dy: float) -> None:
+        self.dx = dx
+        self.dy = dy

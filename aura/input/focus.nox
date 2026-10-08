@@ -1,0 +1,100 @@
+from aura.platform.bridge import text_input_active
+
+_next_focus_id: int = 1
+
+
+def _alloc_focus_id() -> int:
+    _next_focus_id = _next_focus_id + 1
+    return _next_focus_id
+
+
+def _noop_key(code: int, is_down: int) -> bool:
+    return False
+
+
+def _noop_text(code: int) -> None:
+    pass
+
+
+class FocusNode:
+    node_id: int
+    enabled: bool
+    parent: FocusNode | None
+    children: list[FocusNode]
+    on_key: (int, int) -> bool
+    has_key: bool
+    on_text: (int) -> None
+    has_text: bool
+    last_key: int
+    last_down: int
+    last_text: int
+    insert_target: int
+
+    def __init__(self) -> None:
+        self.node_id = _alloc_focus_id()
+        self.enabled = True
+        self.parent = None
+        self.children = []
+        self.on_key = _noop_key
+        self.has_key = False
+        self.on_text = _noop_text
+        self.has_text = False
+        self.last_key = 0
+        self.last_down = 0
+        self.last_text = 0
+        self.insert_target = 0
+
+
+class FocusManager:
+    root: FocusNode
+    focused: FocusNode | None
+
+    def __init__(self) -> None:
+        self.root = FocusNode()
+        self.focused = None
+
+    def attach(self, node: FocusNode) -> None:
+        node.parent = self.root
+        self.root.children.append(node)
+
+    def detach(self, node: FocusNode) -> None:
+        focused: FocusNode | None = self.focused
+        if focused is not None:
+            if focused.node_id == node.node_id:
+                self.focused = None
+        kept: list[FocusNode] = []
+        i: int = 0
+        while i < len(self.root.children):
+            if self.root.children[i].node_id != node.node_id:
+                kept.append(self.root.children[i])
+            i = i + 1
+        self.root.children = kept
+        node.parent = None
+
+    def focus(self, node: FocusNode) -> None:
+        if node.enabled:
+            self.focused = node
+            if node.insert_target != 0:
+                text_input_active(1)
+            else:
+                text_input_active(0)
+
+    def dispatch_key(self, code: int, is_down: int) -> bool:
+        focused: FocusNode | None = self.focused
+        if focused is None:
+            return False
+        if not focused.enabled:
+            return False
+        if not focused.has_key:
+            focused.last_key = code
+            focused.last_down = is_down
+            return False
+        return focused.on_key(code, is_down)
+
+    def dispatch_text(self, code: int) -> None:
+        focused: FocusNode | None = self.focused
+        if focused is None:
+            return
+        focused.last_text = code
+        if focused.has_text:
+            focused.on_text(code)

@@ -1,0 +1,22 @@
+import nox.test
+from aura.text.measure import measure_width, wrap_text
+
+one: float = measure_width("alpha", 16.0, 400, "")
+both: float = measure_width("alpha beta", 16.0, 400, "")
+nox.test.assert_true(one < both, "two words are wider")
+mid: float = (one + both) / 2.0
+nox.test.assert_true(mid > one, "width above one word")
+nox.test.assert_true(mid < both, "width below both words")
+lines: list[str] = wrap_text("alpha beta", mid, 16.0, 400, "")
+nox.test.assert_eq_int(len(lines), 2, "wrapped lines")
+nox.test.assert_eq_str(lines[0], "alpha", "first line")
+nox.test.assert_eq_str(lines[1], "beta", "second line")
+
+system_w: float = measure_width("MMMM", 32.0, 400, "")
+missing_w: float = measure_width("MMMM", 32.0, 400, "NoSuchAuraFontXYZ")
+menlo_w: float = measure_width("MMMM", 32.0, 400, "Menlo")
+bold_w: float = measure_width("MMMM", 32.0, 700, "")
+nox.test.assert_eq_float(missing_w, system_w, "missing family falls back")
+nox.test.assert_eq_float(menlo_w, system_w, "unknown family uses the bundled font")
+nox.test.assert_true(bold_w != system_w, "weight changes measure")
+print("text wrap ok")

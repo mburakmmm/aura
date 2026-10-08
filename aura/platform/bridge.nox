@@ -1,0 +1,483 @@
+extern def aura_window_create(width: int, height: int, title: str, visible: int) -> int from "native/libaura_host.dylib"
+extern def aura_window_destroy(handle: int) -> int from "native/libaura_host.dylib"
+extern def aura_window_poll(handle: int) -> int from "native/libaura_host.dylib"
+extern def aura_window_event_count(handle: int) -> int from "native/libaura_host.dylib"
+extern def aura_window_event_kind(handle: int, index: int) -> int from "native/libaura_host.dylib"
+extern def aura_window_event_x(handle: int, index: int) -> float from "native/libaura_host.dylib"
+extern def aura_window_event_y(handle: int, index: int) -> float from "native/libaura_host.dylib"
+extern def aura_window_event_key(handle: int, index: int) -> int from "native/libaura_host.dylib"
+extern def aura_window_event_button(handle: int, index: int) -> int from "native/libaura_host.dylib"
+extern def aura_window_events_clear(handle: int) -> int from "native/libaura_host.dylib"
+extern def aura_window_should_close(handle: int) -> int from "native/libaura_host.dylib"
+extern def aura_window_width(handle: int) -> float from "native/libaura_host.dylib"
+extern def aura_window_height(handle: int) -> float from "native/libaura_host.dylib"
+extern def aura_window_scale(handle: int) -> float from "native/libaura_host.dylib"
+extern def aura_window_wait_frame(handle: int) -> int from "native/libaura_host.dylib"
+extern def aura_frame_timestamp(handle: int) -> float from "native/libaura_host.dylib"
+extern def aura_frame_begin(handle: int) -> int from "native/libaura_host.dylib"
+extern def aura_frame_end(handle: int) -> int from "native/libaura_host.dylib"
+extern def aura_cmd_clear(handle: int, argb: int) -> int from "native/libaura_host.dylib"
+extern def aura_cmd_rect(handle: int, x: float, y: float, w: float, h: float, argb: int) -> int from "native/libaura_host.dylib"
+extern def aura_cmd_text(handle: int, x: float, y: float, text: str, size: float, weight: int, argb: int, family: str) -> int from "native/libaura_host.dylib"
+extern def aura_cmd_opacity(handle: int, opacity: float) -> int from "native/libaura_host.dylib"
+extern def aura_cmd_opacity_pop(handle: int) -> int from "native/libaura_host.dylib"
+extern def aura_text_width(text: str, size: float, weight: int, family: str) -> float from "native/libaura_host.dylib"
+extern def aura_text_height(size: float, weight: int, family: str) -> float from "native/libaura_host.dylib"
+extern def aura_post_mouse(handle: int, kind: int, x: float, y: float) -> int from "native/libaura_host.dylib"
+extern def aura_window_event_text_len(handle: int, index: int) -> int from "native/libaura_host.dylib"
+extern def aura_window_event_text_byte(handle: int, index: int, offset: int) -> int from "native/libaura_host.dylib"
+extern def aura_text_focus(handle: int, enabled: int) -> int from "native/libaura_host.dylib"
+extern def aura_text_selection(handle: int, start: int, length: int) -> int from "native/libaura_host.dylib"
+extern def aura_text_contents(handle: int, text: str) -> int from "native/libaura_host.dylib"
+extern def aura_text_caret(handle: int, x: float, y: float, height: float) -> int from "native/libaura_host.dylib"
+extern def aura_post_text(handle: int, text: str) -> int from "native/libaura_host.dylib"
+extern def aura_post_drop(handle: int, x: float, y: float, path: str) -> int from "native/libaura_host.dylib"
+extern def aura_clipboard_set(text: str) -> int from "native/libaura_host.dylib"
+extern def aura_clipboard_len() -> int from "native/libaura_host.dylib"
+extern def aura_clipboard_byte(offset: int) -> int from "native/libaura_host.dylib"
+extern def aura_set_cursor(handle: int, kind: int) -> int from "native/libaura_host.dylib"
+extern def aura_image_open_file(path: str) -> int from "native/libaura_host.dylib"
+extern def aura_image_buffer_reset() -> int from "native/libaura_host.dylib"
+extern def aura_image_buffer_byte(value: int) -> int from "native/libaura_host.dylib"
+extern def aura_image_buffer_commit() -> int from "native/libaura_host.dylib"
+extern def aura_image_width(handle: int) -> int from "native/libaura_host.dylib"
+extern def aura_image_height(handle: int) -> int from "native/libaura_host.dylib"
+extern def aura_image_dispose(handle: int) -> int from "native/libaura_host.dylib"
+extern def aura_cmd_image(handle: int, image: int, x: float, y: float, w: float, h: float) -> int from "native/libaura_host.dylib"
+extern def aura_ax_begin(handle: int) -> int from "native/libaura_host.dylib"
+extern def aura_ax_add(handle: int, role: str, label: str, value: str, checked: int, x: float, y: float, w: float, h: float, press: int) -> int from "native/libaura_host.dylib"
+extern def aura_ax_commit(handle: int) -> int from "native/libaura_host.dylib"
+extern def aura_ax_count(handle: int) -> int from "native/libaura_host.dylib"
+extern def aura_ax_text_len(handle: int, index: int, field: int) -> int from "native/libaura_host.dylib"
+extern def aura_ax_text_byte(offset: int) -> int from "native/libaura_host.dylib"
+extern def aura_ax_checked(handle: int, index: int) -> int from "native/libaura_host.dylib"
+extern def aura_ax_press(handle: int, index: int) -> int from "native/libaura_host.dylib"
+extern def aura_ax_x(handle: int, index: int) -> float from "native/libaura_host.dylib"
+extern def aura_ax_y(handle: int, index: int) -> float from "native/libaura_host.dylib"
+extern def aura_ax_w(handle: int, index: int) -> float from "native/libaura_host.dylib"
+extern def aura_ax_h(handle: int, index: int) -> float from "native/libaura_host.dylib"
+extern def aura_post_ax(handle: int, index: int) -> int from "native/libaura_host.dylib"
+
+extern def aura_mono_time() -> float from "native/libaura_host.dylib"
+extern def aura_sample(handle: int, x: float, y: float) -> int from "native/libaura_host.dylib"
+extern def aura_plugin_load(path: str) -> int from "native/libaura_host.dylib"
+extern def aura_plugin_close(handle: int) -> int from "native/libaura_host.dylib"
+extern def aura_plugin_frame(handle: int, width: int, height: int) -> int from "native/libaura_host.dylib"
+extern def aura_plugin_event(handle: int, kind: int, x: float, y: float) -> int from "native/libaura_host.dylib"
+extern def aura_plugin_place(handle: int, plugin: int, x: float, y: float, w: float, h: float) -> int from "native/libaura_host.dylib"
+
+from aura.core.diagnostics import FrameworkError
+
+_active_window: int = 0
+
+
+def create_window(width: int, height: int, title: str, visible: int) -> int:
+    handle: int = aura_window_create(width, height, title, visible)
+    if handle == 0:
+        raise FrameworkError("failed to create window")
+    return handle
+
+
+def destroy_window(handle: int) -> None:
+    aura_window_destroy(handle)
+
+
+def poll_events(handle: int) -> int:
+    count: int = aura_window_poll(handle)
+    if count < 0:
+        raise FrameworkError("use after close")
+    return count
+
+
+def event_count(handle: int) -> int:
+    count: int = aura_window_event_count(handle)
+    if count < 0:
+        raise FrameworkError("use after close")
+    return count
+
+
+def event_kind(handle: int, index: int) -> int:
+    return aura_window_event_kind(handle, index)
+
+
+def event_x(handle: int, index: int) -> float:
+    return aura_window_event_x(handle, index)
+
+
+def event_y(handle: int, index: int) -> float:
+    return aura_window_event_y(handle, index)
+
+
+def event_key(handle: int, index: int) -> int:
+    return aura_window_event_key(handle, index)
+
+
+def event_button(handle: int, index: int) -> int:
+    return aura_window_event_button(handle, index)
+
+
+def clear_events(handle: int) -> None:
+    code: int = aura_window_events_clear(handle)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
+def should_close(handle: int) -> bool:
+    if aura_window_should_close(handle) != 0:
+        return True
+    return False
+
+
+def window_width(handle: int) -> float:
+    value: float = aura_window_width(handle)
+    if value < 0.0:
+        raise FrameworkError("use after close")
+    return value
+
+
+def window_height(handle: int) -> float:
+    value: float = aura_window_height(handle)
+    if value < 0.0:
+        raise FrameworkError("use after close")
+    return value
+
+
+def window_scale(handle: int) -> float:
+    value: float = aura_window_scale(handle)
+    if value < 0.0:
+        raise FrameworkError("use after close")
+    return value
+
+
+def wait_frame(handle: int) -> None:
+    code: int = aura_window_wait_frame(handle)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
+def frame_timestamp(handle: int) -> float:
+    value: float = aura_frame_timestamp(handle)
+    if value < 0.0:
+        raise FrameworkError("use after close")
+    return value
+
+
+def frame_begin(handle: int) -> None:
+    code: int = aura_frame_begin(handle)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
+def frame_end(handle: int) -> None:
+    code: int = aura_frame_end(handle)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
+def cmd_clear(handle: int, argb: int) -> None:
+    code: int = aura_cmd_clear(handle, argb)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
+def cmd_rect(handle: int, x: float, y: float, w: float, h: float, argb: int) -> None:
+    code: int = aura_cmd_rect(handle, x, y, w, h, argb)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
+def cmd_text(handle: int, x: float, y: float, text: str, size: float, weight: int, argb: int, family: str) -> None:
+    code: int = aura_cmd_text(handle, x, y, text, size, weight, argb, family)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
+def cmd_opacity(handle: int, opacity: float) -> None:
+    code: int = aura_cmd_opacity(handle, opacity)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
+def cmd_opacity_pop(handle: int) -> None:
+    code: int = aura_cmd_opacity_pop(handle)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
+def text_width(text: str, size: float, weight: int, family: str) -> float:
+    return aura_text_width(text, size, weight, family)
+
+
+def text_height(size: float, weight: int, family: str) -> float:
+    return aura_text_height(size, weight, family)
+
+
+def post_mouse(handle: int, kind: int, x: float, y: float) -> None:
+    code: int = aura_post_mouse(handle, kind, x, y)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
+def event_text(handle: int, index: int) -> str:
+    count: int = aura_window_event_text_len(handle, index)
+    text: str = ""
+    i: int = 0
+    while i < count:
+        b0: int = aura_window_event_text_byte(handle, index, i)
+        b1: int = 0
+        b2: int = 0
+        b3: int = 0
+        if b0 < 128:
+            text = text + chr(b0)
+            i = i + 1
+        elif b0 < 224 and i + 1 < count:
+            b1 = aura_window_event_text_byte(handle, index, i + 1)
+            text = text + chr(((b0 & 31) << 6) | (b1 & 63))
+            i = i + 2
+        elif b0 < 240 and i + 2 < count:
+            b1 = aura_window_event_text_byte(handle, index, i + 1)
+            b2 = aura_window_event_text_byte(handle, index, i + 2)
+            text = text + chr(((b0 & 15) << 12) | ((b1 & 63) << 6) | (b2 & 63))
+            i = i + 3
+        elif i + 3 < count:
+            b1 = aura_window_event_text_byte(handle, index, i + 1)
+            b2 = aura_window_event_text_byte(handle, index, i + 2)
+            b3 = aura_window_event_text_byte(handle, index, i + 3)
+            text = text + chr(((b0 & 7) << 18) | ((b1 & 63) << 12) | ((b2 & 63) << 6) | (b3 & 63))
+            i = i + 4
+        else:
+            text = text + chr(b0)
+            i = i + 1
+    return text
+
+
+def set_active_window(handle: int) -> None:
+    _active_window = handle
+
+
+def active_window() -> int:
+    return _active_window
+
+
+def text_input_active(enabled: int) -> None:
+    handle: int = _active_window
+    if handle == 0:
+        return
+    code: int = aura_text_focus(handle, enabled)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
+def sync_text_input(text: str, start: int, length: int) -> None:
+    handle: int = _active_window
+    if handle == 0:
+        return
+    if aura_text_contents(handle, text) < 0:
+        raise FrameworkError("use after close")
+    if aura_text_selection(handle, start, length) < 0:
+        raise FrameworkError("use after close")
+
+
+def clipboard_set(text: str) -> None:
+    if aura_clipboard_set(text) < 0:
+        raise FrameworkError("clipboard write failed")
+
+
+def clipboard_get() -> str:
+    count: int = aura_clipboard_len()
+    if count < 0:
+        return ""
+    text: str = ""
+    i: int = 0
+    while i < count:
+        b0: int = aura_clipboard_byte(i)
+        b1: int = 0
+        b2: int = 0
+        b3: int = 0
+        if b0 < 128:
+            text = text + chr(b0)
+            i = i + 1
+        elif b0 < 224 and i + 1 < count:
+            b1 = aura_clipboard_byte(i + 1)
+            text = text + chr(((b0 & 31) << 6) | (b1 & 63))
+            i = i + 2
+        elif b0 < 240 and i + 2 < count:
+            b1 = aura_clipboard_byte(i + 1)
+            b2 = aura_clipboard_byte(i + 2)
+            text = text + chr(((b0 & 15) << 12) | ((b1 & 63) << 6) | (b2 & 63))
+            i = i + 3
+        elif i + 3 < count:
+            b1 = aura_clipboard_byte(i + 1)
+            b2 = aura_clipboard_byte(i + 2)
+            b3 = aura_clipboard_byte(i + 3)
+            text = text + chr(((b0 & 7) << 18) | ((b1 & 63) << 12) | ((b2 & 63) << 6) | (b3 & 63))
+            i = i + 4
+        else:
+            text = text + chr(b0)
+            i = i + 1
+    return text
+
+
+def open_image_file(path: str) -> int:
+    handle: int = aura_image_open_file(path)
+    if handle == 0:
+        raise FrameworkError("failed to open image")
+    return handle
+
+
+def open_image_bytes(data: list[int]) -> int:
+    if aura_image_buffer_reset() < 0:
+        raise FrameworkError("failed to decode image")
+    i: int = 0
+    while i < len(data):
+        if aura_image_buffer_byte(data[i]) < 0:
+            raise FrameworkError("failed to decode image")
+        i = i + 1
+    handle: int = aura_image_buffer_commit()
+    if handle == 0:
+        raise FrameworkError("failed to decode image")
+    return handle
+
+
+def image_size_width(handle: int) -> int:
+    value: int = aura_image_width(handle)
+    if value < 0:
+        raise FrameworkError("use after close")
+    return value
+
+
+def image_size_height(handle: int) -> int:
+    value: int = aura_image_height(handle)
+    if value < 0:
+        raise FrameworkError("use after close")
+    return value
+
+
+def image_dispose(handle: int) -> None:
+    code: int = aura_image_dispose(handle)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
+def cmd_image(handle: int, image: int, x: float, y: float, w: float, h: float) -> None:
+    code: int = aura_cmd_image(handle, image, x, y, w, h)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
+def set_cursor(kind: int) -> None:
+    handle: int = _active_window
+    if handle == 0:
+        return
+    if aura_set_cursor(handle, kind) < 0:
+        raise FrameworkError("use after close")
+
+
+def post_drop(handle: int, x: float, y: float, path: str) -> None:
+    code: int = aura_post_drop(handle, x, y, path)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
+def post_text(handle: int, text: str) -> None:
+    code: int = aura_post_text(handle, text)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
+def ax_begin(handle: int) -> None:
+    if aura_ax_begin(handle) < 0:
+        raise FrameworkError("use after close")
+
+
+def ax_add(handle: int, role: str, label: str, value: str, checked: int, x: float, y: float, w: float, h: float, press: int) -> None:
+    if aura_ax_add(handle, role, label, value, checked, x, y, w, h, press) < 0:
+        raise FrameworkError("use after close")
+
+
+def ax_commit(handle: int) -> None:
+    if aura_ax_commit(handle) < 0:
+        raise FrameworkError("use after close")
+
+
+def ax_count(handle: int) -> int:
+    count: int = aura_ax_count(handle)
+    if count < 0:
+        raise FrameworkError("use after close")
+    return count
+
+
+def ax_text(handle: int, index: int, field: int) -> str:
+    count: int = aura_ax_text_len(handle, index, field)
+    if count < 0:
+        raise FrameworkError("use after close")
+    text: str = ""
+    i: int = 0
+    while i < count:
+        text = text + chr(aura_ax_text_byte(i))
+        i = i + 1
+    return text
+
+
+def ax_checked(handle: int, index: int) -> int:
+    value: int = aura_ax_checked(handle, index)
+    if value < 0:
+        raise FrameworkError("use after close")
+    return value
+
+
+def ax_press(handle: int, index: int) -> int:
+    return aura_ax_press(handle, index)
+
+
+def ax_bounds_y(handle: int, index: int) -> float:
+    return aura_ax_y(handle, index)
+
+
+def post_ax(handle: int, index: int) -> None:
+    if aura_post_ax(handle, index) < 0:
+        raise FrameworkError("use after close")
+
+
+def mono_time() -> float:
+    return aura_mono_time()
+
+
+def sample_pixel(handle: int, x: float, y: float) -> int:
+    value: int = aura_sample(handle, x, y)
+    if value < 0:
+        raise FrameworkError("use after close")
+    return value
+
+
+def plugin_load(path: str) -> int:
+    handle: int = aura_plugin_load(path)
+    if handle == 0:
+        raise FrameworkError("failed to load plugin")
+    return handle
+
+
+def plugin_close(handle: int) -> None:
+    code: int = aura_plugin_close(handle)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
+def plugin_frame(handle: int, width: int, height: int) -> int:
+    code: int = aura_plugin_frame(handle, width, height)
+    if code < 0:
+        raise FrameworkError("use after close")
+    return code
+
+
+def plugin_event(handle: int, kind: int, x: float, y: float) -> int:
+    code: int = aura_plugin_event(handle, kind, x, y)
+    if code < 0:
+        raise FrameworkError("use after close")
+    return code
+
+
+def plugin_place(handle: int, plugin: int, x: float, y: float, w: float, h: float) -> None:
+    code: int = aura_plugin_place(handle, plugin, x, y, w, h)
+    if code < 0:
+        raise FrameworkError("use after close")

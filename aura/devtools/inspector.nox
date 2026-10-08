@@ -1,0 +1,25 @@
+from aura.rendering.render_object import RenderBox
+from aura.widgets.framework import Element
+
+
+def dump_tree(root: Element) -> str:
+    return _dump_element(root, 0)
+
+
+def _dump_element(element: Element, depth: int) -> str:
+    line: str = ""
+    pad: int = 0
+    text: str = ""
+    render: RenderBox | None = element.render
+    while pad < depth:
+        line = line + "  "
+        pad = pad + 1
+    line = line + "element " + str(element.element_id)
+    if render is not None:
+        line = line + " role=" + render.semantics_role + " label=" + render.semantics_label
+    text = line
+    i: int = 0
+    while i < len(element.children):
+        text = text + "\n" + _dump_element(element.children[i], depth + 1)
+        i = i + 1
+    return text

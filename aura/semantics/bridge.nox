@@ -1,0 +1,71 @@
+from aura.platform.bridge import ax_add, ax_begin, ax_commit
+from aura.rendering.render_object import bind_press_window
+from aura.semantics.semantics_node import SemanticsNode, SemanticsOwner
+
+_sig_handles: list[int] = []
+_sig_values: list[str] = []
+_publish_total: int = 0
+
+
+def publish_total() -> int:
+    return _publish_total
+
+
+def publish_semantics(handle: int, owner: SemanticsOwner) -> None:
+    signature: str = ""
+    if handle == 0:
+        return
+    signature = _signature(owner.root)
+    if _same(handle, signature) == 1:
+        return
+    _publish_total = _publish_total + 1
+    ax_begin(handle)
+    _walk(handle, owner.root)
+    ax_commit(handle)
+    bind_press_window(handle)
+    _store(handle, signature)
+
+
+def _same(handle: int, signature: str) -> int:
+    i: int = 0
+    while i < len(_sig_handles):
+        if _sig_handles[i] == handle and _sig_values[i] == signature:
+            return 1
+        i = i + 1
+    return 0
+
+
+def _store(handle: int, signature: str) -> None:
+    i: int = 0
+    while i < len(_sig_handles):
+        if _sig_handles[i] == handle:
+            _sig_values[i] = signature
+            return
+        i = i + 1
+    _sig_handles.append(handle)
+    _sig_values.append(signature)
+
+
+def _signature(node: SemanticsNode) -> str:
+    checked: str = "0"
+    text: str = ""
+    i: int = 0
+    if node.checked:
+        checked = "1"
+    text = node.role + "|" + node.label + "|" + node.value + "|" + checked + "|" + str(node.x) + "|" + str(node.y) + "|" + str(node.width) + "|" + str(node.height)
+    while i < len(node.children):
+        text = text + "/" + _signature(node.children[i])
+        i = i + 1
+    return text
+
+
+def _walk(handle: int, node: SemanticsNode) -> None:
+    if node.role != "":
+        checked: int = 0
+        if node.checked:
+            checked = 1
+        ax_add(handle, node.role, node.label, node.value, checked, node.x, node.y, node.width, node.height, node.press_id)
+    i: int = 0
+    while i < len(node.children):
+        _walk(handle, node.children[i])
+        i = i + 1

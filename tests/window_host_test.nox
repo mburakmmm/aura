@@ -1,0 +1,51 @@
+import nox.test
+from aura.rendering.render_object import RenderBox
+from aura.runtime.binding import Binding
+from aura.runtime.host import AppHost, bind_host
+from examples.counter.page import CounterPage
+
+
+def require_box(box: RenderBox | None, name: str) -> RenderBox:
+    if box is None:
+        raise Exception(name)
+    return box
+
+
+def count_label(binding: Binding) -> str:
+    center: RenderBox = require_box(binding.pump.view.only_child, "center")
+    column: RenderBox = require_box(center.only_child, "column")
+    count: RenderBox = column.children[1]
+    return count.semantics_label
+
+
+def click_continue(binding: Binding) -> None:
+    center: RenderBox = require_box(binding.pump.view.only_child, "center")
+    column: RenderBox = require_box(center.only_child, "column")
+    button: RenderBox = column.children[2]
+    x: float = button.absolute_x() + button.width / 2.0
+    y: float = button.absolute_y() + button.height / 2.0
+    binding.post_click(x, y)
+
+
+host: AppHost = AppHost()
+bind_host(host)
+left: Binding = Binding(800, 600, "Left", 0)
+right: Binding = Binding(800, 600, "Right", 0)
+left.mount(CounterPage())
+right.mount(CounterPage())
+left_id: int = host.add(left)
+right_id: int = host.add(right)
+host.frame()
+nox.test.assert_eq_str(count_label(left), "0", "left starts at zero")
+nox.test.assert_eq_str(count_label(right), "0", "right starts at zero")
+click_continue(left)
+host.frame()
+nox.test.assert_eq_str(count_label(left), "1", "left increments")
+nox.test.assert_eq_str(count_label(right), "0", "right stays independent")
+host.close_window(left_id)
+host.close_window(right_id)
+nox.test.assert_eq_int(host.alive_count(), 0, "both windows closed")
+found: Binding | None = host.binding_for(right_id)
+nox.test.assert_true(found is None, "closed window leaves the host")
+bind_host(None)
+print("window host ok")

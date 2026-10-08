@@ -1,0 +1,244 @@
+from aura.app import run_app
+from aura.core.diagnostics import FrameworkError
+from aura.core.mode import MODE_DEBUG, MODE_PROFILE, MODE_RELEASE, set_mode
+from aura.devtools.inspector import dump_tree
+from aura.foundation.color import COLOR_ACCENT, COLOR_BACKGROUND
+from aura.graphics.recording import KIND_IMAGE
+from aura.platform.macos import image_dispose, image_size_height, image_size_width, open_image_file, plugin_close, plugin_frame, plugin_load, sample_pixel
+from aura.rendering.render_object import RenderBox
+from aura.runtime.binding import Binding
+from aura.semantics.bridge import publish_total
+from aura.testing.tester import WidgetTester
+from aura.widgets import build_view, register_view
+from aura.widgets.framework import Element, Widget
+from examples.proof.page import ProofPage, make_badge
+from nox.os import arg, arg_count
+
+
+def require_box(box: RenderBox | None, name: str) -> RenderBox:
+    if box is None:
+        raise Exception(name)
+    return box
+
+
+def child_at(element: Element, index: int) -> Element:
+    found: Element | None = element.children[index]
+    if found is None:
+        raise Exception("missing child")
+    return found
+
+
+def find_label(box: RenderBox, label: str) -> RenderBox | None:
+    if box.semantics_label == label:
+        return box
+    only: RenderBox | None = box.only_child
+    found: RenderBox | None = None
+    i: int = 0
+    if only is not None:
+        found = find_label(only, label)
+        if found is not None:
+            return found
+    while i < len(box.children):
+        found = find_label(box.children[i], label)
+        if found is not None:
+            return found
+        i = i + 1
+    return None
+
+
+def contains(text: str, needle: str) -> int:
+    width: int = len(needle)
+    limit: int = len(text) - width
+    i: int = 0
+    if width == 0:
+        return 1
+    while i <= limit:
+        if text[i:i + width] == needle:
+            return 1
+        i = i + 1
+    return 0
+
+
+def swatch_ok(handle: int, box: RenderBox) -> int:
+    only: RenderBox | None = box.only_child
+    i: int = 0
+    if box.width == 48.0 and box.height == 48.0:
+        pixel: int = sample_pixel(handle, box.absolute_x() + 24.0, box.absolute_y() + 24.0)
+        if pixel == COLOR_ACCENT:
+            return 1
+    if only is not None:
+        if swatch_ok(handle, only) == 1:
+            return 1
+    while i < len(box.children):
+        if swatch_ok(handle, box.children[i]) == 1:
+            return 1
+        i = i + 1
+    return 0
+
+
+def text_ink(handle: int, box: RenderBox) -> int:
+    y: float = box.absolute_y() + box.height / 2.0
+    x: float = box.absolute_x() + 1.0
+    limit: float = box.absolute_x() + box.width
+    while x < limit:
+        pixel: int = sample_pixel(handle, x, y)
+        if pixel != COLOR_BACKGROUND and pixel != COLOR_ACCENT:
+            return pixel
+        x = x + 1.0
+    return 0
+
+
+def image_count(tester: WidgetTester) -> int:
+    total: int = 0
+    i: int = 0
+    while i < len(tester.canvas.kinds):
+        if tester.canvas.kinds[i] == KIND_IMAGE:
+            total = total + 1
+        i = i + 1
+    return total
+
+
+def expect_missing_view() -> None:
+    missing: int = 0
+    try:
+        build_missing()
+    except FrameworkError as error:
+        missing = 1
+        if error.message != "plugin view is not registered":
+            raise Exception("missing view")
+    if missing != 1:
+        raise Exception("missing view")
+
+
+def build_missing() -> Widget:
+    return build_view("missing-proof")
+
+
+def check_commands(png: int, jpeg: int, plugin: int) -> None:
+    set_mode(MODE_RELEASE)
+    release_tester: WidgetTester = WidgetTester()
+    release_tester.pump_widget(ProofPage(png, jpeg, plugin), 800.0, 600.0)
+    release_count: int = len(release_tester.canvas.kinds)
+    if release_tester.canvas.opacity_count() < 1:
+        raise Exception("opacity command")
+    if image_count(release_tester) < 2:
+        raise Exception("image commands")
+    set_mode(MODE_DEBUG)
+    release_tester.pump_frame()
+    if len(release_tester.canvas.kinds) <= release_count:
+        raise Exception("debug overlay")
+    set_mode(MODE_PROFILE)
+    profile_tester: WidgetTester = WidgetTester()
+    profile_tester.pump_widget(ProofPage(png, jpeg, plugin), 800.0, 600.0)
+    if profile_tester.pump.painted <= 0:
+        raise Exception("profile paint")
+    if profile_tester.pump.widgets_built <= 0:
+        raise Exception("profile widgets")
+    set_mode(MODE_RELEASE)
+
+
+def self_check() -> None:
+    png: int = open_image_file("tests/fixtures/pixel.png")
+    jpeg: int = open_image_file("tests/fixtures/pixel.jpg")
+    plugin: int = plugin_load("native/plugins/libaura_probe.dylib")
+    partial: int = 0
+    closed: int = 0
+    if image_size_width(jpeg) != 1 or image_size_height(jpeg) != 1:
+        raise Exception("jpeg size")
+    if image_size_width(png) != 1:
+        raise Exception("png size")
+    if plugin_frame(plugin, 3, 5) != 8:
+        raise Exception("probe frame")
+    try:
+        plugin_load("native/plugins/libaura_probe_partial.dylib")
+    except FrameworkError as error:
+        partial = 1
+        if error.message != "failed to load plugin":
+            raise Exception("partial plugin")
+    if partial != 1:
+        raise Exception("partial plugin")
+    expect_missing_view()
+    register_view("badge", make_badge)
+    binding: Binding = Binding(800, 600, "Aura 0.3", 0)
+    binding.mount(ProofPage(png, jpeg, plugin))
+    before: int = publish_total()
+    binding.frame()
+    mid: int = publish_total()
+    binding.frame()
+    after: int = publish_total()
+    if mid != before + 1:
+        raise Exception("first publish")
+    if after != mid:
+        raise Exception("second publish")
+    root_box: RenderBox = require_box(binding.pump.view.only_child, "root")
+    if swatch_ok(binding.surface.handle, root_box) != 1:
+        raise Exception("accent pixel")
+    title: RenderBox = require_box(find_label(root_box, "Aura 0.3"), "title")
+    if text_ink(binding.surface.handle, title) == 0:
+        raise Exception("text ink")
+    root: Element | None = binding.pump.root
+    if root is None:
+        raise Exception("missing root")
+    dumped: str = dump_tree(root)
+    if contains(dumped, "label=badge") != 1:
+        raise Exception("badge label")
+    if contains(dumped, "role=platform-view") != 1:
+        raise Exception("platform view")
+    column: Element = child_at(child_at(root, 0), 0)
+    header: Element = child_at(column, 0)
+    reader: Element = child_at(column, 6)
+    button: RenderBox = require_box(find_label(root_box, "Debug"), "debug button")
+    binding.pump.view.reset_paint_marks()
+    binding.post_click(button.absolute_x() + button.width / 2.0, button.absolute_y() + button.height / 2.0)
+    binding.frame()
+    if header.rebuild_count != 0:
+        raise Exception("header rebuilt")
+    if root.rebuild_count != 1:
+        raise Exception("page rebuilt")
+    if reader.rebuild_count < 2:
+        raise Exception("mode label stayed")
+    if title.paint_mark_count != 0:
+        raise Exception("header repainted")
+    shown: RenderBox = require_box(find_label(require_box(binding.pump.view.only_child, "root"), "debug"), "mode")
+    if shown.semantics_label != "debug":
+        raise Exception("mode text")
+    binding.close()
+    check_commands(png, jpeg, plugin)
+    image_dispose(png)
+    image_dispose(png)
+    image_dispose(jpeg)
+    image_dispose(jpeg)
+    plugin_close(plugin)
+    plugin_close(plugin)
+    try:
+        plugin_frame(plugin, 1, 1)
+    except FrameworkError as error:
+        closed = 1
+        if error.message != "use after close":
+            raise Exception("closed plugin")
+    if closed != 1:
+        raise Exception("closed plugin")
+    print("proof self-check ok")
+
+
+def wants_self_check() -> bool:
+    i: int = 0
+    while i < arg_count():
+        if arg(i) == "--self-check":
+            return True
+        i = i + 1
+    return False
+
+
+def launch() -> None:
+    png: int = open_image_file("tests/fixtures/pixel.png")
+    jpeg: int = open_image_file("tests/fixtures/pixel.jpg")
+    plugin: int = plugin_load("native/plugins/libaura_probe.dylib")
+    register_view("badge", make_badge)
+    run_app(ProofPage(png, jpeg, plugin))
+
+
+if wants_self_check():
+    self_check()
+else:
+    launch()

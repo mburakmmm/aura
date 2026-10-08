@@ -1,0 +1,27 @@
+from aura.app import run_app
+from aura.runtime.binding import Binding
+from examples.rectangle.page import RectanglePage
+from nox.os import arg, arg_count
+
+
+def self_check() -> None:
+    binding: Binding = Binding(800, 600, "Aura", 0)
+    binding.mount(RectanglePage())
+    binding.frame()
+    binding.close()
+    print("rectangle self-check ok")
+
+
+def wants_self_check() -> bool:
+    i: int = 0
+    while i < arg_count():
+        if arg(i) == "--self-check":
+            return True
+        i = i + 1
+    return False
+
+
+if wants_self_check():
+    self_check()
+else:
+    run_app(RectanglePage())

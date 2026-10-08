@@ -1,0 +1,107 @@
+import nox.test
+from aura.core.diagnostics import FrameworkError
+from aura.layout.boxes import SizedBox
+from aura.rendering.layer import PaintingContext
+from aura.rendering.render_object import RenderBox
+from aura.testing.tester import WidgetTester
+from aura.widgets.framework import BuildContext, Element, RenderObjectWidget, State, StatefulWidget, Widget
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_COUNT: int = alloc_type_id()
+TYPE_BOOM: int = alloc_type_id()
+TYPE_DEFER: int = alloc_type_id()
+holder: CountState | None = None
+
+
+class CountState(State):
+    def __init__(self) -> None:
+        super().__init__()
+        holder = self
+
+    def triple(self) -> None:
+        self.invalidate()
+        self.invalidate()
+        self.invalidate()
+
+    def build(self, context: BuildContext) -> Widget:
+        return SizedBox(12.0, 12.0, None, 3)
+
+
+class CountPage(StatefulWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_COUNT, None)
+
+    def create_state(self) -> State:
+        return CountState()
+
+
+class BoomBox(RenderBox):
+    def paint_self(self, context: PaintingContext) -> None:
+        self.layout(self.constraints)
+
+
+class Boom(RenderObjectWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_BOOM, None)
+
+    def create_render(self) -> RenderBox | None:
+        return BoomBox()
+
+
+class DeferBox(RenderBox):
+    def paint_self(self, context: PaintingContext) -> None:
+        self.mark_needs_layout()
+
+
+class Defer(RenderObjectWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_DEFER, None)
+
+    def create_render(self) -> RenderBox | None:
+        box: DeferBox = DeferBox()
+        box.debug_tag = 9
+        return box
+
+
+def require_state() -> CountState:
+    current: CountState | None = holder
+    if current is None:
+        raise Exception("missing state")
+    return current
+
+
+def require_root(tester: WidgetTester) -> Element:
+    root: Element | None = tester.pump.root
+    if root is None:
+        raise Exception("missing root")
+    return root
+
+
+def require_box(box: RenderBox | None, name: str) -> RenderBox:
+    if box is None:
+        raise Exception(name)
+    return box
+
+
+tester: WidgetTester = WidgetTester()
+tester.pump_widget(CountPage(), 100.0, 100.0)
+nox.test.assert_eq_int(require_root(tester).rebuild_count, 1, "initial rebuild")
+require_state().triple()
+tester.pump_frame()
+nox.test.assert_eq_int(require_root(tester).rebuild_count, 2, "batched rebuild")
+
+paint_layout: int = 0
+try:
+    WidgetTester().pump_widget(Boom(), 40.0, 40.0)
+except FrameworkError as error:
+    paint_layout = 1
+    nox.test.assert_true(error.message == "layout called during paint", "layout during paint")
+nox.test.assert_eq_int(paint_layout, 1, "paint layout raised")
+
+deferred: WidgetTester = WidgetTester()
+deferred.pump_widget(Defer(), 40.0, 40.0)
+deferred_box: RenderBox = require_box(deferred.view().find_tag(9), "defer box")
+nox.test.assert_eq_int(deferred_box.layout_count, 1, "layout before deferred flush")
+deferred.pump_frame()
+nox.test.assert_eq_int(deferred_box.layout_count, 2, "deferred layout next frame")
+print("state ok")
