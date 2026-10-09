@@ -58,6 +58,7 @@ struct AuraWindow {
     int bgra;
     Display *display;
     Window xwindow;
+    XIM im;
     XIC ic;
     GC gc;
     XImage *image;
@@ -107,7 +108,6 @@ static AuraWindow *g_windows[AURA_MAX_WINDOWS];
 static char *g_clipboard = NULL;
 static int g_clip_local = 1;
 static DBusConnection *g_a11y = NULL;
-static XIM g_xim = NULL;
 
 struct X11Atoms {
     int ready;
@@ -860,11 +860,9 @@ static int create_x11(AuraWindow *window, int64_t width, int64_t height, const c
         XChangeProperty(window->display, window->xwindow, g_atoms.xdnd_aware, XA_ATOM, 32, PropModeReplace, (unsigned char *)&version, 1);
     }
     window->gc = XCreateGC(window->display, window->xwindow, 0, NULL);
-    if (g_xim == NULL) {
-        g_xim = XOpenIM(window->display, NULL, NULL, NULL);
-    }
-    if (g_xim != NULL) {
-        window->ic = XCreateIC(g_xim, XNInputStyle, XIMPreeditNothing | XIMStatusNothing, XNClientWindow, window->xwindow, NULL);
+    window->im = XOpenIM(window->display, NULL, NULL, NULL);
+    if (window->im != NULL) {
+        window->ic = XCreateIC(window->im, XNInputStyle, XIMPreeditNothing | XIMStatusNothing, XNClientWindow, window->xwindow, NULL);
     }
     window->width = (int)width;
     window->height = (int)height;
@@ -884,12 +882,19 @@ static void ensure_a11y(void) {
     if (g_a11y != NULL) {
         return;
     }
+    DBusConnection *bus = NULL;
     dbus_error_init(&error);
     message = dbus_message_new_method_call("org.a11y.Bus", "/org/a11y/bus", "org.a11y.Bus", "GetAddress");
     if (message == NULL) {
         return;
     }
-    reply = dbus_connection_send_with_reply_and_block(dbus_bus_get(DBUS_BUS_SESSION, &error), message, 200, &error);
+    bus = dbus_bus_get(DBUS_BUS_SESSION, &error);
+    if (bus == NULL) {
+        dbus_message_unref(message);
+        dbus_error_free(&error);
+        return;
+    }
+    reply = dbus_connection_send_with_reply_and_block(bus, message, 200, &error);
     dbus_message_unref(message);
     if (reply == NULL) {
         dbus_error_free(&error);
@@ -1271,6 +1276,9 @@ extern "C" int64_t aura_window_destroy(int64_t handle) {
     if (window->shell == AURA_SHELL_X11 && window->display != NULL) {
         if (window->ic != NULL) {
             XDestroyIC(window->ic);
+        }
+        if (window->im != NULL) {
+            XCloseIM(window->im);
         }
         if (window->gc != NULL) {
             XFreeGC(window->display, window->gc);

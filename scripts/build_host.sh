@@ -125,7 +125,7 @@ case "$OS" in
       ls -la "$LIBDIR" >&2 || true
       return 1
     }
-    cl /nologo /std:c++20 /EHsc /MD /LD /utf-8 \
+    cl /nologo /std:c++20 /EHsc /MT /LD /utf-8 \
       "/I$WSKIA" "/I$WROOT/native/skia" "/I$WROOT/native/host" \
       "/Fo$WBUILD" "/Fe$WOUT" \
       "$WROOT/native/windows/aura_windows.cc" \
