@@ -76,6 +76,14 @@ class Uneven(ItemSource):
         return 60.0
 
 
+class Few(ItemSource):
+    def count(self) -> int:
+        return 2
+
+    def widget_at(self, index: int) -> Widget:
+        return SizedBox(40.0, 20.0)
+
+
 class Mixed(ItemSource):
     mark: PressMark
 
@@ -216,6 +224,28 @@ bar_controller.jump(bar_controller.position.max_pixels)
 bar.pump_frame()
 nox.test.assert_true(thumb_y(bar) > resting, "thumb follows the scroll position")
 nox.test.assert_eq_int(marker.paint_visit_count, 1, "scrollbar keeps its child cached")
+
+fit_controller: ScrollController = ScrollController()
+fit_list: VirtualList = VirtualList(Few(), 20.0, fit_controller)
+fit: WidgetTester = WidgetTester()
+fit.pump_widget(Row([Expanded(fit_list), Scrollbar(fit_controller)]), 200.0, 200.0)
+fit.pump_frame()
+quiet: RenderBox = require_box(fit.view().find_role("scrollbar"), "quiet bar")
+nox.test.assert_true(quiet.width < 1.0, "scrollbar hides when the list fits")
+nox.test.assert_true(thumb_y(fit) < 0.0, "hidden scrollbar paints no thumb")
+
+drag_controller: ScrollController = ScrollController()
+drag_list: VirtualList = VirtualList(Many(), 20.0, drag_controller)
+drag: WidgetTester = WidgetTester()
+drag.pump_widget(Row([Expanded(drag_list), Scrollbar(drag_controller)]), 160.0, 400.0)
+drag.pump_frame()
+handle: RenderBox = require_box(drag.view().find_role("scrollbar"), "drag bar")
+grip_y: float = handle.absolute_y() + 8.0
+drag.pump.pointer_down(handle.absolute_x() + 4.0, grip_y)
+drag.pump.pointer_move(handle.absolute_x() + 4.0, grip_y + 80.0)
+drag.pump_frame()
+nox.test.assert_true(drag_controller.position.pixels > 20.0, "thumb drag scrolls the list")
+nox.test.assert_true(thumb_y(drag) > 0.0, "thumb follows the drag")
 
 coast: VirtualList = VirtualList(Many(), 20.0)
 coast_tester: WidgetTester = WidgetTester()

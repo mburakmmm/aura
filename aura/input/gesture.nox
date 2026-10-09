@@ -30,6 +30,7 @@ class GestureArena:
     member_count: int
     winner_count: int
     scroll_box: RenderBox | None
+    thumb_box: RenderBox | None
     text_box: RenderBox | None
     text_selecting: bool
     drag_box: RenderBox | None
@@ -50,6 +51,7 @@ class GestureArena:
         self.member_count = 0
         self.winner_count = 0
         self.scroll_box = None
+        self.thumb_box = None
         self.text_box = None
         self.text_selecting = False
         self.drag_box = None
@@ -69,6 +71,7 @@ class GestureArena:
         self.last_y = y
         self.winner_count = 0
         self.scroll_box = None
+        self.thumb_box = None
         self.text_box = None
         self.text_selecting = False
         self.drag_box = None
@@ -81,6 +84,9 @@ class GestureArena:
         i: int = 0
         while i < len(result.targets):
             target: RenderBox = result.targets[i]
+            if target.has_thumb and self.thumb_box is None:
+                self.thumb_box = target
+                target.place_thumb(result.entries[i].y)
             if target.has_scroll and self.scroll_box is None:
                 self.scroll_box = target
             if target.drag_id != 0 and self.drag_box is None:
@@ -97,6 +103,13 @@ class GestureArena:
 
     def pointer_move(self, x: float, y: float, time_s: float = 0.0) -> None:
         if not self.tracking:
+            return
+        thumb: RenderBox | None = self.thumb_box
+        if thumb is not None:
+            self.rejected = True
+            thumb.drag_thumb(y - thumb.absolute_y())
+            self.last_x = x
+            self.last_y = y
             return
         if self.scroll_won:
             self._sample(y, time_s)
@@ -160,6 +173,7 @@ class GestureArena:
         self.tracking = False
         self.scroll_won = False
         self.scroll_box = None
+        self.thumb_box = None
         self.text_box = None
         self.text_selecting = False
         self.drag_box = None
@@ -171,6 +185,7 @@ class GestureArena:
         self.rejected = True
         self.scroll_won = False
         self.scroll_box = None
+        self.thumb_box = None
         self.text_box = None
         self.text_selecting = False
         self.drag_box = None

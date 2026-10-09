@@ -10,6 +10,7 @@ Chat. Satır yüksekliği metinden gelir. Ekran dışındaki satırlar kurulmaz.
 - `keep_alive` en fazla 32 ek satır kurar. 10.000 satırda kurulan çocuk sayısı görünür pencereyle sınırlı kalır.
 - `follow_end` açıksa içerik uzayınca ofset sonda kalır. Yukarı kaydırınca kapanır, sona gelince yeniden açılır.
 - `examples/chat` self-check’i 10.000 mesaj kurar. Kısa ve sarmalanmış satırın yükseklikleri ayrılır. Kompozisyon imleçte görünür, commit alana yazılır ve gönderilen metin son satırda kalır.
+- Kaydırma çubuğu yalnız içerik taşınca görünür. Başparmak sürüklemesi ve iz tıklaması ofseti o konuma götürür.
 - Sertifika Settings’ten sonra Chat’i gizli pencerede koşturur. Pencere açık kalmaz.
 
 ## 0.6.0

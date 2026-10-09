@@ -9,6 +9,29 @@ from aura.widgets.type_ids import alloc_type_id
 TYPE_BAR: int = alloc_type_id()
 BAR_WIDTH: float = 12.0
 
+_bar_ids: list[int] = []
+_bar_controls: list[ScrollController] = []
+
+
+def _remember_bar(node_id: int, controller: ScrollController) -> None:
+    i: int = 0
+    while i < len(_bar_ids):
+        if _bar_ids[i] == node_id:
+            _bar_controls[i] = controller
+            return
+        i = i + 1
+    _bar_ids.append(node_id)
+    _bar_controls.append(controller)
+
+
+def _bar_controller(node_id: int) -> ScrollController | None:
+    i: int = 0
+    while i < len(_bar_ids):
+        if _bar_ids[i] == node_id:
+            return _bar_controls[i]
+        i = i + 1
+    return None
+
 
 class RenderScrollbar(RenderBox):
     pixels: float
@@ -18,6 +41,7 @@ class RenderScrollbar(RenderBox):
     cache: PictureLayer
     has_cache: int
     child_dirty: int
+    grab: float
 
     def __init__(self) -> None:
         super().__init__()
@@ -28,17 +52,60 @@ class RenderScrollbar(RenderBox):
         self.cache = PictureLayer()
         self.has_cache = 0
         self.child_dirty = 1
+        self.grab = 0.0
         self.is_repaint_boundary = True
         self.semantics_role = "scrollbar"
 
     def set_scroll(self, pixels: float, max_pixels: float, viewport: float, content: float) -> None:
+        shown: int = 0
+        was: int = 0
+        if max_pixels > 0.0:
+            shown = 1
+        if self.max_pixels > 0.0:
+            was = 1
+        self.has_thumb = shown == 1
         if self.pixels == pixels and self.max_pixels == max_pixels and self.viewport == viewport and self.content == content:
             return
         self.pixels = pixels
         self.max_pixels = max_pixels
         self.viewport = viewport
         self.content = content
+        if shown != was:
+            self.mark_needs_layout()
         self.mark_thumb()
+
+    def place_thumb(self, local_y: float) -> None:
+        if self.max_pixels <= 0.0:
+            return
+        top: float = self._thumb_top()
+        thumb: float = self._thumb_height()
+        if local_y >= top and local_y <= top + thumb:
+            self.grab = local_y - top
+            return
+        self.grab = thumb / 2.0
+        self._move_to(local_y)
+
+    def drag_thumb(self, local_y: float) -> None:
+        if self.max_pixels <= 0.0:
+            return
+        self._move_to(local_y)
+
+    def _move_to(self, local_y: float) -> None:
+        thumb: float = self._thumb_height()
+        travel: float = self.height - thumb
+        top: float = local_y - self.grab
+        pixels: float = 0.0
+        linked: ScrollController | None = _bar_controller(self.node_id)
+        if travel <= 0.0:
+            return
+        if linked is None:
+            return
+        if top < 0.0:
+            top = 0.0
+        if top > travel:
+            top = travel
+        pixels = self.max_pixels * top / travel
+        linked.jump(pixels)
 
     def mark_thumb(self) -> None:
         self.needs_paint = True
@@ -52,7 +119,10 @@ class RenderScrollbar(RenderBox):
         super().mark_needs_paint()
 
     def perform_layout(self) -> None:
-        self.width = self.constraints.constrain_width(BAR_WIDTH)
+        if self.max_pixels <= 0.0:
+            self.width = self.constraints.constrain_width(0.0)
+        else:
+            self.width = self.constraints.constrain_width(BAR_WIDTH)
         self.height = self.constraints.constrain_height(self.constraints.max_height)
         child: RenderBox | None = self.only_child
         if child is None:
@@ -61,8 +131,17 @@ class RenderScrollbar(RenderBox):
         child.offset_x = 0.0
         child.offset_y = 0.0
 
+    def hit_test_self(self, x: float, y: float) -> bool:
+        if self.max_pixels <= 0.0:
+            return False
+        return True
+
     def paint(self, context: PaintingContext) -> None:
         self.paint_visit_count = self.paint_visit_count + 1
+        if self.max_pixels <= 0.0:
+            self.paint_children(context)
+            self.needs_paint = False
+            return
         if self.child_dirty == 1 or self.has_cache == 0:
             self.cache = PictureLayer()
             local: PaintingContext = PaintingContext(self.cache)
@@ -73,25 +152,34 @@ class RenderScrollbar(RenderBox):
         self._paint_thumb(context)
         self.needs_paint = False
 
-    def _paint_thumb(self, context: PaintingContext) -> None:
-        context.fill_rect(0.0, 0.0, self.width, self.height, COLOR_BUTTON)
+    def _thumb_height(self) -> float:
         span: float = self.content
+        thumb: float = 0.0
         if span < 1.0:
             span = 1.0
-        thumb: float = self.height * self.viewport / span
+        thumb = self.height * self.viewport / span
         if thumb < 24.0:
             thumb = 24.0
         if thumb > self.height:
             thumb = self.height
+        return thumb
+
+    def _thumb_top(self) -> float:
+        thumb: float = self._thumb_height()
         travel: float = self.height - thumb
         y: float = 0.0
-        if self.max_pixels > 0.0:
+        if self.max_pixels > 0.0 and travel > 0.0:
             y = travel * self.pixels / self.max_pixels
         if y < 0.0:
             y = 0.0
         if y > travel:
             y = travel
-        context.fill_rect(2.0, y, self.width - 4.0, thumb, COLOR_ACCENT)
+        return y
+
+    def _paint_thumb(self, context: PaintingContext) -> None:
+        thumb: float = self._thumb_height()
+        context.fill_rect(0.0, 0.0, self.width, self.height, COLOR_BUTTON)
+        context.fill_rect(2.0, self._thumb_top(), self.width - 4.0, thumb, COLOR_ACCENT)
 
 
 class Scrollbar(RenderObjectWidget):
@@ -115,6 +203,8 @@ class Scrollbar(RenderObjectWidget):
     def sync_render(self, element: Element) -> None:
         self.controller.watch(element.element_id)
         box: RenderBox | None = element.render
+        if box is not None:
+            _remember_bar(box.node_id, self.controller)
         if box is None:
             return
         box.set_scroll(self.controller.position.pixels, self.controller.position.max_pixels, self.controller.position.viewport, self.controller.position.content)

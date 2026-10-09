@@ -126,6 +126,7 @@ class RenderBox(RenderObject):
     takes_focus: bool
     on_scroll: (float) -> None
     has_scroll: bool
+    has_thumb: bool
     slot_index: int
     text_target: int
     drag_id: int
@@ -161,6 +162,7 @@ class RenderBox(RenderObject):
         self.takes_focus = False
         self.on_scroll = _noop_scroll
         self.has_scroll = False
+        self.has_thumb = False
         self.slot_index = 0
         self.text_target = 0
         self.drag_id = 0
@@ -442,6 +444,12 @@ class RenderBox(RenderObject):
         raise FrameworkError("set_scroll on a non-scrollbar render object")
 
     def scroll_by(self, delta: float) -> None:
+        pass
+
+    def place_thumb(self, local_y: float) -> None:
+        pass
+
+    def drag_thumb(self, local_y: float) -> None:
         pass
 
     def set_active_index(self, index: int) -> None:
