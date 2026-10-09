@@ -129,8 +129,8 @@ class FramePump:
         self.painted = self.pipeline.objects_painted
         self.layers = self.pipeline.layers_submitted
 
-    def pointer_down(self, x: float, y: float) -> None:
-        self.arena.pointer_down(self.view, x, y, self.frame_time)
+    def pointer_down(self, x: float, y: float, button: int = 1) -> None:
+        self.arena.pointer_down(self.view, x, y, self.frame_time, button)
         self._hover_cursor(x, y)
 
     def pointer_move(self, x: float, y: float) -> None:
@@ -161,7 +161,7 @@ class FramePump:
 
     def dispatch(self, kind: int, x: float, y: float, key_code: int, text: str, mods: int = 0) -> None:
         if kind == EVENT_POINTER_DOWN:
-            self.pointer_down(x, y)
+            self.pointer_down(x, y, mods)
         elif kind == EVENT_POINTER_MOVE:
             self.pointer_move(x, y)
         elif kind == EVENT_POINTER_UP:

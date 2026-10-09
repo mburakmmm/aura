@@ -6,6 +6,8 @@ KIND_TEXT: int = 3
 KIND_OPACITY: int = 4
 KIND_OPACITY_POP: int = 5
 KIND_IMAGE: int = 6
+KIND_CLIP: int = 7
+KIND_CLIP_POP: int = 8
 
 
 class DrawCommand:
@@ -57,6 +59,12 @@ class PictureLayer:
     def pop_opacity(self) -> None:
         self.commands.append(DrawCommand(KIND_OPACITY_POP, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0, "", ""))
 
+    def push_clip(self, x: float, y: float, w: float, h: float) -> None:
+        self.commands.append(DrawCommand(KIND_CLIP, x, y, w, h, 0.0, 0, 0, "", ""))
+
+    def pop_clip(self) -> None:
+        self.commands.append(DrawCommand(KIND_CLIP_POP, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0, "", ""))
+
     def replay(self, canvas: Canvas) -> None:
         i: int = 0
         while i < len(self.commands):
@@ -73,6 +81,10 @@ class PictureLayer:
                 canvas.pop_opacity()
             elif cmd.kind == KIND_IMAGE:
                 canvas.draw_image(cmd.x, cmd.y, cmd.w, cmd.h, cmd.weight)
+            elif cmd.kind == KIND_CLIP:
+                canvas.push_clip(cmd.x, cmd.y, cmd.w, cmd.h)
+            elif cmd.kind == KIND_CLIP_POP:
+                canvas.pop_clip()
             i = i + 1
 
 
@@ -109,6 +121,12 @@ class PaintingContext:
     def pop_opacity(self) -> None:
         self.layer.pop_opacity()
 
+    def push_clip(self, x: float, y: float, w: float, h: float) -> None:
+        self.layer.push_clip(self.ox + x, self.oy + y, w, h)
+
+    def pop_clip(self) -> None:
+        self.layer.pop_clip()
+
     def blit(self, source: PictureLayer) -> None:
         i: int = 0
         while i < len(source.commands):
@@ -123,6 +141,10 @@ class PaintingContext:
                 self.layer.pop_opacity()
             elif cmd.kind == KIND_IMAGE:
                 self.layer.draw_image(self.ox + cmd.x, self.oy + cmd.y, cmd.w, cmd.h, cmd.weight)
+            elif cmd.kind == KIND_CLIP:
+                self.layer.push_clip(self.ox + cmd.x, self.oy + cmd.y, cmd.w, cmd.h)
+            elif cmd.kind == KIND_CLIP_POP:
+                self.layer.pop_clip()
             i = i + 1
 
 

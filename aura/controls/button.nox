@@ -12,6 +12,18 @@ TYPE_BUTTON: int = alloc_type_id()
 
 BUTTON_PAD_X: float = 18.0
 BUTTON_PAD_Y: float = 10.0
+BUTTON_ALIGN_CENTER: int = 0
+BUTTON_ALIGN_START: int = 1
+
+
+def _quiet_secondary(x: float, y: float) -> None:
+    if x == 0.0 and y == 0.0:
+        return
+
+
+def _quiet_file(path: str) -> None:
+    if path == "":
+        return
 
 
 class RenderButton(RenderBox):
@@ -19,6 +31,7 @@ class RenderButton(RenderBox):
     font_size: float
     color: int
     background: int
+    text_align: int
 
     def __init__(self) -> None:
         super().__init__()
@@ -26,16 +39,18 @@ class RenderButton(RenderBox):
         self.font_size = 16.0
         self.color = COLOR_BUTTON_TEXT
         self.background = COLOR_BUTTON
+        self.text_align = BUTTON_ALIGN_CENTER
         self.semantics_role = "button"
 
-    def set_button(self, label: str, font_size: float, color: int, background: int) -> None:
+    def set_button(self, label: str, font_size: float, color: int, background: int, text_align: int) -> None:
         changed: bool = False
-        if self.label != label or self.font_size != font_size or self.color != color or self.background != background:
+        if self.label != label or self.font_size != font_size or self.color != color or self.background != background or self.text_align != text_align:
             changed = True
         self.label = label
         self.font_size = font_size
         self.color = color
         self.background = background
+        self.text_align = text_align
         self.semantics_role = "button"
         self.semantics_label = label
         self.takes_focus = True
@@ -54,6 +69,10 @@ class RenderButton(RenderBox):
         text_h: float = measure_height(self.font_size, 600, "")
         x: float = (self.width - text_w) / 2.0
         y: float = (self.height - text_h) / 2.0
+        if self.text_align == BUTTON_ALIGN_START:
+            x = BUTTON_PAD_X
+        if x < 0.0:
+            x = 0.0
         context.fill_text(x, y, self.label, self.font_size, 600, self.color, "")
 
     def hit_test_self(self, x: float, y: float) -> bool:
@@ -75,8 +94,14 @@ class Button(RenderObjectWidget):
     color: int
     background: int
     has_colors: int
+    text_align: int
+    on_secondary: (float, float) -> None
+    has_secondary: int
+    file_path: str
+    on_file_drag: (str) -> None
+    has_file_drag: int
 
-    def __init__(self, label: str, on_press: () -> None, font_size: float = 16.0, color: int | None = None, background: int | None = None, key: Key | None = None) -> None:
+    def __init__(self, label: str, on_press: () -> None, font_size: float = 16.0, color: int | None = None, background: int | None = None, text_align: int = 0, key: Key | None = None) -> None:
         super().__init__(TYPE_BUTTON, key)
         self.label = label
         self.on_press = on_press
@@ -84,11 +109,31 @@ class Button(RenderObjectWidget):
         self.color = 0
         self.background = 0
         self.has_colors = 0
+        self.text_align = text_align
+        self.on_secondary = _quiet_secondary
+        self.has_secondary = 0
+        self.file_path = ""
+        self.on_file_drag = _quiet_file
+        self.has_file_drag = 0
         if color is not None:
             if background is not None:
                 self.color = color
                 self.background = background
                 self.has_colors = 1
+
+    def with_secondary(self, handler: (float, float) -> None) -> Button:
+        self.on_secondary = handler
+        self.has_secondary = 1
+        return self
+
+    def with_file(self, path: str, handler: (str) -> None) -> Button:
+        self.file_path = path
+        self.on_file_drag = handler
+        if path == "":
+            self.has_file_drag = 0
+        else:
+            self.has_file_drag = 1
+        return self
 
     def create_render(self) -> RenderBox | None:
         return RenderButton()
@@ -101,4 +146,12 @@ class Button(RenderObjectWidget):
         if self.has_colors == 0:
             color = theme_for_element(element).scheme.button_text
             background = theme_for_element(element).scheme.button
-        element.apply_button(self.label, self.font_size, color, background, element.press_and_focus)
+        element.apply_button(self.label, self.font_size, color, background, self.text_align, element.press_and_focus)
+        if self.has_secondary == 1:
+            element.apply_secondary(self.on_secondary)
+        else:
+            element.clear_secondary()
+        if self.has_file_drag == 1:
+            element.apply_file_drag(self.file_path, self.on_file_drag)
+        else:
+            element.clear_file_drag()

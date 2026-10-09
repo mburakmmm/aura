@@ -88,6 +88,8 @@ struct AuraWindow {
     struct wl_data_device_manager *data_manager;
     struct wl_data_device *data_device;
     struct wl_data_source *data_source;
+    struct wl_data_source *file_source;
+    int shown;
     struct wl_data_offer *selection_offer;
     struct wl_data_offer *drag_offer;
     int drag_uri;
@@ -108,6 +110,7 @@ struct AuraWindow {
 #define AURA_MAX_WINDOWS 32
 static AuraWindow *g_windows[AURA_MAX_WINDOWS];
 static char *g_clipboard = NULL;
+static char *g_file_uri = NULL;
 static int g_clip_local = 1;
 static DBusConnection *g_a11y = NULL;
 
@@ -411,7 +414,7 @@ static void pointer_button(void *data, struct wl_pointer *pointer, uint32_t seri
     (void)pointer;
     (void)time;
     window->serial = serial;
-    aura_queue_push(&window->queue, state == WL_POINTER_BUTTON_STATE_PRESSED ? AURA_POINTER_DOWN : AURA_POINTER_UP, window->pointer_x, window->pointer_y, 0, button == 0x110 ? 1 : 2);
+    aura_queue_push(&window->queue, state == WL_POINTER_BUTTON_STATE_PRESSED ? AURA_POINTER_DOWN : AURA_POINTER_UP, window->pointer_x, window->pointer_y, 0, button == 0x110 ? 1 : button == 0x112 ? 3 : 2);
 }
 
 static void pointer_axis(void *data, struct wl_pointer *pointer, uint32_t time, uint32_t axis, wl_fixed_t value) {
@@ -728,7 +731,14 @@ static void source_target(void *data, struct wl_data_source *source, const char 
 }
 
 static void source_send(void *data, struct wl_data_source *source, const char *mime, int32_t fd) {
-    (void)data;
+    AuraWindow *window = (AuraWindow *)data;
+    if (g_file_uri != NULL && mime != NULL && strstr(mime, "uri-list") != NULL) {
+        ssize_t ignored = write(fd, g_file_uri, strlen(g_file_uri));
+        (void)ignored;
+        close(fd);
+        return;
+    }
+    (void)window;
     (void)source;
     if (g_clipboard != NULL && mime != NULL && strstr(mime, "text") != NULL) {
         ssize_t ignored = write(fd, g_clipboard, strlen(g_clipboard));
@@ -739,6 +749,11 @@ static void source_send(void *data, struct wl_data_source *source, const char *m
 
 static void source_cancelled(void *data, struct wl_data_source *source) {
     AuraWindow *window = (AuraWindow *)data;
+    if (window->file_source == source) {
+        wl_data_source_destroy(source);
+        window->file_source = NULL;
+        return;
+    }
     if (window->data_source == source) {
         wl_data_source_destroy(source);
         window->data_source = NULL;
@@ -1141,7 +1156,15 @@ static void poll_x11(AuraWindow *window) {
         int length = 0;
         XNextEvent(window->display, &event);
         if (event.type == ButtonPress) {
-            aura_queue_push(&window->queue, event.xbutton.button == 4 || event.xbutton.button == 5 ? AURA_SCROLL : AURA_POINTER_DOWN, event.xbutton.x, event.xbutton.y, 0, event.xbutton.button);
+            int64_t pointer_button = 1;
+            if (event.xbutton.button == 3) {
+                pointer_button = 2;
+            } else if (event.xbutton.button == 2) {
+                pointer_button = 3;
+            } else if (event.xbutton.button > 0) {
+                pointer_button = event.xbutton.button;
+            }
+            aura_queue_push(&window->queue, event.xbutton.button == 4 || event.xbutton.button == 5 ? AURA_SCROLL : AURA_POINTER_DOWN, event.xbutton.x, event.xbutton.y, 0, pointer_button);
             if (event.xbutton.button == 4) {
                 window->queue.events[window->queue.count - 1].kind = AURA_SCROLL;
                 window->queue.events[window->queue.count - 1].y = 1;
@@ -1150,7 +1173,15 @@ static void poll_x11(AuraWindow *window) {
                 window->queue.events[window->queue.count - 1].y = -1;
             }
         } else if (event.type == ButtonRelease) {
-            aura_queue_push(&window->queue, AURA_POINTER_UP, event.xbutton.x, event.xbutton.y, 0, event.xbutton.button);
+            int64_t pointer_button = 1;
+            if (event.xbutton.button == 3) {
+                pointer_button = 2;
+            } else if (event.xbutton.button == 2) {
+                pointer_button = 3;
+            } else if (event.xbutton.button > 0) {
+                pointer_button = event.xbutton.button;
+            }
+            aura_queue_push(&window->queue, AURA_POINTER_UP, event.xbutton.x, event.xbutton.y, 0, pointer_button);
         } else if (event.type == MotionNotify) {
             aura_queue_push(&window->queue, AURA_POINTER_MOVE, event.xmotion.x, event.xmotion.y, 0, 1);
         } else if (event.type == KeyPress || event.type == KeyRelease) {
@@ -1191,7 +1222,10 @@ static void poll_x11(AuraWindow *window) {
             reply.target = target;
             reply.time = event.xselectionrequest.time;
             reply.property = None;
-            if (g_clipboard != NULL && (target == g_atoms.utf8 || target == XA_STRING)) {
+            if (g_file_uri != NULL && target == g_atoms.uri_list) {
+                XChangeProperty(window->display, event.xselectionrequest.requestor, event.xselectionrequest.property, target, 8, PropModeReplace, (unsigned char *)g_file_uri, (int)strlen(g_file_uri));
+                reply.property = event.xselectionrequest.property;
+            } else if (g_clipboard != NULL && (target == g_atoms.utf8 || target == XA_STRING)) {
                 XChangeProperty(window->display, event.xselectionrequest.requestor, event.xselectionrequest.property, target, 8, PropModeReplace, (unsigned char *)g_clipboard, (int)strlen(g_clipboard));
                 reply.property = event.xselectionrequest.property;
             } else if (target == g_atoms.targets) {
@@ -1277,6 +1311,7 @@ extern "C" int64_t aura_window_create(int64_t width, int64_t height, const char 
         free(window);
         return 0;
     }
+    window->shown = visible != 0;
     window->title = strdup(title != NULL ? title : "Aura");
     g_windows[slot] = window;
     return (int64_t)slot + 1;
@@ -1338,6 +1373,9 @@ extern "C" int64_t aura_window_destroy(int64_t handle) {
         }
         if (window->data_source != NULL) {
             wl_data_source_destroy(window->data_source);
+        }
+        if (window->file_source != NULL) {
+            wl_data_source_destroy(window->file_source);
         }
         if (window->data_device != NULL) {
             wl_data_device_destroy(window->data_device);
@@ -1585,6 +1623,20 @@ extern "C" int64_t aura_cmd_opacity_pop(int64_t handle) {
     return aura_paint_opacity_pop();
 }
 
+extern "C" int64_t aura_cmd_clip(int64_t handle, double x, double y, double w, double h) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_paint_clip(x, y, w, h);
+}
+
+extern "C" int64_t aura_cmd_clip_pop(int64_t handle) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_paint_clip_pop();
+}
+
 extern "C" int64_t aura_cmd_image(int64_t handle, int64_t image, double x, double y, double w, double h) {
     if (window_get(handle, 1) == NULL) {
         return -1;
@@ -1627,12 +1679,15 @@ extern "C" int64_t aura_sample(int64_t handle, double x, double y) {
     return ((int64_t)a << 24) | ((int64_t)r << 16) | ((int64_t)g << 8) | (int64_t)b;
 }
 
-extern "C" int64_t aura_post_mouse(int64_t handle, int64_t kind, double x, double y) {
+extern "C" int64_t aura_post_mouse(int64_t handle, int64_t kind, double x, double y, int64_t button) {
     AuraWindow *window = window_get(handle, 1);
     if (window == NULL) {
         return -1;
     }
-    aura_queue_push(&window->queue, (int)kind, x, y, 0, 1);
+    if (button < 1) {
+        button = 1;
+    }
+    aura_queue_push(&window->queue, (int)kind, x, y, 0, button);
     return 0;
 }
 
@@ -1643,6 +1698,187 @@ extern "C" int64_t aura_post_text(int64_t handle, const char *utf8) {
     }
     aura_queue_push_text(&window->queue, AURA_IME_INSERT, utf8);
     return 0;
+}
+
+static char *file_uri_from_path(const char *path) {
+    size_t n = strlen(path);
+    size_t i = 0;
+    char *out = (char *)malloc(n * 3 + 16);
+    char *cursor = NULL;
+    if (out == NULL) {
+        return NULL;
+    }
+    cursor = out;
+    memcpy(cursor, "file://", 7);
+    cursor += 7;
+    for (i = 0; i < n; i++) {
+        unsigned char c = (unsigned char)path[i];
+        int plain = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '/' || c == '.' || c == '-' || c == '_' || c == '~';
+        if (plain) {
+            *cursor++ = (char)c;
+        } else {
+            sprintf(cursor, "%%%02X", c);
+            cursor += 3;
+        }
+    }
+    *cursor++ = '\r';
+    *cursor++ = '\n';
+    *cursor = '\0';
+    return out;
+}
+
+static void remember_file_uri(const char *path) {
+    free(g_file_uri);
+    g_file_uri = file_uri_from_path(path);
+}
+
+static void x11_drag_message(Display *display, Window target, Atom kind, long a, long b, long c, long d, long e) {
+    XClientMessageEvent message;
+    memset(&message, 0, sizeof(message));
+    message.type = ClientMessage;
+    message.display = display;
+    message.window = target;
+    message.message_type = kind;
+    message.format = 32;
+    message.data.l[0] = a;
+    message.data.l[1] = b;
+    message.data.l[2] = c;
+    message.data.l[3] = d;
+    message.data.l[4] = e;
+    XSendEvent(display, target, False, NoEventMask, (XEvent *)&message);
+    XFlush(display);
+}
+
+static Window x11_drag_target(Display *display, int root_x, int root_y) {
+    Window root = DefaultRootWindow(display);
+    Window child = root;
+    Window found = None;
+    while (child != None) {
+        Window next = None;
+        int dest_x = 0;
+        int dest_y = 0;
+        if (!XTranslateCoordinates(display, root, child, root_x, root_y, &dest_x, &dest_y, &next)) {
+            break;
+        }
+        found = child;
+        if (next == None) {
+            break;
+        }
+        child = next;
+    }
+    while (found != None && found != root) {
+        Atom type = None;
+        int format = 0;
+        unsigned long count = 0;
+        unsigned long after = 0;
+        unsigned char *data = NULL;
+        if (XGetWindowProperty(display, found, g_atoms.xdnd_aware, 0, 1, False, AnyPropertyType, &type, &format, &count, &after, &data) == Success) {
+            if (data != NULL) {
+                XFree(data);
+            }
+            if (count > 0) {
+                return found;
+            }
+        }
+        Window tree_root = None;
+        Window parent = None;
+        Window *children = NULL;
+        unsigned int child_count = 0;
+        if (!XQueryTree(display, found, &tree_root, &parent, &children, &child_count)) {
+            break;
+        }
+        if (children != NULL) {
+            XFree(children);
+        }
+        found = parent;
+    }
+    return None;
+}
+
+static int64_t drag_x11(AuraWindow *window) {
+    Display *display = window->display;
+    Window last = None;
+    ensure_atoms(display);
+    XSetSelectionOwner(display, g_atoms.xdnd_selection, window->xwindow, CurrentTime);
+    if (XGrabPointer(display, window->xwindow, False, ButtonReleaseMask | PointerMotionMask, GrabModeAsync, GrabModeAsync, None, None, CurrentTime) != GrabSuccess) {
+        return -1;
+    }
+    while (1) {
+        XEvent event;
+        int root_x = 0;
+        int root_y = 0;
+        Window target = None;
+        XMaskEvent(display, ButtonReleaseMask | PointerMotionMask, &event);
+        if (event.type == MotionNotify) {
+            root_x = event.xmotion.x_root;
+            root_y = event.xmotion.y_root;
+        } else if (event.type == ButtonRelease) {
+            root_x = event.xbutton.x_root;
+            root_y = event.xbutton.y_root;
+        } else {
+            continue;
+        }
+        target = x11_drag_target(display, root_x, root_y);
+        if (target != last) {
+            if (last != None) {
+                x11_drag_message(display, last, g_atoms.xdnd_leave, (long)window->xwindow, 0, 0, 0, 0);
+            }
+            if (target != None) {
+                x11_drag_message(display, target, g_atoms.xdnd_enter, (long)window->xwindow, (long)(5 << 24), (long)g_atoms.uri_list, 0, 0);
+            }
+            last = target;
+        }
+        if (event.type == ButtonRelease) {
+            if (target != None) {
+                x11_drag_message(display, target, g_atoms.xdnd_drop, (long)window->xwindow, 0, (long)event.xbutton.time, 0, 0);
+            }
+            break;
+        }
+        if (target != None) {
+            long packed = ((long)(root_x & 0xffff) << 16) | (long)(root_y & 0xffff);
+            x11_drag_message(display, target, g_atoms.xdnd_position, (long)window->xwindow, 0, packed, (long)event.xmotion.time, (long)g_atoms.xdnd_action_copy);
+        }
+    }
+    XUngrabPointer(display, CurrentTime);
+    XFlush(display);
+    return 0;
+}
+
+static int64_t drag_wayland(AuraWindow *window) {
+    if (window->wl == NULL || window->data_manager == NULL || window->data_device == NULL || window->surface == NULL || g_file_uri == NULL) {
+        return -1;
+    }
+    if (window->file_source != NULL) {
+        wl_data_source_destroy(window->file_source);
+        window->file_source = NULL;
+    }
+    window->file_source = wl_data_device_manager_create_data_source(window->data_manager);
+    if (window->file_source == NULL) {
+        return -1;
+    }
+    wl_data_source_add_listener(window->file_source, &data_source_listener, window);
+    wl_data_source_offer(window->file_source, "text/uri-list");
+    wl_data_device_start_drag(window->data_device, window->file_source, window->surface, NULL, window->serial);
+    wl_display_flush(window->wl);
+    return 0;
+}
+
+extern "C" int64_t aura_drag_file(int64_t handle, const char *path) {
+    AuraWindow *window = window_get(handle, 1);
+    if (window == NULL || path == NULL || path[0] == 0 || window->shown == 0) {
+        return -1;
+    }
+    remember_file_uri(path);
+    if (g_file_uri == NULL) {
+        return -1;
+    }
+    if (window->wl != NULL) {
+        return drag_wayland(window);
+    }
+    if (window->display != NULL) {
+        return drag_x11(window);
+    }
+    return -1;
 }
 
 extern "C" int64_t aura_post_drop(int64_t handle, double x, double y, const char *path) {

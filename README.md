@@ -33,10 +33,10 @@ Bağlayıcı teslimat sözleşmesi [roadmap.md](roadmap.md) dosyasındadır. `AG
 | 0.7 | Tamam: Chat, değişken satır yüksekliği ve IME |
 | 0.8 | Tamam: Dosya gezgini, UI iş parçacığı dışında okuma |
 | 0.9 | Dashboard: örtük animasyon, altın görüntü, kare bütçesi |
-| 1.0 | Genel API dondurma |
+| 1.0 | Genel API dondurma ve satır içi zengin metin |
 | 1.1–1.5 | iOS kabuğu, klavye, dokunuş, Android, GPU yüzeyi |
 
-Web, hot reload, sliver ve zengin metin bu sözleşmenin dışındadır.
+Web, hot reload ve sliver bu sözleşmenin dışındadır. Zengin metin 1.0 kapısıdır: kalın, eğik ve başlık. Çift yön ve emoji yoktur.
 
 ## Gereksinimler
 

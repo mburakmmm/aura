@@ -6,9 +6,10 @@ Bu dosya yayımlanan sürümleri tutar. Sürüm numarası `nox.json` ile, git et
 
 Dosya gezgini. Dizin okuma UI iş parçacığının dışında biter. Sonuç state’e yazılır ve bir sonraki karede kurulur. `build` dizini okumaz ve beklemez. Kapı `scripts/certify.sh` ve GitHub Actions’tır: macOS, gizli Win32, X11 ve Wayland.
 
-- Liste sanaldır. Ekran dışındaki satırlar kurulmaz. Kaydırma çubuğu yalnız içerik taşınca görünür.
-- Görüntü satırı ikinci pencerede mevcut `Image` ile açılır. Bırakılan görüntü aynı bırakma kuyruğuna düşer ve aynı önizlemeyi açar.
-- `examples/files` self-check’i ilk kareden önce listenin boş olduğunu görür. Alt dizine girer, `..` ile geri döner. Görüntü ikinci pencereyi açar. `tests/fixtures/pixel.png` bırakması önizlemeyi yeniden açar.
+- Liste sanaldır. Ekran dışındaki satırlar kurulmaz. Kaydırma çubuğu yalnız içerik taşınca görünür. Satır genişliği görünümü doldurur ve taşan boya kırpılır.
+- Görüntü satırı ikinci pencerede mevcut `Image` ile açılır. Bırakma görüntü, dizin veya metin olsun kuyruğa düşer. Görüntü önizlemeyi, dizin listeyi, `.md` dosyası satır satır ikinci pencereyi açar. Metin penceresi dosyanın tamamını tek seferde ölçmez.
+- Sağ tık menüsü açar veya yolu panoya yazar. Yatay sürükleme dosyayı işletim sisteminin sürüklemesine verir. Dikey çekiş listeyi kaydırır. macOS kaydırma yönü Windows ile aynıdır.
+- `examples/files` self-check’i ilk kareden önce listenin boş olduğunu görür. Alt dizine girer, `..` ile geri döner. Görüntü ikinci pencereyi açar. `tests/fixtures/pixel.png` bırakması önizlemeyi yeniden açar. Markdown satırı sürüklenir, tıklanınca ve bırakılınca metni gösterir.
 - Sertifika Chat’ten sonra dosya gezginini gizli pencerede koşturur. Pencere açık kalmaz.
 
 ## 0.7.0

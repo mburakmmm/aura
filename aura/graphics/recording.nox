@@ -6,6 +6,8 @@ KIND_TEXT: int = 3
 KIND_OPACITY: int = 4
 KIND_OPACITY_POP: int = 5
 KIND_IMAGE: int = 6
+KIND_CLIP: int = 7
+KIND_CLIP_POP: int = 8
 
 
 class RecordingCanvas(Canvas):
@@ -96,6 +98,30 @@ class RecordingCanvas(Canvas):
 
     def pop_opacity(self) -> None:
         self.kinds.append(KIND_OPACITY_POP)
+        self.xs.append(0.0)
+        self.ys.append(0.0)
+        self.ws.append(0.0)
+        self.hs.append(0.0)
+        self.sizes.append(0.0)
+        self.weights.append(0)
+        self.argbs.append(0)
+        self.texts.append("")
+        self.families.append("")
+
+    def push_clip(self, x: float, y: float, w: float, h: float) -> None:
+        self.kinds.append(KIND_CLIP)
+        self.xs.append(x)
+        self.ys.append(y)
+        self.ws.append(w)
+        self.hs.append(h)
+        self.sizes.append(0.0)
+        self.weights.append(0)
+        self.argbs.append(0)
+        self.texts.append("")
+        self.families.append("")
+
+    def pop_clip(self) -> None:
+        self.kinds.append(KIND_CLIP_POP)
         self.xs.append(0.0)
         self.ys.append(0.0)
         self.ws.append(0.0)

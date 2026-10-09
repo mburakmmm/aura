@@ -22,6 +22,8 @@ aura_cmd_rect
 aura_cmd_text
 aura_cmd_opacity
 aura_cmd_opacity_pop
+aura_cmd_clip
+aura_cmd_clip_pop
 aura_text_width
 aura_text_height
 aura_post_mouse
@@ -33,6 +35,7 @@ aura_text_contents
 aura_text_caret
 aura_post_text
 aura_post_drop
+aura_drag_file
 aura_clipboard_set
 aura_clipboard_len
 aura_clipboard_byte

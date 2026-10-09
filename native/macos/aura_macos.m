@@ -43,7 +43,7 @@ typedef struct AuraWindow AuraWindow;
 @property (nonatomic, assign) NSRect localFrame;
 @end
 
-@interface AuraView : NSView <NSTextInputClient>
+@interface AuraView : NSView <NSTextInputClient, NSDraggingSource>
 @property (nonatomic, assign) AuraWindow *owner;
 @end
 
@@ -81,6 +81,12 @@ struct AuraWindow {
     int ax_count;
     char *title;
     int cursor_kind;
+    int shown;
+    char *drag_path;
+    double drag_down_x;
+    double drag_down_y;
+    int drag_armed;
+    int drag_active;
 };
 
 #define AURA_MAX_WINDOWS 32
@@ -98,6 +104,61 @@ static AuraWindow *window_get(int64_t handle, int require_alive) {
         return NULL;
     }
     return window;
+}
+
+static void aura_clear_drag(AuraWindow *window) {
+    if (window == NULL) {
+        return;
+    }
+    free(window->drag_path);
+    window->drag_path = NULL;
+    window->drag_armed = 0;
+}
+
+static void aura_perform_armed_drag(AuraWindow *window, NSEvent *event, double x, double y) {
+    double dx = 0;
+    double dy = 0;
+    NSString *string = nil;
+    NSURL *url = nil;
+    NSDraggingItem *item = nil;
+    NSImage *icon = nil;
+    NSPoint view_point = NSZeroPoint;
+    if (window == NULL || event == nil || window->drag_active || window->drag_armed == 0 || window->drag_path == NULL || window->view == nil) {
+        return;
+    }
+    dx = x - window->drag_down_x;
+    dy = y - window->drag_down_y;
+    if (dx < 0) {
+        dx = -dx;
+    }
+    if (dy < 0) {
+        dy = -dy;
+    }
+    if (!(dx > 18.0 && dx > dy)) {
+        return;
+    }
+    string = [NSString stringWithUTF8String:window->drag_path];
+    if (string == nil) {
+        aura_clear_drag(window);
+        return;
+    }
+    url = [[NSURL fileURLWithPath:string] retain];
+    item = [[NSDraggingItem alloc] initWithPasteboardWriter:url];
+    icon = [[NSWorkspace sharedWorkspace] iconForFile:string];
+    [icon setSize:NSMakeSize(32, 32)];
+    view_point = [window->view convertPoint:event.locationInWindow fromView:nil];
+    [item setDraggingFrame:NSMakeRect(view_point.x, view_point.y - 16.0, 32.0, 32.0) contents:icon];
+    window->drag_active = 1;
+    window->drag_armed = 0;
+    @try {
+        [window->view beginDraggingSessionWithItems:@[item] event:event source:window->view];
+    } @catch (NSException *exception) {
+        (void)exception;
+    }
+    window->drag_active = 0;
+    [url release];
+    [item release];
+    aura_clear_drag(window);
 }
 
 static void aura_push(AuraWindow *window, int kind, double x, double y, int64_t key, int64_t button) {
@@ -265,9 +326,63 @@ static void copy_frame_pixels(AuraWindow *window) {
 }
 @end
 
+static void aura_drop_path(AuraWindow *window, double x, double y, NSString *path) {
+    if (window == NULL || path == nil || path.length == 0) {
+        return;
+    }
+    aura_push_text(window, AURA_FILE_DROP, [path UTF8String]);
+    if (window->event_count > 0) {
+        window->events[window->event_count - 1].x = x;
+        window->events[window->event_count - 1].y = y;
+    }
+}
+
+static NSUInteger aura_drop_legacy(AuraWindow *window, NSPoint point, NSPasteboard *board) {
+    NSString *url_string = [board stringForType:NSPasteboardTypeFileURL];
+    NSArray *names = nil;
+    NSUInteger i = 0;
+    NSUInteger accepted = 0;
+    if (url_string == nil && board.pasteboardItems.count > 0) {
+        url_string = [board.pasteboardItems[0] stringForType:NSPasteboardTypeFileURL];
+    }
+    if (url_string != nil) {
+        NSURL *url = [NSURL URLWithString:url_string];
+        if (url == nil) {
+            url = [NSURL fileURLWithPath:url_string];
+        }
+        if (url != nil && url.path != nil) {
+            aura_drop_path(window, point.x, point.y, url.path);
+            accepted += 1;
+        }
+    }
+    if (accepted > 0) {
+        return accepted;
+    }
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    names = [board propertyListForType:NSFilenamesPboardType];
+#pragma clang diagnostic pop
+    if (![names isKindOfClass:[NSArray class]]) {
+        return 0;
+    }
+    for (i = 0; i < names.count; i++) {
+        id item = names[i];
+        if ([item isKindOfClass:[NSString class]]) {
+            aura_drop_path(window, point.x, point.y, (NSString *)item);
+            accepted += 1;
+        }
+    }
+    return accepted;
+}
+
 @implementation AuraView
 - (BOOL)isFlipped {
     return YES;
+}
+- (NSDragOperation)draggingSession:(NSDraggingSession *)session sourceOperationMaskForDraggingContext:(NSDraggingContext)context {
+    (void)session;
+    (void)context;
+    return NSDragOperationCopy;
 }
 - (BOOL)isAccessibilityElement {
     return YES;
@@ -292,11 +407,17 @@ static void copy_frame_pixels(AuraWindow *window) {
 }
 - (void)mouseDown:(NSEvent *)event {
     NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
+    if (self.owner != NULL) {
+        self.owner->drag_down_x = point.x;
+        self.owner->drag_down_y = point.y;
+        aura_clear_drag(self.owner);
+    }
     aura_push(self.owner, AURA_POINTER_DOWN, point.x, point.y, 0, (int64_t)event.buttonNumber + 1);
 }
 - (void)mouseDragged:(NSEvent *)event {
     NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
     aura_push(self.owner, AURA_POINTER_MOVE, point.x, point.y, 0, (int64_t)event.buttonNumber + 1);
+    aura_perform_armed_drag(self.owner, event, point.x, point.y);
 }
 - (void)mouseUp:(NSEvent *)event {
     NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
@@ -306,12 +427,28 @@ static void copy_frame_pixels(AuraWindow *window) {
     NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
     aura_push(self.owner, AURA_POINTER_DOWN, point.x, point.y, 0, 2);
 }
+- (void)rightMouseDragged:(NSEvent *)event {
+    NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
+    aura_push(self.owner, AURA_POINTER_MOVE, point.x, point.y, 0, 2);
+}
 - (void)rightMouseUp:(NSEvent *)event {
     NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
     aura_push(self.owner, AURA_POINTER_UP, point.x, point.y, 0, 2);
 }
+- (void)otherMouseDown:(NSEvent *)event {
+    NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
+    aura_push(self.owner, AURA_POINTER_DOWN, point.x, point.y, 0, (int64_t)event.buttonNumber + 1);
+}
+- (void)otherMouseDragged:(NSEvent *)event {
+    NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
+    aura_push(self.owner, AURA_POINTER_MOVE, point.x, point.y, 0, (int64_t)event.buttonNumber + 1);
+}
+- (void)otherMouseUp:(NSEvent *)event {
+    NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
+    aura_push(self.owner, AURA_POINTER_UP, point.x, point.y, 0, (int64_t)event.buttonNumber + 1);
+}
 - (void)scrollWheel:(NSEvent *)event {
-    aura_push(self.owner, AURA_SCROLL, event.scrollingDeltaX, event.scrollingDeltaY, 0, 0);
+    aura_push(self.owner, AURA_SCROLL, event.scrollingDeltaX, -event.scrollingDeltaY, 0, 0);
 }
 - (void)keyDown:(NSEvent *)event {
     int64_t mods = 0;
@@ -445,33 +582,33 @@ static void copy_frame_pixels(AuraWindow *window) {
     (void)sender;
     return NSDragOperationCopy;
 }
+- (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)sender {
+    (void)sender;
+    return NSDragOperationCopy;
+}
 - (BOOL)prepareForDragOperation:(id<NSDraggingInfo>)sender {
     (void)sender;
     return YES;
 }
 - (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
     NSPasteboard *board = sender.draggingPasteboard;
-    NSString *path = nil;
-    NSString *url_string = [board stringForType:NSPasteboardTypeFileURL];
-    if (url_string == nil && board.pasteboardItems.count > 0) {
-        url_string = [board.pasteboardItems[0] stringForType:NSPasteboardTypeFileURL];
-    }
-    if (url_string != nil) {
-        NSURL *url = [NSURL URLWithString:url_string];
-        if (url != nil) {
-            path = url.path;
+    NSPoint point = [self convertPoint:sender.draggingLocation fromView:nil];
+    NSArray<NSURL *> *urls = [board readObjectsForClasses:@[[NSURL class]] options:@{NSPasteboardURLReadingFileURLsOnlyKey: @YES}];
+    NSUInteger accepted = 0;
+    NSUInteger i = 0;
+    if (urls != nil) {
+        for (i = 0; i < urls.count; i++) {
+            NSURL *url = urls[i];
+            if (url.isFileURL && url.path != nil) {
+                aura_drop_path(self.owner, point.x, point.y, url.path);
+                accepted += 1;
+            }
         }
     }
-    if (path == nil) {
-        return NO;
+    if (accepted == 0) {
+        accepted = aura_drop_legacy(self.owner, point, board);
     }
-    NSPoint point = [self convertPoint:sender.draggingLocation fromView:nil];
-    aura_push_text(self.owner, AURA_FILE_DROP, [path UTF8String]);
-    if (self.owner != NULL && self.owner->event_count > 0) {
-        self.owner->events[self.owner->event_count - 1].x = point.x;
-        self.owner->events[self.owner->event_count - 1].y = point.y;
-    }
-    return YES;
+    return accepted > 0 ? YES : NO;
 }
 - (void)setFrameSize:(NSSize)newSize {
     [super setFrameSize:newSize];
@@ -505,7 +642,7 @@ static void copy_frame_pixels(AuraWindow *window) {
     if (self.owner != NULL) {
         self.owner->should_close = 1;
     }
-    return YES;
+    return NO;
 }
 - (void)windowDidBecomeKey:(NSNotification *)notification {
     (void)notification;
@@ -564,7 +701,10 @@ int64_t aura_window_create(int64_t width, int64_t height, const char *title, int
         window->title = strdup(title != NULL ? title : "Aura");
         window->view = [[AuraView alloc] initWithFrame:content];
         window->view.owner = window;
-        [window->view registerForDraggedTypes:@[NSPasteboardTypeFileURL]];
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        [window->view registerForDraggedTypes:@[NSPasteboardTypeFileURL, NSPasteboardTypeURL, NSFilenamesPboardType]];
+#pragma clang diagnostic pop
         [window->window setContentView:window->view];
         window->delegate = [AuraDelegate new];
         window->delegate.owner = window;
@@ -579,6 +719,7 @@ int64_t aura_window_create(int64_t width, int64_t height, const char *title, int
         }
 #pragma clang diagnostic pop
         g_windows[slot] = window;
+        window->shown = visible != 0;
         if (visible != 0) {
             [window->window center];
             [window->window makeKeyAndOrderFront:nil];
@@ -647,6 +788,7 @@ int64_t aura_window_destroy(int64_t handle) {
         }
         g_windows[handle - 1] = NULL;
         free(window->title);
+        free(window->drag_path);
         free(window);
         return 0;
     }
@@ -939,6 +1081,20 @@ int64_t aura_cmd_opacity_pop(int64_t handle) {
     return aura_paint_opacity_pop();
 }
 
+int64_t aura_cmd_clip(int64_t handle, double x, double y, double w, double h) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_paint_clip(x, y, w, h);
+}
+
+int64_t aura_cmd_clip_pop(int64_t handle) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_paint_clip_pop();
+}
+
 int64_t aura_sample(int64_t handle, double x, double y) {
     AuraWindow *window = window_get(handle, 1);
     int px = 0;
@@ -969,6 +1125,21 @@ int64_t aura_sample(int64_t handle, double x, double y) {
     return ((int64_t)a << 24) | ((int64_t)r << 16) | ((int64_t)g << 8) | (int64_t)b;
 }
 
+int64_t aura_drag_file(int64_t handle, const char *path) {
+    AuraWindow *window = window_get(handle, 1);
+    if (window == NULL || path == NULL || path[0] == 0 || window->shown == 0 || window->drag_active) {
+        return -1;
+    }
+    free(window->drag_path);
+    window->drag_path = strdup(path);
+    if (window->drag_path == NULL) {
+        window->drag_armed = 0;
+        return -1;
+    }
+    window->drag_armed = 1;
+    return 0;
+}
+
 int64_t aura_post_drop(int64_t handle, double x, double y, const char *path) {
     AuraWindow *window = window_get(handle, 1);
     if (window == NULL) {
@@ -982,12 +1153,15 @@ int64_t aura_post_drop(int64_t handle, double x, double y, const char *path) {
     return 0;
 }
 
-int64_t aura_post_mouse(int64_t handle, int64_t kind, double x, double y) {
+int64_t aura_post_mouse(int64_t handle, int64_t kind, double x, double y, int64_t button) {
     AuraWindow *window = window_get(handle, 1);
     if (window == NULL) {
         return -1;
     }
-    aura_push(window, (int)kind, x, y, 0, 1);
+    if (button < 1) {
+        button = 1;
+    }
+    aura_push(window, (int)kind, x, y, 0, button);
     return 0;
 }
 

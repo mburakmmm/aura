@@ -13,6 +13,8 @@ int aura_paint_rect(double x, double y, double w, double h, int64_t argb);
 int aura_paint_text(double x, double y, const char *text, double size, int64_t weight, int64_t argb, const char *family);
 int aura_paint_opacity(double opacity);
 int aura_paint_opacity_pop(void);
+int aura_paint_clip(double x, double y, double w, double h);
+int aura_paint_clip_pop(void);
 int aura_paint_image(int64_t image, double x, double y, double w, double h);
 int aura_paint_end(void);
 const uint8_t *aura_paint_pixels(void);

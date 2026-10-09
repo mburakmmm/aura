@@ -14,6 +14,12 @@ class Canvas:
     def pop_opacity(self) -> None:
         pass
 
+    def push_clip(self, x: float, y: float, w: float, h: float) -> None:
+        pass
+
+    def pop_clip(self) -> None:
+        pass
+
     def draw_image(self, x: float, y: float, w: float, h: float, image: int) -> None:
         pass
 

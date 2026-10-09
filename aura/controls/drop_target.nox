@@ -65,6 +65,15 @@ class DropTargetState(State):
     def build(self, context: BuildContext) -> Widget:
         handle: int = drop_handle(self.controller.drop_id)
         shown: Widget = self.child
+        element: Element | None = self.element
+        widget: Widget | None = None
+        supplied: Widget | None = None
+        if element is not None:
+            widget = element.widget
+        if widget is not None:
+            supplied = widget._supplied_child()
+        if supplied is not None:
+            shown = supplied
         if handle != 0:
             shown = Image(handle)
         return DropSurface(self.controller, shown)
@@ -78,6 +87,9 @@ class DropTarget(StatefulWidget):
         super().__init__(TYPE_DROP, key)
         self.controller = controller
         self.child = child
+
+    def _supplied_child(self) -> Widget | None:
+        return self.child
 
     def create_state(self) -> State:
         state: DropTargetState = DropTargetState()

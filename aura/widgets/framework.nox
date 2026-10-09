@@ -61,6 +61,9 @@ class Widget:
     def seed_overlay(self, element: Element) -> None:
         pass
 
+    def _supplied_child(self) -> Widget | None:
+        return None
+
 
 class State:
     element: Element | None
@@ -709,15 +712,39 @@ class Element:
         box.set_modal(mode, x, y, dim)
         box.set_tap(handler)
 
-    def apply_button(self, label: str, font_size: float, color: int, background: int, handler: () -> None) -> None:
+    def apply_button(self, label: str, font_size: float, color: int, background: int, text_align: int, handler: () -> None) -> None:
         box: RenderBox | None = self.render
         if box is None:
             raise FrameworkError("button has no render object")
-        box.set_button(label, font_size, color, background)
+        box.set_button(label, font_size, color, background, text_align)
         box.set_tap(handler)
         box.semantics_role = "button"
         box.semantics_label = label
         box.takes_focus = True
+
+    def apply_secondary(self, handler: (float, float) -> None) -> None:
+        box: RenderBox | None = self.render
+        if box is None:
+            raise FrameworkError("secondary action has no render object")
+        box.set_secondary(handler)
+
+    def clear_secondary(self) -> None:
+        box: RenderBox | None = self.render
+        if box is None:
+            return
+        box.clear_secondary()
+
+    def apply_file_drag(self, path: str, handler: (str) -> None) -> None:
+        box: RenderBox | None = self.render
+        if box is None:
+            raise FrameworkError("file drag has no render object")
+        box.set_file_drag(path, handler)
+
+    def clear_file_drag(self) -> None:
+        box: RenderBox | None = self.render
+        if box is None:
+            return
+        box.clear_file_drag()
 
     def apply_sized(self, has_w: int, w: float, has_h: int, h: float, tag: int) -> None:
         box: RenderBox | None = self.render

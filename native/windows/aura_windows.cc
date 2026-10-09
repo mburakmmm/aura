@@ -14,6 +14,7 @@
 #include <dwmapi.h>
 #include <ole2.h>
 #include <shellapi.h>
+#include <shlobj.h>
 #include <uiautomation.h>
 
 #include <stdlib.h>
@@ -88,6 +89,7 @@ struct AuraWindow {
     int64_t plugin_ids[8];
     char *title;
     int cursor_kind;
+    int shown;
 };
 
 #define AURA_MAX_WINDOWS 32
@@ -651,6 +653,7 @@ extern "C" int64_t aura_window_create(int64_t width, int64_t height, const char 
     }
     window->root_provider = new AuraProvider(window, -1);
     g_windows[slot] = window;
+    window->shown = visible != 0;
     if (visible != 0) {
         ShowWindow(window->hwnd, SW_SHOW);
         UpdateWindow(window->hwnd);
@@ -906,6 +909,20 @@ extern "C" int64_t aura_cmd_opacity_pop(int64_t handle) {
     return aura_paint_opacity_pop();
 }
 
+extern "C" int64_t aura_cmd_clip(int64_t handle, double x, double y, double w, double h) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_paint_clip(x, y, w, h);
+}
+
+extern "C" int64_t aura_cmd_clip_pop(int64_t handle) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_paint_clip_pop();
+}
+
 extern "C" int64_t aura_cmd_image(int64_t handle, int64_t image, double x, double y, double w, double h) {
     if (window_get(handle, 1) == NULL) {
         return -1;
@@ -943,12 +960,15 @@ extern "C" int64_t aura_sample(int64_t handle, double x, double y) {
     return ((int64_t)a << 24) | ((int64_t)r << 16) | ((int64_t)g << 8) | (int64_t)b;
 }
 
-extern "C" int64_t aura_post_mouse(int64_t handle, int64_t kind, double x, double y) {
+extern "C" int64_t aura_post_mouse(int64_t handle, int64_t kind, double x, double y, int64_t button) {
     AuraWindow *window = window_get(handle, 1);
     if (window == NULL) {
         return -1;
     }
-    aura_queue_push(&window->queue, (int)kind, x, y, 0, 1);
+    if (button < 1) {
+        button = 1;
+    }
+    aura_queue_push(&window->queue, (int)kind, x, y, 0, button);
     return 0;
 }
 
@@ -958,6 +978,240 @@ extern "C" int64_t aura_post_text(int64_t handle, const char *utf8) {
         return -1;
     }
     aura_queue_push_text(&window->queue, AURA_IME_INSERT, utf8);
+    return 0;
+}
+
+class AuraDropSource : public IDropSource {
+public:
+    AuraDropSource() : refs(1) {}
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **object) override {
+        if (object == NULL) {
+            return E_POINTER;
+        }
+        if (riid == IID_IUnknown || riid == IID_IDropSource) {
+            *object = static_cast<IDropSource *>(this);
+            AddRef();
+            return S_OK;
+        }
+        *object = NULL;
+        return E_NOINTERFACE;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() override {
+        return (ULONG)InterlockedIncrement(&refs);
+    }
+
+    ULONG STDMETHODCALLTYPE Release() override {
+        LONG left = InterlockedDecrement(&refs);
+        if (left == 0) {
+            delete this;
+        }
+        return (ULONG)left;
+    }
+
+    HRESULT STDMETHODCALLTYPE QueryContinueDrag(BOOL escape, DWORD keys) override {
+        if (escape) {
+            return DRAGDROP_S_CANCEL;
+        }
+        if ((keys & MK_LBUTTON) == 0) {
+            return DRAGDROP_S_DROP;
+        }
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE GiveFeedback(DWORD effect) override {
+        (void)effect;
+        return DRAGDROP_S_USEDEFAULTCURSORS;
+    }
+
+private:
+    LONG refs;
+};
+
+class AuraFileData : public IDataObject {
+public:
+    explicit AuraFileData(HGLOBAL held) : refs(1), memory(held) {}
+
+    ~AuraFileData() {
+        if (memory != NULL) {
+            GlobalFree(memory);
+        }
+    }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **object) override {
+        if (object == NULL) {
+            return E_POINTER;
+        }
+        if (riid == IID_IUnknown || riid == IID_IDataObject) {
+            *object = static_cast<IDataObject *>(this);
+            AddRef();
+            return S_OK;
+        }
+        *object = NULL;
+        return E_NOINTERFACE;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() override {
+        return (ULONG)InterlockedIncrement(&refs);
+    }
+
+    ULONG STDMETHODCALLTYPE Release() override {
+        LONG left = InterlockedDecrement(&refs);
+        if (left == 0) {
+            delete this;
+        }
+        return (ULONG)left;
+    }
+
+    HRESULT STDMETHODCALLTYPE GetData(FORMATETC *format, STGMEDIUM *medium) override {
+        SIZE_T size = 0;
+        void *from = NULL;
+        void *to = NULL;
+        HGLOBAL copy = NULL;
+        if (format == NULL || medium == NULL || memory == NULL) {
+            return E_INVALIDARG;
+        }
+        if (format->cfFormat != CF_HDROP || (format->tymed & TYMED_HGLOBAL) == 0) {
+            return DV_E_FORMATETC;
+        }
+        size = GlobalSize(memory);
+        copy = GlobalAlloc(GMEM_MOVEABLE, size);
+        if (copy == NULL) {
+            return E_OUTOFMEMORY;
+        }
+        from = GlobalLock(memory);
+        to = GlobalLock(copy);
+        if (from == NULL || to == NULL) {
+            if (from != NULL) {
+                GlobalUnlock(memory);
+            }
+            if (to != NULL) {
+                GlobalUnlock(copy);
+            }
+            GlobalFree(copy);
+            return E_OUTOFMEMORY;
+        }
+        memcpy(to, from, size);
+        GlobalUnlock(memory);
+        GlobalUnlock(copy);
+        medium->tymed = TYMED_HGLOBAL;
+        medium->hGlobal = copy;
+        medium->pUnkForRelease = NULL;
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE GetDataHere(FORMATETC *format, STGMEDIUM *medium) override {
+        (void)format;
+        (void)medium;
+        return E_NOTIMPL;
+    }
+
+    HRESULT STDMETHODCALLTYPE QueryGetData(FORMATETC *format) override {
+        if (format != NULL && format->cfFormat == CF_HDROP && (format->tymed & TYMED_HGLOBAL) != 0) {
+            return S_OK;
+        }
+        return DV_E_FORMATETC;
+    }
+
+    HRESULT STDMETHODCALLTYPE GetCanonicalFormatEtc(FORMATETC *in, FORMATETC *out) override {
+        (void)in;
+        (void)out;
+        return E_NOTIMPL;
+    }
+
+    HRESULT STDMETHODCALLTYPE SetData(FORMATETC *format, STGMEDIUM *medium, BOOL release) override {
+        (void)format;
+        (void)medium;
+        (void)release;
+        return E_NOTIMPL;
+    }
+
+    HRESULT STDMETHODCALLTYPE EnumFormatEtc(DWORD direction, IEnumFORMATETC **enumerator) override {
+        FORMATETC format;
+        if (direction != DATADIR_GET || enumerator == NULL) {
+            return E_NOTIMPL;
+        }
+        format.cfFormat = CF_HDROP;
+        format.ptd = NULL;
+        format.dwAspect = DVASPECT_CONTENT;
+        format.lindex = -1;
+        format.tymed = TYMED_HGLOBAL;
+        return SHCreateStdEnumFmtEtc(1, &format, enumerator);
+    }
+
+    HRESULT STDMETHODCALLTYPE DAdvise(FORMATETC *format, DWORD advf, IAdviseSink *sink, DWORD *connection) override {
+        (void)format;
+        (void)advf;
+        (void)sink;
+        (void)connection;
+        return OLE_E_ADVISENOTSUPPORTED;
+    }
+
+    HRESULT STDMETHODCALLTYPE DUnadvise(DWORD connection) override {
+        (void)connection;
+        return OLE_E_ADVISENOTSUPPORTED;
+    }
+
+    HRESULT STDMETHODCALLTYPE EnumDAdvise(IEnumSTATDATA **enumerator) override {
+        (void)enumerator;
+        return OLE_E_ADVISENOTSUPPORTED;
+    }
+
+private:
+    LONG refs;
+    HGLOBAL memory;
+};
+
+static HGLOBAL hdrop_for_path(const char *path) {
+    wchar_t wide[MAX_PATH * 4];
+    int chars = MultiByteToWideChar(CP_UTF8, 0, path, -1, wide, MAX_PATH * 4);
+    SIZE_T bytes = 0;
+    HGLOBAL memory = NULL;
+    DROPFILES *drop = NULL;
+    if (chars <= 0) {
+        return NULL;
+    }
+    bytes = sizeof(DROPFILES) + (size_t)chars * sizeof(wchar_t) + sizeof(wchar_t);
+    memory = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, bytes);
+    if (memory == NULL) {
+        return NULL;
+    }
+    drop = (DROPFILES *)GlobalLock(memory);
+    if (drop == NULL) {
+        GlobalFree(memory);
+        return NULL;
+    }
+    drop->pFiles = sizeof(DROPFILES);
+    drop->fWide = TRUE;
+    memcpy((char *)drop + sizeof(DROPFILES), wide, (size_t)chars * sizeof(wchar_t));
+    GlobalUnlock(memory);
+    return memory;
+}
+
+extern "C" int64_t aura_drag_file(int64_t handle, const char *path) {
+    AuraWindow *window = window_get(handle, 1);
+    HGLOBAL memory = NULL;
+    AuraFileData *data = NULL;
+    AuraDropSource *source = NULL;
+    DWORD effect = 0;
+    HRESULT result = E_FAIL;
+    if (window == NULL || path == NULL || path[0] == 0 || window->shown == 0) {
+        return -1;
+    }
+    OleInitialize(NULL);
+    memory = hdrop_for_path(path);
+    if (memory == NULL) {
+        return -1;
+    }
+    data = new AuraFileData(memory);
+    source = new AuraDropSource();
+    result = DoDragDrop(data, source, DROPEFFECT_COPY, &effect);
+    data->Release();
+    source->Release();
+    if (FAILED(result)) {
+        return -1;
+    }
     return 0;
 }
 

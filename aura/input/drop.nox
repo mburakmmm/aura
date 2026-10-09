@@ -1,4 +1,4 @@
-from aura.platform.bridge import open_image_file
+from aura.platform.bridge import try_open_image_file
 from aura.rendering.render_object import HitTestResult, RenderBox
 from aura.widgets.framework import dirty_element_id
 
@@ -73,7 +73,7 @@ def _receive(drop_id: int, path: str) -> None:
     if index < 0:
         return
     _drop_paths[index] = path
-    _drop_handles[index] = open_image_file(path)
+    _drop_handles[index] = try_open_image_file(path)
     element_id: int = _drop_elements[index]
     listener: (str) -> None = _drop_listeners[index]
     listener(path)

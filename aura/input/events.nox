@@ -13,6 +13,9 @@ EVENT_IME_MARK: int = 12
 EVENT_WINDOW_FOCUS: int = 13
 EVENT_FILE_DROP: int = 14
 EVENT_AX_ACTION: int = 15
+BUTTON_PRIMARY: int = 1
+BUTTON_SECONDARY: int = 2
+BUTTON_MIDDLE: int = 3
 
 
 class PointerEvent:

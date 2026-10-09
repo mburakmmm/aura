@@ -21,9 +21,11 @@ extern def aura_cmd_rect(handle: int, x: float, y: float, w: float, h: float, ar
 extern def aura_cmd_text(handle: int, x: float, y: float, text: str, size: float, weight: int, argb: int, family: str) -> int from "native/libaura_host.dylib"
 extern def aura_cmd_opacity(handle: int, opacity: float) -> int from "native/libaura_host.dylib"
 extern def aura_cmd_opacity_pop(handle: int) -> int from "native/libaura_host.dylib"
+extern def aura_cmd_clip(handle: int, x: float, y: float, w: float, h: float) -> int from "native/libaura_host.dylib"
+extern def aura_cmd_clip_pop(handle: int) -> int from "native/libaura_host.dylib"
 extern def aura_text_width(text: str, size: float, weight: int, family: str) -> float from "native/libaura_host.dylib"
 extern def aura_text_height(size: float, weight: int, family: str) -> float from "native/libaura_host.dylib"
-extern def aura_post_mouse(handle: int, kind: int, x: float, y: float) -> int from "native/libaura_host.dylib"
+extern def aura_post_mouse(handle: int, kind: int, x: float, y: float, button: int) -> int from "native/libaura_host.dylib"
 extern def aura_window_event_text_len(handle: int, index: int) -> int from "native/libaura_host.dylib"
 extern def aura_window_event_text_byte(handle: int, index: int, offset: int) -> int from "native/libaura_host.dylib"
 extern def aura_text_focus(handle: int, enabled: int) -> int from "native/libaura_host.dylib"
@@ -32,6 +34,7 @@ extern def aura_text_contents(handle: int, text: str) -> int from "native/libaur
 extern def aura_text_caret(handle: int, x: float, y: float, height: float) -> int from "native/libaura_host.dylib"
 extern def aura_post_text(handle: int, text: str) -> int from "native/libaura_host.dylib"
 extern def aura_post_drop(handle: int, x: float, y: float, path: str) -> int from "native/libaura_host.dylib"
+extern def aura_drag_file(handle: int, path: str) -> int from "native/libaura_host.dylib"
 extern def aura_clipboard_set(text: str) -> int from "native/libaura_host.dylib"
 extern def aura_clipboard_len() -> int from "native/libaura_host.dylib"
 extern def aura_clipboard_byte(offset: int) -> int from "native/libaura_host.dylib"
@@ -216,6 +219,18 @@ def cmd_opacity_pop(handle: int) -> None:
         raise FrameworkError("use after close")
 
 
+def cmd_clip(handle: int, x: float, y: float, w: float, h: float) -> None:
+    code: int = aura_cmd_clip(handle, x, y, w, h)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
+def cmd_clip_pop(handle: int) -> None:
+    code: int = aura_cmd_clip_pop(handle)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
 def text_width(text: str, size: float, weight: int, family: str) -> float:
     return aura_text_width(text, size, weight, family)
 
@@ -224,8 +239,8 @@ def text_height(size: float, weight: int, family: str) -> float:
     return aura_text_height(size, weight, family)
 
 
-def post_mouse(handle: int, kind: int, x: float, y: float) -> None:
-    code: int = aura_post_mouse(handle, kind, x, y)
+def post_mouse(handle: int, kind: int, x: float, y: float, button: int = 1) -> None:
+    code: int = aura_post_mouse(handle, kind, x, y, button)
     if code < 0:
         raise FrameworkError("use after close")
 
@@ -330,8 +345,12 @@ def clipboard_get() -> str:
     return text
 
 
+def try_open_image_file(path: str) -> int:
+    return aura_image_open_file(path)
+
+
 def open_image_file(path: str) -> int:
-    handle: int = aura_image_open_file(path)
+    handle: int = try_open_image_file(path)
     if handle == 0:
         raise FrameworkError("failed to open image")
     return handle
@@ -431,6 +450,13 @@ def post_drop(handle: int, x: float, y: float, path: str) -> None:
     code: int = aura_post_drop(handle, x, y, path)
     if code < 0:
         raise FrameworkError("use after close")
+
+
+def drag_file(path: str) -> None:
+    handle: int = _active_window
+    if handle == 0 or path == "":
+        return
+    aura_drag_file(handle, path)
 
 
 def post_text(handle: int, text: str) -> None:

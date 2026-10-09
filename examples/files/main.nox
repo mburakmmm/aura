@@ -1,13 +1,14 @@
 from aura.app import run_app
 from aura.files.listing import listing_has, listing_len
 from aura.input.drop import drop_path
-from aura.platform.bridge import remove_empty_dir
+from aura.input.events import BUTTON_SECONDARY, EVENT_POINTER_DOWN, EVENT_POINTER_MOVE, EVENT_POINTER_UP
+from aura.platform.bridge import clipboard_get, clipboard_set, post_mouse, remove_empty_dir
 from aura.platform.macos import image_dispose
 from aura.rendering.render_object import RenderBox
 from aura.runtime.binding import Binding
 from aura.runtime.host import AppHost, bind_host
 from aura.widgets.framework import Element
-from examples.files.page import FilesPage, files_drop_id, hide_preview, release_preview
+from examples.files.page import FilesPage, files_drop_id, hide_preview, last_drag, release_preview
 from nox.fs import copy, create_dir, exists, is_dir, read_dir, remove_file, write_string
 from nox.os import arg, arg_count
 from nox.path import join
@@ -64,6 +65,7 @@ def prepare() -> None:
     folder = join(WORK, "child")
     create_dir(folder)
     write_string(join(WORK, "anchor.txt"), "anchor")
+    write_string(join(WORK, "note.md"), "Aura markdown")
     write_string(join(folder, "nested.txt"), "nested")
     copy(FIXTURE, join(WORK, "pixel.png"))
     while i < 200:
@@ -136,6 +138,58 @@ def find_scroll(element: Element) -> Element | None:
                 return found
         i = i + 1
     return None
+
+
+def collect_buttons(box: RenderBox) -> list[RenderBox]:
+    found: list[RenderBox] = []
+    nested: list[RenderBox] = []
+    only: RenderBox | None = box.only_child
+    i: int = 0
+    k: int = 0
+    if box.semantics_role == "button":
+        found.append(box)
+    if only is not None:
+        nested = collect_buttons(only)
+        while k < len(nested):
+            found.append(nested[k])
+            k = k + 1
+    while i < len(box.children):
+        nested = collect_buttons(box.children[i])
+        k = 0
+        while k < len(nested):
+            found.append(nested[k])
+            k = k + 1
+        i = i + 1
+    return found
+
+
+def require_rows(view: RenderBox) -> None:
+    buttons: list[RenderBox] = collect_buttons(view)
+    row: RenderBox = view
+    other: RenderBox = view
+    top: float = 0.0
+    bottom: float = 0.0
+    other_top: float = 0.0
+    other_bottom: float = 0.0
+    bi: int = 0
+    bj: int = 0
+    if len(buttons) < 2:
+        fail("file rows were not shown")
+    while bi < len(buttons):
+        row = buttons[bi]
+        if row.width < 200.0:
+            fail("file row did not fill the list")
+        bj = bi + 1
+        while bj < len(buttons):
+            other = buttons[bj]
+            top = row.absolute_y()
+            bottom = top + row.height
+            other_top = other.absolute_y()
+            other_bottom = other_top + other.height
+            if top < other_bottom and other_top < bottom:
+                fail("file rows overlap")
+            bj = bj + 1
+        bi = bi + 1
 
 
 def mounted_slots(binding: Binding) -> int:
@@ -213,6 +267,24 @@ def self_check() -> None:
             fail("file list built every row")
         if require_box(find_role(binding.pump.view, "scrollbar"), "scrollbar").width < 1.0:
             fail("scrollbar stayed hidden")
+        require_rows(binding.pump.view)
+        kept: str = clipboard_get()
+        folder: RenderBox = require_box(find_label(binding.pump.view, "child"), "child")
+        binding.post_file(folder.absolute_x() + 8.0, folder.absolute_y() + 4.0, join(WORK, "anchor.txt"))
+        host.frame()
+        if drop_path(files_drop_id) != join(WORK, "anchor.txt"):
+            fail("drop on the list missed")
+        if host.alive_count() != 1:
+            fail("a text file opened a preview")
+        post_mouse(binding.surface.handle, EVENT_POINTER_DOWN, folder.absolute_x() + 8.0, folder.absolute_y() + 4.0, BUTTON_SECONDARY)
+        post_mouse(binding.surface.handle, EVENT_POINTER_UP, folder.absolute_x() + 8.0, folder.absolute_y() + 4.0, BUTTON_SECONDARY)
+        host.frame()
+        if listing_has("nested.txt") == 1:
+            fail("right click opened the folder")
+        click(host, binding, require_box(find_label(binding.pump.view, "Copy path"), "copy path"))
+        if clipboard_get() != join(WORK, "child"):
+            fail("right click did not copy the path")
+        clipboard_set(kept)
         click(host, binding, require_box(find_label(binding.pump.view, "child"), "child"))
         wait_for(host, "nested.txt")
         wait_until_gone(host, "anchor.txt")
@@ -221,6 +293,33 @@ def self_check() -> None:
         click(host, binding, require_box(find_label(binding.pump.view, ".."), "parent"))
         wait_for(host, "anchor.txt")
         wait_until_gone(host, "nested.txt")
+        note: RenderBox = require_box(find_label(binding.pump.view, "note.md"), "note")
+        reader: Binding | None = None
+        if note.file_path != join(WORK, "note.md"):
+            fail("markdown row is not draggable")
+        post_mouse(binding.surface.handle, EVENT_POINTER_DOWN, note.absolute_x() + 8.0, note.absolute_y() + 4.0, 1)
+        post_mouse(binding.surface.handle, EVENT_POINTER_MOVE, note.absolute_x() + 48.0, note.absolute_y() + 4.0, 1)
+        post_mouse(binding.surface.handle, EVENT_POINTER_UP, note.absolute_x() + 48.0, note.absolute_y() + 4.0, 1)
+        host.frame()
+        if last_drag != join(WORK, "note.md"):
+            fail("markdown file did not drag")
+        if host.alive_count() != 1:
+            fail("dragging a markdown file opened it")
+        click(host, binding, note)
+        if host.alive_count() != 2:
+            fail("markdown file did not open")
+        reader = host.binding_for(host.ids[1])
+        if find_label(require_binding(reader, "note").pump.view, "Aura markdown") is None:
+            fail("markdown text was not shown")
+        host.close_window(host.ids[1])
+        binding.post_file(note.absolute_x() + 8.0, note.absolute_y() + 4.0, join(WORK, "note.md"))
+        host.frame()
+        if host.alive_count() != 2:
+            fail("dropped markdown did not open")
+        reader = host.binding_for(host.ids[1])
+        if find_label(require_binding(reader, "dropped note").pump.view, "Aura markdown") is None:
+            fail("dropped markdown text was not shown")
+        host.close_window(host.ids[1])
         click(host, binding, require_box(find_label(binding.pump.view, "pixel.png"), "pixel"))
         if host.alive_count() != 2:
             fail("preview window did not open")
@@ -241,6 +340,15 @@ def self_check() -> None:
             fail("dropped file missed the queue")
         if host.alive_count() != 2:
             fail("dropped image did not open a preview")
+        host.close_window(host.ids[1])
+        opened = release_preview()
+        if opened != 0:
+            image_dispose(opened)
+        binding.post_file(folder.absolute_x() + 8.0, folder.absolute_y() + 4.0, join(WORK, "child"))
+        host.frame()
+        wait_for(host, "nested.txt")
+        if listing_has("anchor.txt") == 1:
+            fail("dropped folder did not open")
         print("files self-check ok")
     finally:
         close_all(host)

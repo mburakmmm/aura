@@ -233,11 +233,13 @@ class RenderViewport(RenderBox):
 
     def paint_children(self, context: PaintingContext) -> None:
         i: int = 0
+        context.push_clip(0.0, 0.0, self.width, self.height)
         while i < len(self.children):
             child: RenderBox = self.children[i]
             if child.offset_y + child.height >= 0.0 and child.offset_y <= self.height:
                 self.paint_child(context, child)
             i = i + 1
+        context.pop_clip()
 
     def hit_test_children(self, result: HitTestResult, x: float, y: float) -> bool:
         i: int = len(self.children) - 1

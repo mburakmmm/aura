@@ -1,27 +1,32 @@
-from aura.controls.button import Button
-from aura.controls.drop_target import DropTarget
-from aura.foundation.color import COLOR_ACCENT, COLOR_BUTTON, COLOR_BUTTON_TEXT, COLOR_TEXT
-from aura.foundation.insets import insets_all
+from aura.controls.button import BUTTON_ALIGN_START, Button
+from aura.controls.drop_target import DropSurface, DropTarget
+from aura.foundation.color import COLOR_ACCENT, COLOR_FIELD, COLOR_TEXT
+from aura.foundation.insets import insets_all, insets_symmetric
 from aura.image.image import Image
 from aura.input.drop import DropController, drop_handle, set_drop_listener
-from aura.layout import Center, Column, Expanded, Padding, Row, SizedBox
-from aura.layout.flex import CROSS_STRETCH
+from aura.layout import Center, ColoredBox, Column, Expanded, Padding, Row, SizedBox
+from aura.layout.flex import CROSS_STRETCH, MAIN_MIN
+from aura.platform.bridge import clipboard_set, drag_file
 from aura.layout.scrollbar import Scrollbar
 from aura.layout.virtual_list import ItemSource, ScrollController, VirtualList
 from aura.files.listing import bind_listing, entry_count, entry_label, listing_current, listing_revision, listing_root, listing_status, set_listing_root, start_listing
 from aura.platform.macos import open_image_file
 from aura.runtime.host import WindowController
 from aura.text import Text
+from aura.text.measure import measure_height
 from aura.widgets import BuildContext, Element, State, StatefulWidget, StatelessWidget, Widget
+from aura.widgets.overlay import MenuItem, Overlay, show_menu
 from aura.widgets.key import IntValueKey
 from aura.widgets.type_ids import alloc_type_id
-from nox.fs import is_dir
+from nox.fs import is_dir, is_file, read_to_string
 from nox.path import dirname, join
 
 TYPE_FILES: int = alloc_type_id()
 TYPE_ROW: int = alloc_type_id()
 TYPE_PREVIEW: int = alloc_type_id()
-ROW_EXTENT: float = 48.0
+TYPE_NOTE: int = alloc_type_id()
+ROW_EXTENT: float = 56.0
+last_drag: str = ""
 
 preview_visible: int = 1
 preview_handle: int = 0
@@ -48,6 +53,14 @@ def _ends(text: str, suffix: str) -> bool:
     return text[len(text) - len(suffix):len(text)] == suffix
 
 
+def _is_text(name: str) -> int:
+    if _ends(name, ".md") or _ends(name, ".MD"):
+        return 1
+    if _ends(name, ".markdown") or _ends(name, ".MARKDOWN"):
+        return 1
+    return 0
+
+
 def _is_image(name: str) -> int:
     if _ends(name, ".png") or _ends(name, ".PNG"):
         return 1
@@ -71,6 +84,51 @@ def _inside(path: str) -> int:
     if mark == "/" or mark == "\\":
         return 1
     return 0
+
+
+def _entry_ink(name: str) -> int:
+    path: str = ""
+    if name == "..":
+        return COLOR_ACCENT
+    path = join(listing_current(), name)
+    if is_dir(path):
+        return COLOR_ACCENT
+    return COLOR_TEXT
+
+
+def _leaf(path: str) -> str:
+    i: int = len(path) - 1
+    slash: int = -1
+    while i >= 0:
+        mark: str = path[i:i + 1]
+        if mark == "/" or mark == "\\":
+            slash = i
+            break
+        i = i - 1
+    if slash < 0 or slash + 1 >= len(path):
+        return path
+    return path[slash + 1:len(path)]
+
+
+def _drop_face(label: str) -> Widget:
+    return Column([
+        Expanded(ColoredBox(COLOR_FIELD, Center(Text(label, color=COLOR_ACCENT)))),
+    ], cross_align=CROSS_STRETCH)
+
+
+def drag_named(path: str) -> None:
+    last_drag = path
+    drag_file(path)
+
+
+def open_text(path: str) -> None:
+    body: str = ""
+    if path == "":
+        return
+    if not is_file(path):
+        return
+    body = read_to_string(path)
+    WindowController().open(NotePage(body), 720, 640, _leaf(path), preview_visible)
 
 
 def show_preview(handle: int, owned: int) -> None:
@@ -99,12 +157,14 @@ def open_named(name: str) -> None:
             return
         start_listing(path)
         return
-    if _is_image(name) == 0:
+    if _is_image(name) == 1:
+        handle = open_image_file(path)
+        if handle == 0:
+            return
+        show_preview(handle, 1)
         return
-    handle = open_image_file(path)
-    if handle == 0:
-        return
-    show_preview(handle, 1)
+    if _is_text(name) == 1:
+        open_text(path)
 
 
 class FilePreview(StatelessWidget):
@@ -116,6 +176,64 @@ class FilePreview(StatelessWidget):
 
     def build(self, context: BuildContext) -> Widget:
         return Center(Image(self.handle))
+
+
+def _note_lines(body: str) -> list[str]:
+    lines: list[str] = []
+    if body == "":
+        lines.append("(empty)")
+        return lines
+    lines = body.split("\n")
+    if len(lines) == 0:
+        lines.append("(empty)")
+    return lines
+
+
+class NoteSource(ItemSource):
+    lines: list[str]
+
+    def __init__(self, body: str) -> None:
+        self.lines = _note_lines(body)
+
+    def count(self) -> int:
+        return len(self.lines)
+
+    def widget_at(self, index: int) -> Widget:
+        return Padding(insets_symmetric(16.0, 0.0), Text(self.lines[index], font_size=16.0, color=COLOR_TEXT))
+
+    def extent_at(self, index: int, width: float) -> float:
+        if index < 0 or width < 0.0:
+            return 0.0
+        return 0.0
+
+
+class NoteState(State):
+    scroll: ScrollController
+    listing: VirtualList
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.scroll = ScrollController()
+        self.listing = VirtualList(NoteSource(""), 32.0, self.scroll)
+
+    def build(self, context: BuildContext) -> Widget:
+        return Padding(insets_all(12.0), Row([
+            Expanded(self.listing),
+            Scrollbar(self.scroll),
+        ], cross_align=CROSS_STRETCH))
+
+
+class NotePage(StatefulWidget):
+    body: str
+
+    def __init__(self, body: str) -> None:
+        super().__init__(TYPE_NOTE, None)
+        self.body = body
+
+    def create_state(self) -> State:
+        state: NoteState = NoteState()
+        state.listing = VirtualList(NoteSource(self.body), measure_height(16.0, 400, "") + 6.0, state.scroll)
+        return state
 
 
 class FileSource(ItemSource):
@@ -146,11 +264,36 @@ class FileRowState(State):
         super().__init__()
         self.index = 0
 
+    def file_path(self) -> str:
+        name: str = entry_label(self.index)
+        if name == "" or name == "..":
+            return ""
+        return join(listing_current(), name)
+
     def activate(self) -> None:
         open_named(entry_label(self.index))
 
+    def copy_path(self) -> None:
+        name: str = entry_label(self.index)
+        if name == "..":
+            clipboard_set(dirname(listing_current()))
+            return
+        clipboard_set(join(listing_current(), name))
+
+    def open_menu(self, x: float, y: float) -> None:
+        element: Element | None = self.element
+        if element is None:
+            return
+        show_menu(BuildContext(element), x, y, [
+            MenuItem("Open", self.activate),
+            MenuItem("Copy path", self.copy_path),
+        ])
+
     def build(self, context: BuildContext) -> Widget:
-        return Button(entry_label(self.index), self.activate, color=COLOR_BUTTON_TEXT, background=COLOR_BUTTON)
+        label: str = entry_label(self.index)
+        return Column([
+            Button(label, self.activate, color=_entry_ink(label), background=COLOR_FIELD, text_align=BUTTON_ALIGN_START).with_secondary(self.open_menu).with_file(self.file_path(), drag_named),
+        ], cross_align=CROSS_STRETCH, main_size=MAIN_MIN)
 
 
 class FileRow(StatefulWidget):
@@ -171,6 +314,7 @@ class FilesState(State):
     drop: DropController
     scroll: ScrollController
     listing: VirtualList
+    notice: str
 
     def __init__(self) -> None:
         super().__init__()
@@ -178,6 +322,7 @@ class FilesState(State):
         self.drop = DropController()
         self.scroll = ScrollController()
         self.listing = VirtualList(FileSource(), ROW_EXTENT, self.scroll)
+        self.notice = ""
 
     def init_state(self) -> None:
         element: Element | None = self.element
@@ -193,15 +338,30 @@ class FilesState(State):
         handle: int = 0
         if path == "":
             return
+        if is_dir(path):
+            self.notice = ""
+            set_listing_root(path)
+            start_listing(path)
+            self.invalidate()
+            return
         handle = drop_handle(self.drop.drop_id)
         if handle != 0:
             show_preview(handle, 0)
+            return
+        if _is_text(_leaf(path)) == 1:
+            open_text(path)
+            return
+        self.notice = _leaf(path)
+        self.invalidate()
 
     def build(self, context: BuildContext) -> Widget:
         rows: list[Widget] = []
+        label: str = "Drop a file"
+        if self.notice != "":
+            label = self.notice
         rows.append(Text("Files", font_size=28.0, color=COLOR_TEXT))
-        rows.append(SizedBox(None, 8.0))
-        rows.append(Text(listing_current(), color=COLOR_TEXT))
+        rows.append(SizedBox(None, 10.0))
+        rows.append(ColoredBox(COLOR_FIELD, Padding(insets_symmetric(14.0, 10.0), Text(listing_current(), color=COLOR_TEXT))))
         rows.append(SizedBox(None, 12.0))
         if listing_status() == 2:
             rows.append(Text("Could not read this folder.", color=COLOR_ACCENT))
@@ -211,8 +371,8 @@ class FilesState(State):
             Scrollbar(self.scroll),
         ], cross_align=CROSS_STRETCH)))
         rows.append(SizedBox(None, 12.0))
-        rows.append(SizedBox(None, 72.0, DropTarget(self.drop, Text("Drop a file", color=COLOR_TEXT))))
-        return Padding(insets_all(24.0), Column(rows, cross_align=CROSS_STRETCH))
+        rows.append(SizedBox(None, 64.0, DropTarget(self.drop, _drop_face(label))))
+        return DropSurface(self.drop, Overlay(Padding(insets_all(20.0), Column(rows, cross_align=CROSS_STRETCH))))
 
 
 class FilesPage(StatefulWidget):

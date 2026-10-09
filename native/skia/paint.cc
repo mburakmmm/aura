@@ -24,6 +24,7 @@ namespace {
 
 constexpr int kMaxImages = 64;
 constexpr int kMaxOpacity = 32;
+constexpr int kMaxClip = 32;
 
 struct Picture {
     int alive;
@@ -35,6 +36,7 @@ struct Picture {
 sk_sp<SkSurface> g_surface;
 double g_scale = 1.0;
 int g_opacity = 0;
+int g_clip = 0;
 Picture g_pictures[kMaxImages];
 std::vector<uint8_t> g_bytes;
 sk_sp<SkTypeface> g_regular;
@@ -250,6 +252,34 @@ extern "C" int aura_paint_opacity_pop(void) {
     }
     g_surface->getCanvas()->restore();
     g_opacity -= 1;
+    return 0;
+}
+
+extern "C" int aura_paint_clip(double x, double y, double w, double h) {
+    double scale;
+    if (!g_surface) {
+        return -1;
+    }
+    if (g_clip >= kMaxClip) {
+        return -1;
+    }
+    scale = logical_scale();
+    g_surface->getCanvas()->save();
+    g_surface->getCanvas()->clipRect(SkRect::MakeXYWH(
+        static_cast<float>(x * scale),
+        static_cast<float>(y * scale),
+        static_cast<float>(w * scale),
+        static_cast<float>(h * scale)), true);
+    g_clip += 1;
+    return 0;
+}
+
+extern "C" int aura_paint_clip_pop(void) {
+    if (!g_surface || g_clip <= 0) {
+        return -1;
+    }
+    g_surface->getCanvas()->restore();
+    g_clip -= 1;
     return 0;
 }
 

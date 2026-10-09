@@ -1,4 +1,5 @@
 from aura.input.drag import drag_by
+from aura.input.events import BUTTON_MIDDLE, BUTTON_SECONDARY
 from aura.rendering.render_object import HitTestResult, RenderBox
 from aura.text.editing import pointer_text_down, pointer_text_move
 
@@ -35,6 +36,10 @@ class GestureArena:
     text_selecting: bool
     drag_box: RenderBox | None
     drag_won: bool
+    file_box: RenderBox | None
+    file_sent: int
+    button: int
+    secondary_box: RenderBox | None
     last_time: float
     fling_host: int
     fling_velocity: float
@@ -56,11 +61,15 @@ class GestureArena:
         self.text_selecting = False
         self.drag_box = None
         self.drag_won = False
+        self.file_box = None
+        self.file_sent = 0
+        self.button = 1
+        self.secondary_box = None
         self.last_time = 0.0
         self.fling_host = 0
         self.fling_velocity = 0.0
 
-    def pointer_down(self, root: RenderBox, x: float, y: float, time_s: float = 0.0) -> None:
+    def pointer_down(self, root: RenderBox, x: float, y: float, time_s: float = 0.0, button: int = 1) -> None:
         self.members = []
         self.tracking = True
         self.rejected = False
@@ -76,14 +85,26 @@ class GestureArena:
         self.text_selecting = False
         self.drag_box = None
         self.drag_won = False
+        self.file_box = None
+        self.file_sent = 0
+        self.button = button
+        self.secondary_box = None
         self.last_time = time_s
         self.fling_velocity = 0.0
         self.fling_host = 0
         result: HitTestResult = HitTestResult()
         root.hit_test(result, x, y)
+        alternate: int = 0
+        if button == BUTTON_SECONDARY or button == BUTTON_MIDDLE:
+            alternate = 1
         i: int = 0
         while i < len(result.targets):
             target: RenderBox = result.targets[i]
+            if alternate == 1:
+                if target.has_secondary and self.secondary_box is None:
+                    self.secondary_box = target
+                i = i + 1
+                continue
             if target.has_thumb and self.thumb_box is None:
                 self.thumb_box = target
                 target.place_thumb(result.entries[i].y)
@@ -91,6 +112,8 @@ class GestureArena:
                 self.scroll_box = target
             if target.drag_id != 0 and self.drag_box is None:
                 self.drag_box = target
+            if target.has_file_drag and self.file_box is None:
+                self.file_box = target
             if target.text_target != 0 and self.text_box is None:
                 self.text_box = target
                 pointer_text_down(target.text_target, x - target.absolute_x() - 8.0, y - target.absolute_y() - 8.0, target.width - 16.0)
@@ -103,6 +126,18 @@ class GestureArena:
 
     def pointer_move(self, x: float, y: float, time_s: float = 0.0) -> None:
         if not self.tracking:
+            return
+        if self.button == BUTTON_SECONDARY or self.button == BUTTON_MIDDLE:
+            alt_x: float = x - self.down_x
+            alt_y: float = y - self.down_y
+            if alt_x < 0.0:
+                alt_x = -alt_x
+            if alt_y < 0.0:
+                alt_y = -alt_y
+            if alt_x > TAP_SLOP or alt_y > TAP_SLOP:
+                self.rejected = True
+            self.last_x = x
+            self.last_y = y
             return
         thumb: RenderBox | None = self.thumb_box
         if thumb is not None:
@@ -147,6 +182,25 @@ class GestureArena:
                 self.last_x = x
                 self.last_y = y
                 return
+        if self.file_sent == 1:
+            self.last_x = x
+            self.last_y = y
+            return
+        carried: RenderBox | None = self.file_box
+        if carried is not None:
+            file_dx: float = x - self.down_x
+            file_dy: float = y - self.down_y
+            if file_dx < 0.0:
+                file_dx = -file_dx
+            if file_dy < 0.0:
+                file_dy = -file_dy
+            if file_dx > TAP_SLOP and file_dx > file_dy:
+                self.rejected = True
+                self.file_sent = 1
+                carried.on_file_drag(carried.file_path)
+                self.last_x = x
+                self.last_y = y
+                return
         dx: float = x - self.down_x
         dy: float = y - self.down_y
         if dx < 0.0:
@@ -167,10 +221,17 @@ class GestureArena:
         scrolled: RenderBox | None = self.scroll_box
         if self.scroll_won and scrolled is not None:
             self.fling_host = scrolled.host_id
-        if not self.rejected and len(self.members) > 0:
+        if self.button == BUTTON_SECONDARY or self.button == BUTTON_MIDDLE:
+            chosen: RenderBox | None = self.secondary_box
+            if chosen is not None:
+                if not self.rejected and chosen.has_secondary:
+                    chosen.on_secondary(x, y)
+                    self.winner_count = 1
+        elif not self.rejected and len(self.members) > 0:
             self.members[0].accept()
             self.winner_count = 1
         self.tracking = False
+        self.secondary_box = None
         self.scroll_won = False
         self.scroll_box = None
         self.thumb_box = None
@@ -178,6 +239,8 @@ class GestureArena:
         self.text_selecting = False
         self.drag_box = None
         self.drag_won = False
+        self.file_box = None
+        self.file_sent = 0
         self.members = []
 
     def pointer_cancel(self) -> None:
@@ -190,6 +253,9 @@ class GestureArena:
         self.text_selecting = False
         self.drag_box = None
         self.drag_won = False
+        self.file_box = None
+        self.file_sent = 0
+        self.secondary_box = None
         self.members = []
 
     def pointer_scroll(self, root: RenderBox, dx: float, dy: float) -> None:

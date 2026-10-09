@@ -28,6 +28,16 @@ def _noop_tap() -> None:
     pass
 
 
+def _noop_secondary(x: float, y: float) -> None:
+    if x == y:
+        return
+
+
+def _noop_file(path: str) -> None:
+    if path == "":
+        return
+
+
 def _noop_key(code: int, is_down: int) -> bool:
     return False
 
@@ -121,6 +131,8 @@ class RenderBox(RenderObject):
     overflow_reported: bool
     on_tap: () -> None
     has_tap: bool
+    on_secondary: (float, float) -> None
+    has_secondary: bool
     on_key: (int, int) -> bool
     has_key: bool
     takes_focus: bool
@@ -131,6 +143,9 @@ class RenderBox(RenderObject):
     text_target: int
     drag_id: int
     drop_id: int
+    file_path: str
+    on_file_drag: (str) -> None
+    has_file_drag: bool
     host_id: int
     plugin_id: int
 
@@ -157,6 +172,8 @@ class RenderBox(RenderObject):
         self.overflow_reported = False
         self.on_tap = _noop_tap
         self.has_tap = False
+        self.on_secondary = _noop_secondary
+        self.has_secondary = False
         self.on_key = _noop_key
         self.has_key = False
         self.takes_focus = False
@@ -167,6 +184,9 @@ class RenderBox(RenderObject):
         self.text_target = 0
         self.drag_id = 0
         self.drop_id = 0
+        self.file_path = ""
+        self.on_file_drag = _noop_file
+        self.has_file_drag = False
         self.host_id = 0
         self.plugin_id = 0
 
@@ -404,10 +424,28 @@ class RenderBox(RenderObject):
         self.on_tap = _noop_tap
         self.has_tap = False
 
+    def set_secondary(self, handler: (float, float) -> None) -> None:
+        self.on_secondary = handler
+        self.has_secondary = True
+
+    def clear_secondary(self) -> None:
+        self.on_secondary = _noop_secondary
+        self.has_secondary = False
+
+    def set_file_drag(self, path: str, handler: (str) -> None) -> None:
+        self.file_path = path
+        self.on_file_drag = handler
+        self.has_file_drag = True
+
+    def clear_file_drag(self) -> None:
+        self.file_path = ""
+        self.on_file_drag = _noop_file
+        self.has_file_drag = False
+
     def set_paragraph(self, value: str, font_size: float, color: int, weight: int, family: str) -> None:
         raise FrameworkError("set_paragraph on a non-text render object")
 
-    def set_button(self, label: str, font_size: float, color: int, background: int) -> None:
+    def set_button(self, label: str, font_size: float, color: int, background: int, text_align: int) -> None:
         raise FrameworkError("set_button on a non-button render object")
 
     def set_toggle(self, checked: bool, label: str, text: int, track: int, thumb: int) -> None:
