@@ -10,6 +10,7 @@ Notes. Tek belge, düz metin. Paragraflar satır sonuyla ayrılır. Zengin metin
 - Seçim, kestiği her satıra ayrı dikdörtgen basar. İmleç o satırın dikey konumuna iner. Yukarı ve aşağı ok aynı yatay konumda bir görsel satır kayar.
 - IME kompozisyonu imlecin olduğu aralıkta görünür. Commit mevcut ekleme yoluna girer. Karakter sanal tuştan üretilmez.
 - `examples/notes` self-check’i sarılmış cümleyi seçer, panoya kopyalar, ikinci paragrafa yapıştırır ve IME commit’ini imlecin durduğu yere yazar.
+- Notes sayfası pencereyi doldurur. Metin alanı koyu zemin ve tema mürekkebi kullanır. Pencere başlığı Notes’tur.
 - Sertifika önceki beş self-check’in ardından Notes’u gizli pencerede koşturur. Pencere açık kalmaz.
 
 ## 0.4.0

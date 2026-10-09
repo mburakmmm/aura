@@ -1,4 +1,4 @@
-from aura.foundation.color import COLOR_ACCENT, COLOR_TEXT, rgba
+from aura.foundation.color import COLOR_ACCENT, COLOR_FIELD, COLOR_TEXT, rgba
 from aura.input.focus import FocusManager, FocusNode
 from aura.platform.bridge import sync_text_input
 from aura.rendering.layer import PaintingContext
@@ -7,6 +7,7 @@ from aura.semantics.semantics_node import SemanticsNode
 from aura.text.editing import TextEditingController, display_text, remember_field_metrics, to_display
 from aura.text.measure import TextLine, layout_lines, line_for_offset, measure_height, measure_width
 from aura.widgets.framework import Element, RenderObjectWidget
+from aura.widgets.theme import theme_for_element
 from aura.widgets.key import Key
 from aura.widgets.type_ids import alloc_type_id
 
@@ -30,6 +31,8 @@ class RenderTextField(RenderBox):
     lines: list[str]
     mapped: list[TextLine]
     line_height: float
+    fill: int
+    ink: int
 
     def __init__(self) -> None:
         super().__init__()
@@ -43,6 +46,8 @@ class RenderTextField(RenderBox):
         empty: list[TextLine] = []
         self.mapped = empty
         self.line_height = 16.0
+        self.fill = COLOR_FIELD
+        self.ink = COLOR_TEXT
         self.semantics_role = "text-field"
 
     def set_text_field(self, value: str, composing: str, cursor: int, anchor: int, multiline: int, edge: int) -> None:
@@ -58,6 +63,15 @@ class RenderTextField(RenderBox):
         self.semantics_label = value
         if changed:
             self.mark_needs_layout()
+            self.mark_needs_paint()
+
+    def set_text_colors(self, fill: int, ink: int) -> None:
+        changed: bool = False
+        if self.fill != fill or self.ink != ink:
+            changed = True
+        self.fill = fill
+        self.ink = ink
+        if changed:
             self.mark_needs_paint()
 
     def perform_layout(self) -> None:
@@ -88,7 +102,7 @@ class RenderTextField(RenderBox):
         remember_field_metrics(self.text_target, content, self.multiline)
 
     def paint_self(self, context: PaintingContext) -> None:
-        context.fill_rect(0.0, 0.0, self.width, self.height, 4294967295)
+        context.fill_rect(0.0, 0.0, self.width, self.height, self.fill)
         start: int = self.cursor
         end: int = self.anchor
         if start > end:
@@ -118,7 +132,7 @@ class RenderTextField(RenderBox):
             i = i + 1
         i = 0
         while i < len(self.lines):
-            context.fill_text(8.0, 8.0 + float(i) * self.line_height, self.lines[i], 16.0, 400, COLOR_TEXT, "")
+            context.fill_text(8.0, 8.0 + float(i) * self.line_height, self.lines[i], 16.0, 400, self.ink, "")
             i = i + 1
         if len(self.mapped) == 0:
             context.fill_rect(8.0, 8.0, 1.0, self.line_height, COLOR_ACCENT)
@@ -169,6 +183,7 @@ class TextField(RenderObjectWidget):
         box.set_tap(element.focus_field)
         box.set_text_target(self.controller.target_id)
         box.set_text_field(self.controller.text, self.controller.composing, self.controller.cursor, self.controller.anchor, self.multiline, self.controller.edge)
+        box.set_text_colors(COLOR_FIELD, theme_for_element(element).scheme.text)
         if _field_is_focused(element):
             start: int = self.controller.sel_start()
             length: int = self.controller.sel_end() - start

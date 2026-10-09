@@ -2,5 +2,5 @@ from aura.runtime.host import run_app as _run_app
 from aura.widgets.framework import Widget
 
 
-def run_app(root: Widget) -> None:
-    _run_app(root)
+def run_app(root: Widget, title: str = "Aura") -> None:
+    _run_app(root, title)

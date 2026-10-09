@@ -4,8 +4,8 @@ from aura.platform.macos import clipboard_get, clipboard_set, post_mouse
 from aura.rendering.render_object import RenderBox
 from aura.runtime.binding import Binding
 from aura.text.field import painted_text, selection_row_count
-from aura.text.measure import measure_height, measure_width, wrap_text
-from examples.notes.page import FIELD_WIDTH, SENTENCE, NotesPage, document
+from aura.text.measure import TextLine, layout_lines, measure_height, measure_width, wrap_text
+from examples.notes.page import SENTENCE, NotesPage, document
 from nox.os import arg, arg_count
 
 
@@ -55,10 +55,18 @@ def self_check() -> None:
     if field is None:
         stop(binding, kept, "missing notes field")
         return
+    if field.width < 400.0:
+        stop(binding, kept, "field does not fill the page")
+        return
     line_h: float = measure_height(16.0, 400, "")
     origin_x: float = field.absolute_x() + 8.0
     origin_y: float = field.absolute_y() + 8.0
-    end_x: float = origin_x + measure_width("notes", 16.0, 400, "") + 4.0
+    content: float = field.width - 16.0
+    wrapped: list[TextLine] = layout_lines(SENTENCE, content, 16.0, 400, "")
+    if len(wrapped) != 2:
+        stop(binding, kept, "sentence did not wrap to two lines")
+        return
+    end_x: float = origin_x + measure_width(wrapped[1].text, 16.0, 400, "") + 4.0
     end_y: float = origin_y + line_h + 2.0
     post_mouse(binding.surface.handle, EVENT_POINTER_DOWN, origin_x, origin_y + 2.0)
     post_mouse(binding.surface.handle, EVENT_POINTER_MOVE, end_x, end_y)
@@ -92,7 +100,6 @@ def self_check() -> None:
     if contains(document.text, "Q") == 1:
         stop(binding, kept, "composition was written into the document")
         return
-    content: float = FIELD_WIDTH - 16.0
     shown: str = document.text[0:document.cursor] + "Q" + document.text[document.cursor:len(document.text)]
     if painted_text(document.target_id) != _join(wrap_text(shown, content, 16.0, 400, "")):
         stop(binding, kept, "composition is not at the caret")
@@ -133,4 +140,4 @@ def wants_self_check() -> bool:
 if wants_self_check():
     self_check()
 else:
-    run_app(NotesPage())
+    run_app(NotesPage(), "Notes")

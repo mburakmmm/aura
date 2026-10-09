@@ -97,10 +97,10 @@ class WindowController:
         return window_id
 
 
-def run_app(root: Widget) -> None:
+def run_app(root: Widget, title: str = "Aura") -> None:
     host: AppHost = AppHost()
     bind_host(host)
-    binding: Binding = Binding(800, 600, "Aura", 1)
+    binding: Binding = Binding(800, 600, title, 1)
     binding.mount(root)
     host.add(binding)
     binding.frame()

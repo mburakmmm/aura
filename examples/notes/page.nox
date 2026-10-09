@@ -1,21 +1,18 @@
-from aura.layout import Column, SizedBox
+from aura.foundation.insets import insets_all
+from aura.layout import Column, Expanded, Padding
+from aura.layout.flex import CROSS_STRETCH
 from aura.text import Text, TextEditingController, TextField
-from aura.text.measure import measure_width
 from aura.widgets import BuildContext, StatelessWidget, Widget
 from aura.widgets.type_ids import alloc_type_id
 
 TYPE_NOTES: int = alloc_type_id()
 
-SENTENCE: str = "Ship notes"
-SECOND: str = "Filed under today"
-DOCUMENT: str = "Ship notes\nFiled under today"
-
-_one: float = measure_width("Ship", 16.0, 400, "")
-_both: float = measure_width(SENTENCE, 16.0, 400, "")
-FIELD_WIDTH: float = (_one + _both) / 2.0 + 16.0
-FIELD_HEIGHT: float = 220.0
+SENTENCE: str = "The harbor is quiet after the rain, and the notebook stayed open on the desk while the light moved across the page."
+SECOND: str = "Filed under today. Bring it back when the light changes."
+DOCUMENT: str = SENTENCE + "\n" + SECOND
 
 document: TextEditingController = TextEditingController(DOCUMENT)
+document.collapse(0)
 
 
 class NotesPage(StatelessWidget):
@@ -23,7 +20,7 @@ class NotesPage(StatelessWidget):
         super().__init__(TYPE_NOTES, None)
 
     def build(self, context: BuildContext) -> Widget:
-        return Column([
+        return Padding(insets_all(32.0), Column([
             Text("Notes", font_size=32.0),
-            SizedBox(FIELD_WIDTH, FIELD_HEIGHT, TextField(document, multiline=1)),
-        ], spacing=12.0)
+            Expanded(TextField(document, multiline=1)),
+        ], spacing=20.0, cross_align=CROSS_STRETCH))

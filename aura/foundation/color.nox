@@ -7,6 +7,7 @@ def rgb(r: int, g: int, b: int) -> int:
 
 
 COLOR_BACKGROUND: int = rgb(28, 27, 25)
+COLOR_FIELD: int = rgb(46, 44, 41)
 COLOR_TEXT: int = rgb(244, 241, 234)
 COLOR_BUTTON: int = rgb(232, 226, 214)
 COLOR_BUTTON_TEXT: int = rgb(28, 27, 25)

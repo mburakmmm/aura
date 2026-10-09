@@ -447,6 +447,9 @@ class RenderBox(RenderObject):
     def set_text_field(self, value: str, composing: str, cursor: int, anchor: int, multiline: int, edge: int) -> None:
         pass
 
+    def set_text_colors(self, fill: int, ink: int) -> None:
+        pass
+
     def set_text_target(self, target_id: int) -> None:
         self.text_target = target_id
 
