@@ -5,6 +5,8 @@ native/libaura_host.dylib
 native/plugins/*.dylib
 native/plugins/*.so
 native/plugins/*.dll
+native/*.lib
+native/plugins/*.lib
 .DS_Store
 native/linux/xdg-shell-client-protocol.h
 native/linux/xdg-shell-protocol.c
@@ -12,4 +14,9 @@ native/linux/text-input-unstable-v3-client-protocol.h
 native/linux/text-input-unstable-v3-protocol.c
 third_party/
 *.o
+*.obj
+*.exp
+*.ilk
+*.pdb
+native/build/
 test-results.xml

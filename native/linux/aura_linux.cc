@@ -55,6 +55,7 @@ struct AuraWindow {
     int pixel_w;
     int pixel_h;
     int pixel_stride;
+    int bgra;
     Display *display;
     Window xwindow;
     XIC ic;
@@ -194,12 +195,28 @@ static int want_wayland(void) {
     return 1;
 }
 
+static int shell_stores_bgra(AuraWindow *window) {
+    Visual *visual = NULL;
+    if (window->shell == AURA_SHELL_WAYLAND) {
+        return 1;
+    }
+    if (window->shell == AURA_SHELL_X11 && window->display != NULL) {
+        visual = DefaultVisual(window->display, DefaultScreen(window->display));
+        if (visual != NULL && visual->red_mask == 0x000000ff) {
+            return 0;
+        }
+        return 1;
+    }
+    return 0;
+}
+
 static void copy_frame_pixels(AuraWindow *window) {
     const uint8_t *source = aura_paint_pixels();
     int64_t width = aura_paint_pixel_width();
     int64_t height = aura_paint_pixel_height();
     int64_t stride = aura_paint_stride();
     size_t bytes = 0;
+    size_t i = 0;
     uint8_t *next = NULL;
     if (source == NULL || width <= 0 || height <= 0 || stride <= 0) {
         return;
@@ -210,6 +227,14 @@ static void copy_frame_pixels(AuraWindow *window) {
         return;
     }
     memcpy(next, source, bytes);
+    window->bgra = shell_stores_bgra(window);
+    if (window->bgra) {
+        for (i = 0; i + 3 < bytes; i += 4) {
+            uint8_t red = next[i];
+            next[i] = next[i + 2];
+            next[i + 2] = red;
+        }
+    }
     free(window->pixels);
     window->pixels = next;
     window->pixel_w = (int)width;
@@ -1216,8 +1241,7 @@ extern "C" int64_t aura_window_create(int64_t width, int64_t height, const char 
     aura_ax_init(&window->ax);
     if (want_wayland()) {
         created = create_wayland(window, width, height, title, visible);
-    }
-    if (!created) {
+    } else {
         created = create_x11(window, width, height, title, visible);
     }
     if (!created) {
@@ -1554,9 +1578,14 @@ extern "C" int64_t aura_sample(int64_t handle, double x, double y) {
         return -1;
     }
     pixel = window->pixels + (size_t)py * (size_t)window->pixel_stride + (size_t)px * 4;
-    r = pixel[0];
+    if (window->bgra) {
+        r = pixel[2];
+        b = pixel[0];
+    } else {
+        r = pixel[0];
+        b = pixel[2];
+    }
     g = pixel[1];
-    b = pixel[2];
     a = pixel[3];
     if (a > 0 && a < 255) {
         r = r * 255 / a;

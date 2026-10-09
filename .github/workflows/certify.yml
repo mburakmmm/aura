@@ -1,0 +1,109 @@
+name: certify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: noxc
+        run: |
+          curl -fsSL https://noxlang.com/install.sh | sh
+          echo "$HOME/.nox-lang/bin" >> "$GITHUB_PATH"
+      - name: Sertifika
+        run: bash ./scripts/certify.sh
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: noxc
+        shell: pwsh
+        run: |
+          irm https://noxlang.com/install.ps1 | iex
+          Add-Content $env:GITHUB_PATH "$env:USERPROFILE\.nox-lang\bin"
+      - name: MinGW cc
+        uses: msys2/setup-msys2@v2
+        with:
+          install: mingw-w64-x86_64-gcc
+          path-type: inherit
+      - name: cc.exe
+        shell: bash
+        run: |
+          gcc_path="$(command -v gcc)"
+          mkdir -p "$HOME/bin"
+          cp "$gcc_path" "$HOME/bin/cc.exe"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+      - name: Sertifika
+        shell: cmd
+        run: |
+          for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VS=%%i"
+          call "%VS%\VC\Auxiliary\Build\vcvars64.bat"
+          set "PATH=%USERPROFILE%\bin;%USERPROFILE%\.nox-lang\bin;%PATH%"
+          bash ./scripts/certify.sh
+
+  linux-x11:
+    runs-on: ubuntu-latest
+    env:
+      AURA_LINUX_SHELL: x11
+    steps:
+      - uses: actions/checkout@v4
+      - name: Paketler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang pkg-config curl ca-certificates unzip \
+            libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev \
+            libdbus-1-dev libfontconfig1-dev xvfb
+      - name: noxc
+        run: |
+          curl -fsSL https://noxlang.com/install.sh | sh
+          echo "$HOME/.nox-lang/bin" >> "$GITHUB_PATH"
+      - name: Sertifika
+        run: xvfb-run -a bash ./scripts/certify.sh
+
+  linux-wayland:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Paketler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang pkg-config curl ca-certificates unzip \
+            libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev \
+            libdbus-1-dev libfontconfig1-dev weston
+      - name: noxc
+        run: |
+          curl -fsSL https://noxlang.com/install.sh | sh
+          echo "$HOME/.nox-lang/bin" >> "$GITHUB_PATH"
+      - name: Weston
+        run: |
+          mkdir -p "$RUNNER_TEMP/aura-xdg"
+          chmod 700 "$RUNNER_TEMP/aura-xdg"
+          export XDG_RUNTIME_DIR="$RUNNER_TEMP/aura-xdg"
+          weston --backend=headless-backend.so --socket=aura-test >"$RUNNER_TEMP/weston.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/weston.pid"
+          sleep 2
+          if ! kill -0 "$(cat "$RUNNER_TEMP/weston.pid")" 2>/dev/null; then
+            cat "$RUNNER_TEMP/weston.log" || true
+            weston --backend=headless --socket=aura-test >"$RUNNER_TEMP/weston.log" 2>&1 &
+            echo $! > "$RUNNER_TEMP/weston.pid"
+            sleep 2
+          fi
+          if ! kill -0 "$(cat "$RUNNER_TEMP/weston.pid")" 2>/dev/null; then
+            cat "$RUNNER_TEMP/weston.log" || true
+            exit 1
+          fi
+          echo "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR" >> "$GITHUB_ENV"
+          echo "WAYLAND_DISPLAY=aura-test" >> "$GITHUB_ENV"
+          echo "AURA_LINUX_SHELL=wayland" >> "$GITHUB_ENV"
+      - name: Sertifika
+        run: bash ./scripts/certify.sh
+      - name: Weston kaydı
+        if: failure()
+        run: cat "$RUNNER_TEMP/weston.log" || true

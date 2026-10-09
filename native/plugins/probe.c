@@ -1,15 +1,21 @@
 #include <stdint.h>
 
+#ifdef _WIN32
+#define AURA_PROBE_EXPORT __declspec(dllexport)
+#else
+#define AURA_PROBE_EXPORT
+#endif
+
 static int64_t g_open = 1;
 
-int64_t aura_plugin_probe_frame(int64_t width, int64_t height) {
+AURA_PROBE_EXPORT int64_t aura_plugin_probe_frame(int64_t width, int64_t height) {
     if (!g_open) {
         return -1;
     }
     return width + height;
 }
 
-int64_t aura_plugin_probe_event(int64_t kind, double x, double y) {
+AURA_PROBE_EXPORT int64_t aura_plugin_probe_event(int64_t kind, double x, double y) {
     (void)x;
     (void)y;
     if (!g_open) {
@@ -18,7 +24,7 @@ int64_t aura_plugin_probe_event(int64_t kind, double x, double y) {
     return kind;
 }
 
-int64_t aura_plugin_probe_close(void) {
+AURA_PROBE_EXPORT int64_t aura_plugin_probe_close(void) {
     g_open = 0;
     return 0;
 }

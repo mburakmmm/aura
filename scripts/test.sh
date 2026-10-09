@@ -1,5 +1,5 @@
 #!/bin/sh
 set -eu
 cd "$(dirname "$0")/.."
-./scripts/build_macos_bridge.sh
+./scripts/build_host.sh
 noxc test
