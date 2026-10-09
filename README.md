@@ -19,7 +19,7 @@ class CounterPage(StatelessWidget):
 
 Widget konfigürasyondur. Element kimliği, yaşam döngüsünü ve kirli durumu tutar. RenderObject yerleşir, boyar ve vuruş testi yapar. Bu üçü birbirinin yerine geçmez.
 
-**Şu anki sürüm 0.4.0’dır.** Aynı program macOS, Windows ve Linux kabuklarında sertifikalıdır. Kapı [roadmap.md](roadmap.md) bölüm 0.4’tür: `scripts/certify.sh` testleri ve beş gizli self-check’i koşturur. GitHub Actions bunu macOS, Win32, X11 ve Wayland üzerinde çalıştırır.
+**Şu anki sürüm 0.5.0’dır.** Notes belgesi sarılmış satırda seçim, pano ve IME kullanır. Kapı [roadmap.md](roadmap.md) bölüm 0.5’tir: `scripts/certify.sh` testleri ve altı gizli self-check’i koşturur. GitHub Actions bunu macOS, Win32, X11 ve Wayland üzerinde çalıştırır.
 
 ## Yol haritası
 
@@ -28,7 +28,7 @@ Bağlayıcı teslimat sözleşmesi [roadmap.md](roadmap.md) dosyasındadır. `AG
 | Sürüm | Teslim |
 | --- | --- |
 | 0.4 | Tamam: üç masaüstü kabuğunda aynı self-check |
-| 0.5 | Notes: sarılmış metinde seçim ve pano |
+| 0.5 | Tamam: Notes, sarılmış satırda seçim, pano ve IME |
 | 0.6 | Settings: tema ve pencere API’si |
 | 0.7 | Chat: değişken satır yüksekliğinde sanal liste |
 | 0.8 | Dosya gezgini: UI iş parçacığı dışında iş |
@@ -63,6 +63,7 @@ noxc run examples/rectangle/main.nox -- --self-check
 noxc run examples/todo/main.nox -- --self-check
 noxc run examples/calculator/main.nox -- --self-check
 noxc run examples/proof/main.nox -- --self-check
+noxc run examples/notes/main.nox -- --self-check
 ```
 
 `examples/proof` 0.3’ü tek ekranda gösterir: paketlenmiş font, PNG ve JPEG, opaklık, debug sınırı, kayıtlı `badge` görünümü ve yerli `PlatformView`.
@@ -75,7 +76,7 @@ noxc run examples/proof/main.nox -- --self-check
 ./scripts/bench.sh
 ```
 
-`test.sh` kabuğu derler ve `noxc test` çalıştırır. `certify.sh` buna beş gizli self-check ekler ve pencereyi açık bırakmaz. Benchmark sekiz senaryonun faz sürelerini ve kurulum sayaçlarını yazar.
+`test.sh` kabuğu derler ve `noxc test` çalıştırır. `certify.sh` buna altı gizli self-check ekler ve pencereyi açık bırakmaz. Benchmark sekiz senaryonun faz sürelerini ve kurulum sayaçlarını yazar.
 
 ## Düzen
 
@@ -92,8 +93,8 @@ Bağımlılık yukarıdan aşağı iner. Grafik ve platform katmanları widget i
 - `native/macos`, `native/windows`, `native/linux` kabuklar
 - `native/skia` Skia raster oynatıcı
 - `adr` mimari kararlar
-- `examples` sayaç, dikdörtgen, todo, hesap makinesi, kanıt
-- `roadmap.md` 0.4’ten mobil temele kadar sözleşme
+- `examples` sayaç, dikdörtgen, todo, hesap makinesi, kanıt, notes
+- `roadmap.md` 0.5’ten mobil temele kadar sözleşme
 
 Nox derleyicisi bu depodan değiştirilmez.
 

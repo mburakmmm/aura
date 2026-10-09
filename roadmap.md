@@ -1,10 +1,10 @@
 # Aura yol haritası
 
-Bu dosya 0.4’ten mobil temelin kapanışına kadar bağlayıcı teslimat sözleşmesidir. `AGENTS.md` invariant’ları geçerlidir. Çelişki olursa `AGENTS.md` kazanır ve bu dosya ona göre güncellenir.
+Bu dosya 0.5’ten mobil temelin kapanışına kadar bağlayıcı teslimat sözleşmesidir. `AGENTS.md` invariant’ları geçerlidir. Çelişki olursa `AGENTS.md` kazanır ve bu dosya ona göre güncellenir.
 
 Bir sürüm bitmeden sonrakine geçilmez. Her sürümün self-check’i bir öncekini kırmaz. Nox derleyicisi değişmez. Widget katmanında `extern def` ve platform dalı yoktur. Yerleşim, sahne, kabuk, gezinme, durum, signal veya çizim backend’i değişecekse önce ADR yazılır.
 
-0.1, 0.2, 0.3 ve 0.4 kabul edilmiştir. 0.4 aynı Nox programını macOS, Windows ve Linux kabuklarında sertifikalar. Kapı `scripts/certify.sh` ve GitHub Actions’tır.
+0.1, 0.2, 0.3, 0.4 ve 0.5 kabul edilmiştir. 0.5 tek bir düz metin belgesidir. Kapı `scripts/certify.sh` ve GitHub Actions’tır.
 
 ## 0.4 — Kabuk sertifikası
 
@@ -14,9 +14,11 @@ Pano, imleç, dosya bırakma, IME ve erişilebilirlik listesi kabukta kalır. Ka
 
 ## 0.5 — Notes
 
-Düz, çok paragraflı metin. Sarılmış satırda seçim dikdörtgeni, pano ve IME bu belgede çalışır.
+Tamamlandı. `examples/notes` tek belge açar. İlk paragraf dar genişlikte sarılır, ikinci paragraf satır sonundan sonra başlar.
 
-Self-check bir cümleyi seçer, kopyalar ve ikinci paragrafta yapıştırır. Zengin metin, çift yön ve emoji bu sürüme girmez.
+Self-check cümleyi sürükleyerek seçer. Seçim dikdörtgenleri iki ayrı satırdadır. Kopya panoya yazılır ve ikinci paragrafa yapıştırılır. IME commit’i imlecin durduğu yere girer. Karakter sanal tuştan üretilmez.
+
+Zengin metin, çift yön, emoji, not listesi ve kayıt bu sürüme girmedi.
 
 ## 0.6 — Settings
 

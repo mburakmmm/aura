@@ -2,6 +2,16 @@
 
 Bu dosya yayımlanan sürümleri tutar. Sürüm numarası `nox.json` ile, git etiketi `v` önekiyle aynıdır. Sonraki teslimatların sırası [roadmap.md](roadmap.md) dosyasındadır.
 
+## 0.5.0
+
+Notes. Tek belge, düz metin. Paragraflar satır sonuyla ayrılır. Zengin metin, çift yön ve emoji yoktur. Kapı `scripts/certify.sh` ve GitHub Actions’tır: macOS, gizli Win32, X11 ve Wayland.
+
+- Satır haritası her görünen satırın kaynak aralığını tutar. Sığmayan kelime karakterden bölünür. `wrap_text` bu satırların metnini döndürür.
+- Seçim, kestiği her satıra ayrı dikdörtgen basar. İmleç o satırın dikey konumuna iner. Yukarı ve aşağı ok aynı yatay konumda bir görsel satır kayar.
+- IME kompozisyonu imlecin olduğu aralıkta görünür. Commit mevcut ekleme yoluna girer. Karakter sanal tuştan üretilmez.
+- `examples/notes` self-check’i sarılmış cümleyi seçer, panoya kopyalar, ikinci paragrafa yapıştırır ve IME commit’ini imlecin durduğu yere yazar.
+- Sertifika önceki beş self-check’in ardından Notes’u gizli pencerede koşturur. Pencere açık kalmaz.
+
 ## 0.4.0
 
 Kabuk sertifikası. Aynı Nox programı macOS, Windows ve Linux’ta geçer. Kapı `scripts/certify.sh` ve GitHub Actions’tır: `macos-latest`, gizli Win32, `AURA_LINUX_SHELL=x11` ile Xvfb, `AURA_LINUX_SHELL=wayland` ile headless Weston.
