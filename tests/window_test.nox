@@ -1,6 +1,6 @@
 import nox.test
 from aura.core.diagnostics import FrameworkError
-from aura.platform.macos import create_window, destroy_window, poll_events, window_width
+from aura.platform.macos import create_window, destroy_window, extent_width, poll_events
 from aura.runtime.binding import Binding
 from examples.counter.page import CounterPage
 from aura.rendering.render_object import RenderBox
@@ -12,7 +12,7 @@ def require_box(box: RenderBox | None, name: str) -> RenderBox:
 
 
 handle: int = create_window(320, 200, "Aura test", 0)
-nox.test.assert_true(window_width(handle) > 0.0, "hidden window width")
+nox.test.assert_true(extent_width(handle) > 0.0, "hidden window width")
 destroy_window(handle)
 destroy_window(handle)
 closed: int = 0

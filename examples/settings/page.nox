@@ -1,0 +1,46 @@
+from aura.controls import Button
+from aura.foundation.color import COLOR_ACCENT, COLOR_BUTTON, COLOR_BUTTON_TEXT, COLOR_TEXT
+from aura.foundation.insets import insets_all
+from aura.layout import Column, Expanded, Padding
+from aura.layout.flex import CROSS_STRETCH
+from aura.text import Text, TextEditingController, TextField
+from aura.widgets import BuildContext, State, StatefulWidget, Theme, ThemeData, Widget
+from aura.widgets.theme import ColorScheme, Typography, default_scheme
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_SETTINGS: int = alloc_type_id()
+
+note: TextEditingController = TextEditingController("")
+
+
+class SettingsState(State):
+    text_color: int
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.text_color = COLOR_ACCENT
+
+    def toggle_theme(self) -> None:
+        if self.text_color == COLOR_ACCENT:
+            self.text_color = COLOR_TEXT
+        else:
+            self.text_color = COLOR_ACCENT
+        self.invalidate()
+
+    def build(self, context: BuildContext) -> Widget:
+        scheme: ColorScheme = default_scheme()
+        scheme.text = self.text_color
+        return Theme(ThemeData(scheme, Typography()), Padding(insets_all(32.0), Column([
+            Text("Settings", font_size=32.0, color=COLOR_TEXT),
+            Text("Appearance follows the theme."),
+            Expanded(TextField(note)),
+            Button("Theme", self.toggle_theme, color=COLOR_BUTTON_TEXT, background=COLOR_BUTTON),
+        ], spacing=20.0, cross_align=CROSS_STRETCH)))
+
+
+class SettingsPage(StatefulWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_SETTINGS, None)
+
+    def create_state(self) -> State:
+        return SettingsState()

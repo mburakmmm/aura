@@ -101,6 +101,8 @@ struct AuraWindow {
     Window plugin_windows[8];
     struct wl_surface *plugin_surfaces[8];
     int64_t plugin_ids[8];
+    char *title;
+    int cursor_kind;
 };
 
 #define AURA_MAX_WINDOWS 32
@@ -1275,6 +1277,7 @@ extern "C" int64_t aura_window_create(int64_t width, int64_t height, const char 
         free(window);
         return 0;
     }
+    window->title = strdup(title != NULL ? title : "Aura");
     g_windows[slot] = window;
     return (int64_t)slot + 1;
 }
@@ -1353,6 +1356,7 @@ extern "C" int64_t aura_window_destroy(int64_t handle) {
     aura_queue_free(&window->queue);
     aura_ax_free(&window->ax);
     free(window->pixels);
+    free(window->title);
     g_windows[handle - 1] = NULL;
     free(window);
     return 0;
@@ -1758,6 +1762,7 @@ extern "C" int64_t aura_set_cursor(int64_t handle, int64_t kind) {
     if (window == NULL) {
         return -1;
     }
+    window->cursor_kind = (int)kind;
     if (window->shell == AURA_SHELL_X11 && window->display != NULL) {
         cursor = XCreateFontCursor(window->display, kind == 1 ? XC_xterm : XC_left_ptr);
         XDefineCursor(window->display, window->xwindow, cursor);
@@ -1784,6 +1789,33 @@ extern "C" int64_t aura_set_cursor(int64_t handle, int64_t kind) {
         }
     }
     return 0;
+}
+
+extern "C" int64_t aura_window_title_len(int64_t handle) {
+    AuraWindow *window = window_get(handle, 1);
+    if (window == NULL) {
+        return -1;
+    }
+    if (window->title == NULL) {
+        return 0;
+    }
+    return (int64_t)strlen(window->title);
+}
+
+extern "C" int64_t aura_window_title_byte(int64_t handle, int64_t offset) {
+    AuraWindow *window = window_get(handle, 1);
+    if (window == NULL || window->title == NULL || offset < 0 || offset >= (int64_t)strlen(window->title)) {
+        return 0;
+    }
+    return (unsigned char)window->title[offset];
+}
+
+extern "C" int64_t aura_cursor(int64_t handle) {
+    AuraWindow *window = window_get(handle, 1);
+    if (window == NULL) {
+        return -1;
+    }
+    return window->cursor_kind;
 }
 
 extern "C" int64_t aura_ax_begin(int64_t handle) {

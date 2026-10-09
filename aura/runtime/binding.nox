@@ -1,5 +1,5 @@
 from aura.graphics.canvas import Canvas
-from aura.input.events import EVENT_POINTER_DOWN, EVENT_POINTER_UP, EVENT_WINDOW_FOCUS
+from aura.input.events import EVENT_POINTER_DOWN, EVENT_POINTER_MOVE, EVENT_POINTER_UP, EVENT_WINDOW_FOCUS
 from aura.platform.bridge import clear_events, event_button, event_count, event_key, event_kind, event_text, event_x, event_y, frame_timestamp, plugin_place, poll_events, post_ax, post_drop, post_mouse, post_text, set_active_window, should_close, wait_frame
 from aura.rendering.render_object import RenderBox
 from aura.semantics.bridge import publish_semantics
@@ -64,6 +64,9 @@ class Binding:
     def post_click(self, x: float, y: float) -> None:
         post_mouse(self.surface.handle, EVENT_POINTER_DOWN, x, y)
         post_mouse(self.surface.handle, EVENT_POINTER_UP, x, y)
+
+    def post_move(self, x: float, y: float) -> None:
+        post_mouse(self.surface.handle, EVENT_POINTER_MOVE, x, y)
 
     def _drain(self) -> None:
         poll_events(self.surface.handle)

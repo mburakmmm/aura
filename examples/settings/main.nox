@@ -1,0 +1,116 @@
+from aura.app import run_app
+from aura.rendering.render_object import RenderBox
+from aura.runtime.binding import Binding
+from aura.widgets.framework import Element
+from aura.window import cursor_kind, window_height, window_scale, window_title, window_width
+from examples.settings.page import SettingsPage
+from nox.os import arg, arg_count
+
+
+def child_at(element: Element, index: int) -> Element:
+    found: Element | None = element.children[index]
+    if found is None:
+        raise Exception("missing child")
+    return found
+
+
+def require_root(binding: Binding) -> Element:
+    root: Element | None = binding.pump.root
+    if root is None:
+        raise Exception("missing root")
+    return root
+
+
+def find_role(box: RenderBox, role: str) -> RenderBox | None:
+    if box.semantics_role == role:
+        return box
+    only: RenderBox | None = box.only_child
+    found: RenderBox | None = None
+    i: int = 0
+    if only is not None:
+        found = find_role(only, role)
+        if found is not None:
+            return found
+    while i < len(box.children):
+        found = find_role(box.children[i], role)
+        if found is not None:
+            return found
+        i = i + 1
+    return None
+
+
+def stop(binding: Binding, reason: str) -> None:
+    binding.close()
+    raise Exception(reason)
+
+
+def column_of(binding: Binding) -> Element:
+    return child_at(child_at(child_at(require_root(binding), 0), 0), 0)
+
+
+def self_check() -> None:
+    binding: Binding = Binding(800, 600, "Settings", 0)
+    binding.mount(SettingsPage())
+    binding.frame()
+    if window_title() != "Settings":
+        stop(binding, "title")
+        return
+    if window_width() != 800.0 or window_height() != 600.0:
+        stop(binding, "size")
+        return
+    if window_scale() <= 0.0:
+        stop(binding, "scale")
+        return
+    field: RenderBox | None = find_role(binding.pump.view, "text-field")
+    button: RenderBox | None = find_role(binding.pump.view, "button")
+    if field is None or button is None:
+        stop(binding, "missing control")
+        return
+    binding.post_move(field.absolute_x() + field.width / 2.0, field.absolute_y() + field.height / 2.0)
+    binding.frame()
+    if cursor_kind() != 1:
+        stop(binding, "text cursor")
+        return
+    binding.post_move(8.0, 8.0)
+    binding.frame()
+    if cursor_kind() != 0:
+        stop(binding, "arrow cursor")
+        return
+    column: Element = column_of(binding)
+    header: Element = child_at(column, 0)
+    dependent: Element = child_at(column, 1)
+    theme_button: Element = child_at(column, 3)
+    header_count: int = header.rebuild_count
+    button_count: int = theme_button.rebuild_count
+    binding.post_click(button.absolute_x() + button.width / 2.0, button.absolute_y() + button.height / 2.0)
+    binding.frame()
+    column = column_of(binding)
+    header = child_at(column, 0)
+    dependent = child_at(column, 1)
+    theme_button = child_at(column, 3)
+    if dependent.rebuild_count < 1:
+        stop(binding, "theme dependent was not rebuilt")
+        return
+    if header.rebuild_count != header_count:
+        stop(binding, "explicit title was rebuilt")
+        return
+    if theme_button.rebuild_count != button_count:
+        stop(binding, "theme-blind button was rebuilt")
+        return
+    binding.close()
+    print("settings self-check ok")
+
+
+def wants_self_check() -> bool:
+    i: int = 0
+    while i < arg_count():
+        if arg(i) == "--self-check":
+            return True
+        i = i + 1
+    return False
+
+
+if wants_self_check():
+    self_check()
+else:
+    run_app(SettingsPage(), "Settings")

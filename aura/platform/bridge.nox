@@ -36,6 +36,9 @@ extern def aura_clipboard_set(text: str) -> int from "native/libaura_host.dylib"
 extern def aura_clipboard_len() -> int from "native/libaura_host.dylib"
 extern def aura_clipboard_byte(offset: int) -> int from "native/libaura_host.dylib"
 extern def aura_set_cursor(handle: int, kind: int) -> int from "native/libaura_host.dylib"
+extern def aura_window_title_len(handle: int) -> int from "native/libaura_host.dylib"
+extern def aura_window_title_byte(handle: int, offset: int) -> int from "native/libaura_host.dylib"
+extern def aura_cursor(handle: int) -> int from "native/libaura_host.dylib"
 extern def aura_image_open_file(path: str) -> int from "native/libaura_host.dylib"
 extern def aura_image_buffer_reset() -> int from "native/libaura_host.dylib"
 extern def aura_image_buffer_byte(value: int) -> int from "native/libaura_host.dylib"
@@ -128,21 +131,21 @@ def should_close(handle: int) -> bool:
     return False
 
 
-def window_width(handle: int) -> float:
+def extent_width(handle: int) -> float:
     value: float = aura_window_width(handle)
     if value < 0.0:
         raise FrameworkError("use after close")
     return value
 
 
-def window_height(handle: int) -> float:
+def extent_height(handle: int) -> float:
     value: float = aura_window_height(handle)
     if value < 0.0:
         raise FrameworkError("use after close")
     return value
 
 
-def window_scale(handle: int) -> float:
+def extent_scale(handle: int) -> float:
     value: float = aura_window_scale(handle)
     if value < 0.0:
         raise FrameworkError("use after close")
@@ -363,6 +366,48 @@ def cmd_image(handle: int, image: int, x: float, y: float, w: float, h: float) -
     code: int = aura_cmd_image(handle, image, x, y, w, h)
     if code < 0:
         raise FrameworkError("use after close")
+
+
+def title_text(handle: int) -> str:
+    count: int = aura_window_title_len(handle)
+    if count < 0:
+        raise FrameworkError("use after close")
+    text: str = ""
+    i: int = 0
+    while i < count:
+        b0: int = aura_window_title_byte(handle, i)
+        b1: int = 0
+        b2: int = 0
+        b3: int = 0
+        if b0 < 128:
+            text = text + chr(b0)
+            i = i + 1
+        elif b0 < 224 and i + 1 < count:
+            b1 = aura_window_title_byte(handle, i + 1)
+            text = text + chr(((b0 & 31) << 6) | (b1 & 63))
+            i = i + 2
+        elif b0 < 240 and i + 2 < count:
+            b1 = aura_window_title_byte(handle, i + 1)
+            b2 = aura_window_title_byte(handle, i + 2)
+            text = text + chr(((b0 & 15) << 12) | ((b1 & 63) << 6) | (b2 & 63))
+            i = i + 3
+        elif i + 3 < count:
+            b1 = aura_window_title_byte(handle, i + 1)
+            b2 = aura_window_title_byte(handle, i + 2)
+            b3 = aura_window_title_byte(handle, i + 3)
+            text = text + chr(((b0 & 7) << 18) | ((b1 & 63) << 12) | ((b2 & 63) << 6) | (b3 & 63))
+            i = i + 4
+        else:
+            text = text + chr(b0)
+            i = i + 1
+    return text
+
+
+def cursor_of(handle: int) -> int:
+    value: int = aura_cursor(handle)
+    if value < 0:
+        raise FrameworkError("use after close")
+    return value
 
 
 def set_cursor(kind: int) -> None:

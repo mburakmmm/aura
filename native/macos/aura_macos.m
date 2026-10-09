@@ -79,6 +79,8 @@ struct AuraWindow {
     double caret_h;
     void *ax_nodes;
     int ax_count;
+    char *title;
+    int cursor_kind;
 };
 
 #define AURA_MAX_WINDOWS 32
@@ -558,6 +560,8 @@ int64_t aura_window_create(int64_t width, int64_t height, const char *title, int
             }
         }
         [window->window setTitle:ns_title];
+        free(window->title);
+        window->title = strdup(title != NULL ? title : "Aura");
         window->view = [[AuraView alloc] initWithFrame:content];
         window->view.owner = window;
         [window->view registerForDraggedTypes:@[NSPasteboardTypeFileURL]];
@@ -642,6 +646,7 @@ int64_t aura_window_destroy(int64_t handle) {
             dispatch_release(window->vsync);
         }
         g_windows[handle - 1] = NULL;
+        free(window->title);
         free(window);
         return 0;
     }
@@ -1297,10 +1302,38 @@ int64_t aura_set_cursor(int64_t handle, int64_t kind) {
     if (window == NULL) {
         return -1;
     }
+    window->cursor_kind = (int)kind;
     if (kind == 1) {
         [[NSCursor IBeamCursor] set];
     } else {
         [[NSCursor arrowCursor] set];
     }
     return 0;
+}
+
+int64_t aura_window_title_len(int64_t handle) {
+    AuraWindow *window = window_get(handle, 1);
+    if (window == NULL) {
+        return -1;
+    }
+    if (window->title == NULL) {
+        return 0;
+    }
+    return (int64_t)strlen(window->title);
+}
+
+int64_t aura_window_title_byte(int64_t handle, int64_t offset) {
+    AuraWindow *window = window_get(handle, 1);
+    if (window == NULL || window->title == NULL || offset < 0 || offset >= (int64_t)strlen(window->title)) {
+        return 0;
+    }
+    return (unsigned char)window->title[offset];
+}
+
+int64_t aura_cursor(int64_t handle) {
+    AuraWindow *window = window_get(handle, 1);
+    if (window == NULL) {
+        return -1;
+    }
+    return window->cursor_kind;
 }

@@ -1,0 +1,29 @@
+from aura.core.diagnostics import FrameworkError
+from aura.platform.bridge import active_window, cursor_of, extent_height, extent_scale, extent_width, title_text
+
+
+def _open_window() -> int:
+    handle: int = active_window()
+    if handle == 0:
+        raise FrameworkError("window opened without an app host")
+    return handle
+
+
+def window_title() -> str:
+    return title_text(_open_window())
+
+
+def window_width() -> float:
+    return extent_width(_open_window())
+
+
+def window_height() -> float:
+    return extent_height(_open_window())
+
+
+def window_scale() -> float:
+    return extent_scale(_open_window())
+
+
+def cursor_kind() -> int:
+    return cursor_of(_open_window())

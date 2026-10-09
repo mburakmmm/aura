@@ -37,6 +37,9 @@ aura_clipboard_set
 aura_clipboard_len
 aura_clipboard_byte
 aura_set_cursor
+aura_window_title_len
+aura_window_title_byte
+aura_cursor
 aura_image_open_file
 aura_image_buffer_reset
 aura_image_buffer_byte

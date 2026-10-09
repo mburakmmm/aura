@@ -14,3 +14,4 @@ noxc run examples/todo/main.nox -- --self-check
 noxc run examples/calculator/main.nox -- --self-check
 noxc run examples/proof/main.nox -- --self-check
 noxc run examples/notes/main.nox -- --self-check
+noxc run examples/settings/main.nox -- --self-check

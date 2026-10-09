@@ -86,6 +86,8 @@ struct AuraWindow {
     int child_count;
     HWND plugin_hwnd[8];
     int64_t plugin_ids[8];
+    char *title;
+    int cursor_kind;
 };
 
 #define AURA_MAX_WINDOWS 32
@@ -634,9 +636,11 @@ extern "C" int64_t aura_window_create(int64_t width, int64_t height, const char 
     rect.bottom = (LONG)height;
     AdjustWindowRect(&rect, style, FALSE);
     window->hwnd = CreateWindowExW(0, L"AuraWindow", wide_title, style, CW_USEDEFAULT, CW_USEDEFAULT, rect.right - rect.left, rect.bottom - rect.top, NULL, NULL, GetModuleHandleW(NULL), window);
+    window->title = _strdup(title != NULL ? title : "Aura");
     if (window->hwnd == NULL) {
         aura_queue_free(&window->queue);
         aura_ax_free(&window->ax);
+        free(window->title);
         free(window);
         return 0;
     }
@@ -682,6 +686,7 @@ extern "C" int64_t aura_window_destroy(int64_t handle) {
     aura_queue_free(&window->queue);
     aura_ax_free(&window->ax);
     free(window->pixels);
+    free(window->title);
     g_windows[handle - 1] = NULL;
     free(window);
     return 0;
@@ -1082,11 +1087,40 @@ extern "C" int64_t aura_clipboard_byte(int64_t offset) {
 }
 
 extern "C" int64_t aura_set_cursor(int64_t handle, int64_t kind) {
-    if (window_get(handle, 1) == NULL) {
+    AuraWindow *window = window_get(handle, 1);
+    if (window == NULL) {
         return -1;
     }
+    window->cursor_kind = (int)kind;
     SetCursor(LoadCursorW(NULL, kind == 1 ? IDC_IBEAM : IDC_ARROW));
     return 0;
+}
+
+extern "C" int64_t aura_window_title_len(int64_t handle) {
+    AuraWindow *window = window_get(handle, 1);
+    if (window == NULL) {
+        return -1;
+    }
+    if (window->title == NULL) {
+        return 0;
+    }
+    return (int64_t)strlen(window->title);
+}
+
+extern "C" int64_t aura_window_title_byte(int64_t handle, int64_t offset) {
+    AuraWindow *window = window_get(handle, 1);
+    if (window == NULL || window->title == NULL || offset < 0 || offset >= (int64_t)strlen(window->title)) {
+        return 0;
+    }
+    return (unsigned char)window->title[offset];
+}
+
+extern "C" int64_t aura_cursor(int64_t handle) {
+    AuraWindow *window = window_get(handle, 1);
+    if (window == NULL) {
+        return -1;
+    }
+    return window->cursor_kind;
 }
 
 extern "C" int64_t aura_ax_begin(int64_t handle) {
