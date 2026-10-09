@@ -10,6 +10,7 @@ from aura.text.editing import deliver_delete, deliver_insert, deliver_key, deliv
 from aura.input.focus import FocusManager
 from aura.input.gesture import GestureArena
 from aura.rendering.render_object import PHASE_BUILD, PHASE_IDLE, HitTestResult, PipelineOwner, RenderBox, RenderView, invoke_press
+from aura.files.listing import apply_listing
 from aura.widgets.framework import BuildOwner, Element, Widget, mount_tree
 from aura.widgets.scheduler import Scheduler
 
@@ -87,6 +88,7 @@ class FramePump:
         self.view.mark_needs_layout()
 
     def pump(self, canvas: Canvas) -> None:
+        apply_listing()
         profile: int = 0
         started: float = 0.0
         if current_mode() == MODE_PROFILE:

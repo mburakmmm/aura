@@ -68,3 +68,12 @@ aura_plugin_close
 aura_plugin_frame
 aura_plugin_event
 aura_plugin_place
+aura_listing_lock
+aura_listing_unlock
+aura_listing_submit
+aura_listing_result_generation
+aura_listing_result_status
+aura_listing_count
+aura_listing_name_len
+aura_listing_name_byte
+aura_listing_remove_dir

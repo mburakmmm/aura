@@ -19,6 +19,7 @@ case "$OS" in
     clang -fno-objc-arc -dynamiclib -o "$ROOT/native/plugins/libaura_probe_partial.dylib" "$ROOT/native/plugins/probe_partial.c"
     clang -fno-objc-arc -c -I "$ROOT/native/skia" -I "$ROOT/native/host" -o "$ROOT/native/macos/aura_macos.o" "$ROOT/native/macos/aura_macos.m"
     clang -c -I "$ROOT/native/host" -o "$ROOT/native/host/plugin.o" "$ROOT/native/host/plugin.c"
+    clang -c -I "$ROOT/native/host" -o "$ROOT/native/host/listing.o" "$ROOT/native/host/listing.c"
     clang++ -std=c++17 -c -I "$SKIA" -I "$ROOT/native/skia" -o "$ROOT/native/skia/paint.o" "$ROOT/native/skia/paint.cc"
     clang++ -fno-objc-arc -dynamiclib \
       -framework Cocoa -framework CoreGraphics -framework CoreVideo -framework CoreText -framework Metal -framework Foundation -framework QuartzCore \
@@ -27,6 +28,7 @@ case "$OS" in
       "$ROOT/native/macos/aura_macos.o" \
       "$ROOT/native/skia/paint.o" \
       "$ROOT/native/host/plugin.o" \
+      "$ROOT/native/host/listing.o" \
       "$LIBDIR/libskia.a" \
       "$LIBDIR/libpng.a" \
       "$LIBDIR/libjpeg.a" \
@@ -51,6 +53,7 @@ case "$OS" in
     wayland-scanner private-code "$PROTO/unstable/text-input/text-input-unstable-v3.xml" "$ROOT/native/linux/text-input-unstable-v3-protocol.c"
     WL_CFLAGS="$(pkg-config --cflags wayland-client wayland-cursor xkbcommon x11 dbus-1)"
     clang -fPIC -c -I "$ROOT/native/host" -o "$ROOT/native/host/plugin.o" "$ROOT/native/host/plugin.c"
+    clang -fPIC -c -I "$ROOT/native/host" -o "$ROOT/native/host/listing.o" "$ROOT/native/host/listing.c"
     clang -fPIC -c -I "$ROOT/native/host" -o "$ROOT/native/host/queue.o" "$ROOT/native/host/queue.c"
     # shellcheck disable=SC2086
     clang -fPIC -c $WL_CFLAGS -I "$ROOT/native/linux" -o "$ROOT/native/linux/xdg-shell-protocol.o" "$ROOT/native/linux/xdg-shell-protocol.c"
@@ -69,6 +72,7 @@ case "$OS" in
       "$ROOT/native/linux/text-input-unstable-v3-protocol.o" \
       "$ROOT/native/skia/paint.o" \
       "$ROOT/native/host/plugin.o" \
+      "$ROOT/native/host/listing.o" \
       "$ROOT/native/host/queue.o" \
       -Wl,--start-group \
       "$LIBDIR/libskia.a" \
@@ -131,6 +135,7 @@ case "$OS" in
       "$WROOT/native/windows/aura_windows.cc" \
       "$WROOT/native/skia/paint.cc" \
       "$WROOT/native/host/plugin.c" \
+      "$WROOT/native/host/listing.c" \
       "$WROOT/native/host/queue.c" \
       /link "/DEF:$WDEF" "/LIBPATH:$WLIBDIR" \
       "$(resolve_lib skia)" \

@@ -20,3 +20,4 @@ third_party/
 *.pdb
 native/build/
 test-results.xml
+examples/files/work/

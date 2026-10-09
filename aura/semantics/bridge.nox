@@ -46,6 +46,10 @@ def _store(handle: int, signature: str) -> None:
     _sig_values.append(signature)
 
 
+def _sig_piece(left: str, right: str) -> str:
+    return left + right
+
+
 def _signature(node: SemanticsNode) -> str:
     checked: str = "0"
     text: str = ""
@@ -54,7 +58,7 @@ def _signature(node: SemanticsNode) -> str:
         checked = "1"
     text = node.role + "|" + node.label + "|" + node.value + "|" + checked + "|" + str(node.x) + "|" + str(node.y) + "|" + str(node.width) + "|" + str(node.height)
     while i < len(node.children):
-        text = text + "/" + _signature(node.children[i])
+        text = _sig_piece(_sig_piece(text, "/"), _signature(node.children[i]))
         i = i + 1
     return text
 

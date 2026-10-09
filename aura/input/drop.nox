@@ -7,6 +7,12 @@ _drop_ids: list[int] = []
 _drop_paths: list[str] = []
 _drop_handles: list[int] = []
 _drop_elements: list[int] = []
+_drop_listeners: list[(str) -> None] = []
+
+
+def _noop_drop(path: str) -> None:
+    if path == "":
+        return
 
 
 class DropController:
@@ -37,6 +43,7 @@ def _remember() -> int:
     _drop_paths.append("")
     _drop_handles.append(0)
     _drop_elements.append(0)
+    _drop_listeners.append(_noop_drop)
     return drop_id
 
 
@@ -68,8 +75,17 @@ def _receive(drop_id: int, path: str) -> None:
     _drop_paths[index] = path
     _drop_handles[index] = open_image_file(path)
     element_id: int = _drop_elements[index]
+    listener: (str) -> None = _drop_listeners[index]
+    listener(path)
     if element_id != 0:
         dirty_element_id(element_id)
+
+
+def set_drop_listener(drop_id: int, listener: (str) -> None) -> None:
+    index: int = _index(drop_id)
+    if index < 0:
+        return
+    _drop_listeners[index] = listener
 
 
 def drop_path(drop_id: int) -> str:

@@ -98,7 +98,6 @@ class State:
 
 
 _owners: list[BuildOwner] = []
-_scope_owners: list[BuildOwner] = []
 _scope_ids: list[int] = []
 _watch_signal: list[int] = []
 _watch_element: list[int] = []
@@ -118,29 +117,30 @@ def current_build_element() -> int:
 
 
 def current_build_owner() -> BuildOwner | None:
-    count: int = len(_scope_owners)
-    if count == 0:
+    element_id: int = current_build_element()
+    i: int = 0
+    if element_id == 0:
         return None
-    return _scope_owners[count - 1]
+    while i < len(_owners):
+        if _owners[i].element_by_id(element_id) is not None:
+            return _owners[i]
+        i = i + 1
+    return None
 
 
 def push_build_scope(owner: BuildOwner, element_id: int) -> None:
-    _scope_owners.append(owner)
     _scope_ids.append(element_id)
 
 
 def pop_build_scope() -> None:
     count: int = len(_scope_ids)
-    if count == 0:
-        return
-    owners: list[BuildOwner] = []
     ids: list[int] = []
     i: int = 0
+    if count == 0:
+        return
     while i < count - 1:
-        owners.append(_scope_owners[i])
         ids.append(_scope_ids[i])
         i = i + 1
-    _scope_owners = owners
     _scope_ids = ids
 
 

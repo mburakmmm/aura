@@ -1,0 +1,228 @@
+from aura.controls.button import Button
+from aura.controls.drop_target import DropTarget
+from aura.foundation.color import COLOR_ACCENT, COLOR_BUTTON, COLOR_BUTTON_TEXT, COLOR_TEXT
+from aura.foundation.insets import insets_all
+from aura.image.image import Image
+from aura.input.drop import DropController, drop_handle, set_drop_listener
+from aura.layout import Center, Column, Expanded, Padding, Row, SizedBox
+from aura.layout.flex import CROSS_STRETCH
+from aura.layout.scrollbar import Scrollbar
+from aura.layout.virtual_list import ItemSource, ScrollController, VirtualList
+from aura.files.listing import bind_listing, entry_count, entry_label, listing_current, listing_revision, listing_root, listing_status, set_listing_root, start_listing
+from aura.platform.macos import open_image_file
+from aura.runtime.host import WindowController
+from aura.text import Text
+from aura.widgets import BuildContext, Element, State, StatefulWidget, StatelessWidget, Widget
+from aura.widgets.key import IntValueKey
+from aura.widgets.type_ids import alloc_type_id
+from nox.fs import is_dir
+from nox.path import dirname, join
+
+TYPE_FILES: int = alloc_type_id()
+TYPE_ROW: int = alloc_type_id()
+TYPE_PREVIEW: int = alloc_type_id()
+ROW_EXTENT: float = 48.0
+
+preview_visible: int = 1
+preview_handle: int = 0
+preview_owned: int = 0
+files_drop_id: int = 0
+
+
+def hide_preview() -> None:
+    preview_visible = 0
+
+
+def release_preview() -> int:
+    handle: int = 0
+    if preview_owned == 1:
+        handle = preview_handle
+    preview_handle = 0
+    preview_owned = 0
+    return handle
+
+
+def _ends(text: str, suffix: str) -> bool:
+    if len(text) < len(suffix):
+        return False
+    return text[len(text) - len(suffix):len(text)] == suffix
+
+
+def _is_image(name: str) -> int:
+    if _ends(name, ".png") or _ends(name, ".PNG"):
+        return 1
+    if _ends(name, ".jpg") or _ends(name, ".JPG"):
+        return 1
+    if _ends(name, ".jpeg") or _ends(name, ".JPEG"):
+        return 1
+    return 0
+
+
+def _inside(path: str) -> int:
+    root: str = listing_root()
+    mark: str = ""
+    if path == root:
+        return 1
+    if len(path) <= len(root):
+        return 0
+    if path[0:len(root)] != root:
+        return 0
+    mark = path[len(root):len(root) + 1]
+    if mark == "/" or mark == "\\":
+        return 1
+    return 0
+
+
+def show_preview(handle: int, owned: int) -> None:
+    preview_handle = handle
+    preview_owned = owned
+    WindowController().open(FilePreview(handle), 420, 320, "Preview", preview_visible)
+
+
+def open_named(name: str) -> None:
+    parent: str = ""
+    path: str = ""
+    handle: int = 0
+    if name == "":
+        return
+    if name == "..":
+        if listing_current() == listing_root():
+            return
+        parent = dirname(listing_current())
+        if parent != listing_root() and _inside(parent) == 0:
+            return
+        start_listing(parent)
+        return
+    path = join(listing_current(), name)
+    if is_dir(path):
+        if _inside(path) == 0:
+            return
+        start_listing(path)
+        return
+    if _is_image(name) == 0:
+        return
+    handle = open_image_file(path)
+    if handle == 0:
+        return
+    show_preview(handle, 1)
+
+
+class FilePreview(StatelessWidget):
+    handle: int
+
+    def __init__(self, handle: int) -> None:
+        super().__init__(TYPE_PREVIEW, None)
+        self.handle = handle
+
+    def build(self, context: BuildContext) -> Widget:
+        return Center(Image(self.handle))
+
+
+class FileSource(ItemSource):
+    def count(self) -> int:
+        return entry_count()
+
+    def revision(self) -> int:
+        return listing_revision()
+
+    def widget_at(self, index: int) -> Widget:
+        return FileRow(index)
+
+    def extent_at(self, index: int, width: float) -> float:
+        if index < 0 or width < 0.0:
+            return 0.0
+        return 0.0
+
+    def keep_alive(self, index: int) -> bool:
+        if index < 0:
+            return True
+        return False
+
+
+class FileRowState(State):
+    index: int
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.index = 0
+
+    def activate(self) -> None:
+        open_named(entry_label(self.index))
+
+    def build(self, context: BuildContext) -> Widget:
+        return Button(entry_label(self.index), self.activate, color=COLOR_BUTTON_TEXT, background=COLOR_BUTTON)
+
+
+class FileRow(StatefulWidget):
+    index: int
+
+    def __init__(self, index: int) -> None:
+        super().__init__(TYPE_ROW, IntValueKey(index))
+        self.index = index
+
+    def create_state(self) -> State:
+        state: FileRowState = FileRowState()
+        state.index = self.index
+        return state
+
+
+class FilesState(State):
+    root: str
+    drop: DropController
+    scroll: ScrollController
+    listing: VirtualList
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.root = ""
+        self.drop = DropController()
+        self.scroll = ScrollController()
+        self.listing = VirtualList(FileSource(), ROW_EXTENT, self.scroll)
+
+    def init_state(self) -> None:
+        element: Element | None = self.element
+        if element is None:
+            return
+        bind_listing(element.element_id)
+        files_drop_id = self.drop.drop_id
+        set_drop_listener(self.drop.drop_id, self.on_dropped)
+        set_listing_root(self.root)
+        start_listing(self.root)
+
+    def on_dropped(self, path: str) -> None:
+        handle: int = 0
+        if path == "":
+            return
+        handle = drop_handle(self.drop.drop_id)
+        if handle != 0:
+            show_preview(handle, 0)
+
+    def build(self, context: BuildContext) -> Widget:
+        rows: list[Widget] = []
+        rows.append(Text("Files", font_size=28.0, color=COLOR_TEXT))
+        rows.append(SizedBox(None, 8.0))
+        rows.append(Text(listing_current(), color=COLOR_TEXT))
+        rows.append(SizedBox(None, 12.0))
+        if listing_status() == 2:
+            rows.append(Text("Could not read this folder.", color=COLOR_ACCENT))
+            rows.append(SizedBox(None, 8.0))
+        rows.append(Expanded(Row([
+            Expanded(self.listing),
+            Scrollbar(self.scroll),
+        ], cross_align=CROSS_STRETCH)))
+        rows.append(SizedBox(None, 12.0))
+        rows.append(SizedBox(None, 72.0, DropTarget(self.drop, Text("Drop a file", color=COLOR_TEXT))))
+        return Padding(insets_all(24.0), Column(rows, cross_align=CROSS_STRETCH))
+
+
+class FilesPage(StatefulWidget):
+    root: str
+
+    def __init__(self, root: str) -> None:
+        super().__init__(TYPE_FILES, None)
+        self.root = root
+
+    def create_state(self) -> State:
+        state: FilesState = FilesState()
+        state.root = self.root
+        return state

@@ -1,0 +1,263 @@
+from aura.app import run_app
+from aura.files.listing import listing_has, listing_len
+from aura.input.drop import drop_path
+from aura.platform.bridge import remove_empty_dir
+from aura.platform.macos import image_dispose
+from aura.rendering.render_object import RenderBox
+from aura.runtime.binding import Binding
+from aura.runtime.host import AppHost, bind_host
+from aura.widgets.framework import Element
+from examples.files.page import FilesPage, files_drop_id, hide_preview, release_preview
+from nox.fs import copy, create_dir, exists, is_dir, read_dir, remove_file, write_string
+from nox.os import arg, arg_count
+from nox.path import join
+
+def fail(reason: str) -> None:
+    raise Exception(reason)
+
+
+WORK: str = "examples/files/work"
+DIGITS: str = "0123456789"
+FIXTURE: str = "tests/fixtures/pixel.png"
+
+
+def _digit(value: int) -> str:
+    if value < 0 or value > 9:
+        return "0"
+    return DIGITS[value:value + 1]
+
+
+def _zname(index: int) -> str:
+    left: int = index
+    hundreds: int = 0
+    tens: int = 0
+    while left >= 100:
+        hundreds = hundreds + 1
+        left = left - 100
+    while left >= 10:
+        tens = tens + 1
+        left = left - 10
+    return "z" + _digit(hundreds) + _digit(tens) + _digit(left)
+
+
+def wipe(path: str) -> None:
+    names: list[str] = []
+    i: int = 0
+    if exists(path) != True:
+        return
+    if is_dir(path):
+        names = read_dir(path)
+        while i < len(names):
+            wipe(join(path, names[i]))
+            i = i + 1
+        if remove_empty_dir(path) == 0:
+            fail("could not remove " + path)
+        return
+    remove_file(path)
+
+
+def prepare() -> None:
+    folder: str = ""
+    i: int = 0
+    wipe(WORK)
+    create_dir(WORK)
+    folder = join(WORK, "child")
+    create_dir(folder)
+    write_string(join(WORK, "anchor.txt"), "anchor")
+    write_string(join(folder, "nested.txt"), "nested")
+    copy(FIXTURE, join(WORK, "pixel.png"))
+    while i < 200:
+        write_string(join(WORK, _zname(i)), "z")
+        i = i + 1
+
+
+def find_label(box: RenderBox, label: str) -> RenderBox | None:
+    if box.semantics_label == label:
+        return box
+    only: RenderBox | None = box.only_child
+    found: RenderBox | None = None
+    i: int = 0
+    if only is not None:
+        found = find_label(only, label)
+        if found is not None:
+            return found
+    while i < len(box.children):
+        found = find_label(box.children[i], label)
+        if found is not None:
+            return found
+        i = i + 1
+    return None
+
+
+def find_role(box: RenderBox, role: str) -> RenderBox | None:
+    if box.semantics_role == role:
+        return box
+    only: RenderBox | None = box.only_child
+    found: RenderBox | None = None
+    i: int = 0
+    if only is not None:
+        found = find_role(only, role)
+        if found is not None:
+            return found
+    while i < len(box.children):
+        found = find_role(box.children[i], role)
+        if found is not None:
+            return found
+        i = i + 1
+    return None
+
+
+def require_box(box: RenderBox | None, name: str) -> RenderBox:
+    if box is None:
+        raise Exception("missing " + name)
+    return box
+
+
+def require_root(binding: Binding) -> Element:
+    root: Element | None = binding.pump.root
+    if root is None:
+        raise Exception("missing root")
+    return root
+
+
+def find_scroll(element: Element) -> Element | None:
+    box: RenderBox | None = element.render
+    found: Element | None = None
+    child: Element | None = None
+    i: int = 0
+    if box is not None:
+        if box.has_scroll:
+            return element
+    while i < len(element.children):
+        child = element.children[i]
+        if child is not None:
+            found = find_scroll(child)
+            if found is not None:
+                return found
+        i = i + 1
+    return None
+
+
+def mounted_slots(binding: Binding) -> int:
+    element: Element | None = find_scroll(require_root(binding))
+    if element is None:
+        return 0
+    return len(element.children)
+
+
+def click(host: AppHost, binding: Binding, box: RenderBox) -> None:
+    binding.post_click(box.absolute_x() + box.width / 2.0, box.absolute_y() + box.height / 2.0)
+    host.frame()
+
+
+def wait_for(host: AppHost, name: str) -> None:
+    n: int = 0
+    while n < 50:
+        if listing_has(name) == 1:
+            return
+        host.frame()
+        n = n + 1
+    fail("timed out waiting for " + name)
+
+
+def wait_until_gone(host: AppHost, name: str) -> None:
+    n: int = 0
+    while n < 50:
+        if listing_has(name) == 0:
+            return
+        host.frame()
+        n = n + 1
+    fail("timed out clearing " + name)
+
+
+def close_all(host: AppHost) -> None:
+    handle: int = 0
+    while host.alive_count() > 0:
+        host.close_window(host.ids[0])
+    handle = release_preview()
+    if handle != 0:
+        image_dispose(handle)
+
+
+def require_binding(binding: Binding | None, name: str) -> Binding:
+    if binding is None:
+        raise Exception("missing " + name)
+    return binding
+
+
+def self_check() -> None:
+    host: AppHost = AppHost()
+    prepare()
+    hide_preview()
+    bind_host(host)
+    try:
+        binding: Binding = Binding(800, 600, "Files", 0)
+        scroll: Element | None = None
+        preview: Binding | None = None
+        count: int = 0
+        opened: int = 0
+        binding.mount(FilesPage(WORK))
+        if listing_len() != 0:
+            fail("listing was filled before a frame")
+        host.add(binding)
+        wait_for(host, "anchor.txt")
+        if find_label(binding.pump.view, "anchor.txt") is None:
+            fail("anchor was not shown")
+        count = listing_len()
+        if count < 200:
+            fail("directory did not list the extra files")
+        scroll = find_scroll(require_root(binding))
+        if scroll is None:
+            fail("file list has no viewport")
+        if mounted_slots(binding) >= count:
+            fail("file list built every row")
+        if require_box(find_role(binding.pump.view, "scrollbar"), "scrollbar").width < 1.0:
+            fail("scrollbar stayed hidden")
+        click(host, binding, require_box(find_label(binding.pump.view, "child"), "child"))
+        wait_for(host, "nested.txt")
+        wait_until_gone(host, "anchor.txt")
+        if find_label(binding.pump.view, "nested.txt") is None:
+            fail("nested file was not shown")
+        click(host, binding, require_box(find_label(binding.pump.view, ".."), "parent"))
+        wait_for(host, "anchor.txt")
+        wait_until_gone(host, "nested.txt")
+        click(host, binding, require_box(find_label(binding.pump.view, "pixel.png"), "pixel"))
+        if host.alive_count() != 2:
+            fail("preview window did not open")
+        preview = host.binding_for(host.ids[1])
+        if require_box(find_role(require_binding(preview, "preview").pump.view, "image"), "preview image").width < 1.0:
+            fail("preview image has no size")
+        if require_box(find_role(require_binding(preview, "preview").pump.view, "image"), "preview image").height < 1.0:
+            fail("preview image has no size")
+        host.close_window(host.ids[1])
+        opened = release_preview()
+        if opened != 0:
+            image_dispose(opened)
+        if host.alive_count() != 1:
+            fail("preview window stayed open")
+        binding.post_file(require_box(find_role(binding.pump.view, "drop"), "drop").absolute_x() + 4.0, require_box(find_role(binding.pump.view, "drop"), "drop").absolute_y() + 4.0, FIXTURE)
+        host.frame()
+        if drop_path(files_drop_id) != FIXTURE:
+            fail("dropped file missed the queue")
+        if host.alive_count() != 2:
+            fail("dropped image did not open a preview")
+        print("files self-check ok")
+    finally:
+        close_all(host)
+        bind_host(None)
+        wipe(WORK)
+
+
+def wants_self_check() -> bool:
+    i: int = 0
+    while i < arg_count():
+        if arg(i) == "--self-check":
+            return True
+        i = i + 1
+    return False
+
+
+if wants_self_check():
+    self_check()
+else:
+    run_app(FilesPage("."), "Files")

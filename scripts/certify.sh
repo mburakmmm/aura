@@ -16,3 +16,4 @@ noxc run examples/proof/main.nox -- --self-check
 noxc run examples/notes/main.nox -- --self-check
 noxc run examples/settings/main.nox -- --self-check
 noxc run examples/chat/main.nox -- --self-check
+noxc run examples/files/main.nox -- --self-check

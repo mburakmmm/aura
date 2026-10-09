@@ -68,6 +68,15 @@ extern def aura_plugin_close(handle: int) -> int from "native/libaura_host.dylib
 extern def aura_plugin_frame(handle: int, width: int, height: int) -> int from "native/libaura_host.dylib"
 extern def aura_plugin_event(handle: int, kind: int, x: float, y: float) -> int from "native/libaura_host.dylib"
 extern def aura_plugin_place(handle: int, plugin: int, x: float, y: float, w: float, h: float) -> int from "native/libaura_host.dylib"
+extern def aura_listing_lock() -> int from "native/libaura_host.dylib"
+extern def aura_listing_unlock() -> int from "native/libaura_host.dylib"
+extern def aura_listing_submit(generation: int, path: str) -> int from "native/libaura_host.dylib"
+extern def aura_listing_result_generation() -> int from "native/libaura_host.dylib"
+extern def aura_listing_result_status() -> int from "native/libaura_host.dylib"
+extern def aura_listing_count() -> int from "native/libaura_host.dylib"
+extern def aura_listing_name_len(index: int) -> int from "native/libaura_host.dylib"
+extern def aura_listing_name_byte(index: int, offset: int) -> int from "native/libaura_host.dylib"
+extern def aura_listing_remove_dir(path: str) -> int from "native/libaura_host.dylib"
 
 from aura.core.diagnostics import FrameworkError
 
@@ -526,3 +535,39 @@ def plugin_place(handle: int, plugin: int, x: float, y: float, w: float, h: floa
     code: int = aura_plugin_place(handle, plugin, x, y, w, h)
     if code < 0:
         raise FrameworkError("use after close")
+
+
+def listing_lock() -> None:
+    aura_listing_lock()
+
+
+def listing_unlock() -> None:
+    aura_listing_unlock()
+
+
+def listing_submit(generation: int, path: str) -> int:
+    return aura_listing_submit(generation, path)
+
+
+def listing_result_generation() -> int:
+    return aura_listing_result_generation()
+
+
+def listing_result_status() -> int:
+    return aura_listing_result_status()
+
+
+def listing_name_count() -> int:
+    return aura_listing_count()
+
+
+def listing_name_len(index: int) -> int:
+    return aura_listing_name_len(index)
+
+
+def listing_name_byte(index: int, offset: int) -> int:
+    return aura_listing_name_byte(index, offset)
+
+
+def remove_empty_dir(path: str) -> int:
+    return aura_listing_remove_dir(path)

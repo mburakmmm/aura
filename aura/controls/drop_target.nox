@@ -12,6 +12,7 @@ TYPE_DROP_SURFACE: int = alloc_type_id()
 class RenderDrop(RenderBox):
     def __init__(self) -> None:
         super().__init__()
+        self.semantics_role = "drop"
 
     def perform_layout(self) -> None:
         self.width = self.constraints.constrain_width(self.constraints.max_width)
