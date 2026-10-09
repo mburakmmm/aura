@@ -429,6 +429,9 @@ class RenderBox(RenderObject):
     def bind_viewport(self, extent: float, item_count: int, pixels: float) -> None:
         pass
 
+    def set_row_metrics(self, heights: list[float], offsets: list[float]) -> None:
+        pass
+
     def set_host_id(self, host_id: int) -> None:
         self.host_id = host_id
 

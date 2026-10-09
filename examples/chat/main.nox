@@ -1,0 +1,182 @@
+from aura.app import run_app
+from aura.input.events import EVENT_IME_MARK
+from aura.rendering.render_object import RenderBox
+from aura.runtime.binding import Binding
+from aura.text.field import painted_text
+from aura.widgets.framework import Element
+from examples.chat.page import LONG_MESSAGE, draft, messages, push_message, scroll, ChatPage
+from nox.os import arg, arg_count
+
+
+def require_root(binding: Binding) -> Element:
+    root: Element | None = binding.pump.root
+    if root is None:
+        raise Exception("missing root")
+    return root
+
+
+def find_role(box: RenderBox, role: str) -> RenderBox | None:
+    if box.semantics_role == role:
+        return box
+    only: RenderBox | None = box.only_child
+    found: RenderBox | None = None
+    i: int = 0
+    if only is not None:
+        found = find_role(only, role)
+        if found is not None:
+            return found
+    while i < len(box.children):
+        found = find_role(box.children[i], role)
+        if found is not None:
+            return found
+        i = i + 1
+    return None
+
+
+def find_scroll(element: Element) -> Element | None:
+    box: RenderBox | None = element.render
+    found: Element | None = None
+    i: int = 0
+    child: Element | None = None
+    if box is not None:
+        if box.has_scroll:
+            return element
+    while i < len(element.children):
+        child = element.children[i]
+        if child is not None:
+            found = find_scroll(child)
+            if found is not None:
+                return found
+        i = i + 1
+    return None
+
+
+def has_slot(element: Element, index: int) -> int:
+    i: int = 0
+    while i < len(element.children):
+        slot: Element = element.children[i]
+        if len(slot.children) > 0:
+            box: RenderBox | None = slot.children[0].outermost_render()
+            if box is not None:
+                if box.slot_index == index:
+                    return 1
+        i = i + 1
+    return 0
+
+
+def slot_height(element: Element, index: int) -> float:
+    i: int = 0
+    while i < len(element.children):
+        slot: Element = element.children[i]
+        if len(slot.children) > 0:
+            box: RenderBox | None = slot.children[0].outermost_render()
+            if box is not None:
+                if box.slot_index == index:
+                    return box.height
+        i = i + 1
+    return -1.0
+
+
+def stop(binding: Binding, reason: str) -> None:
+    binding.close()
+    raise Exception(reason)
+
+
+def require_scroll(binding: Binding) -> Element:
+    found: Element | None = find_scroll(require_root(binding))
+    if found is None:
+        raise Exception("missing list")
+    return found
+
+
+def seed_many() -> None:
+    i: int = 0
+    while i < 9998:
+        push_message("m")
+        i = i + 1
+    push_message("Hi")
+    push_message(LONG_MESSAGE)
+
+
+def seed_demo() -> None:
+    push_message("The window is open.")
+    push_message("Hi")
+    push_message(LONG_MESSAGE)
+
+
+def self_check() -> None:
+    seed_many()
+    binding: Binding = Binding(800, 600, "Chat", 0)
+    binding.mount(ChatPage())
+    binding.frame()
+    binding.frame()
+    listed: Element = require_scroll(binding)
+    if len(listed.children) >= 40:
+        stop(binding, "too many rows")
+        return
+    if has_slot(listed, 0) == 1:
+        stop(binding, "first message was mounted")
+        return
+    if slot_height(listed, 9998) <= 0.0 or slot_height(listed, 9999) <= slot_height(listed, 9998):
+        stop(binding, "row heights did not follow the text")
+        return
+    if scroll.position.pixels != scroll.position.max_pixels:
+        stop(binding, "list did not rest at the end")
+        return
+    field: RenderBox | None = find_role(binding.pump.view, "text-field")
+    button: RenderBox | None = find_role(binding.pump.view, "button")
+    if field is None or button is None:
+        stop(binding, "missing composer")
+        return
+    binding.post_click(field.absolute_x() + 8.0, field.absolute_y() + field.height / 2.0)
+    binding.frame()
+    binding.pump.dispatch(EVENT_IME_MARK, 0.0, 0.0, 0, "Harbor")
+    binding.frame()
+    if painted_text(draft.target_id) != "Harbor":
+        stop(binding, "composition is not at the caret")
+        return
+    if len(messages) != 10000:
+        stop(binding, "composition was sent")
+        return
+    binding.insert_text("Harbor")
+    binding.frame()
+    if draft.composing != "":
+        stop(binding, "commit left a composition")
+        return
+    if draft.text != "Harbor":
+        stop(binding, "commit did not enter the field")
+        return
+    binding.post_click(button.absolute_x() + button.width / 2.0, button.absolute_y() + button.height / 2.0)
+    binding.frame()
+    binding.frame()
+    listed = require_scroll(binding)
+    if len(messages) != 10001 or messages[10000] != "Harbor":
+        stop(binding, "send did not append")
+        return
+    if has_slot(listed, 10000) != 1:
+        stop(binding, "new message is not mounted")
+        return
+    if len(listed.children) >= 40:
+        stop(binding, "send mounted the history")
+        return
+    if scroll.position.pixels != scroll.position.max_pixels:
+        stop(binding, "new message left the end")
+        return
+    binding.close()
+    print("chat self-check ok")
+
+
+def wants_self_check() -> bool:
+    i: int = 0
+    while i < arg_count():
+        if arg(i) == "--self-check":
+            return True
+        i = i + 1
+    return False
+
+
+if wants_self_check():
+    self_check()
+else:
+    seed_demo()
+    run_app(ChatPage(), "Chat")

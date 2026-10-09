@@ -42,12 +42,14 @@ class ScrollController:
     element_id: int
     bound: int
     bar_element: int
+    follow_end: int
 
     def __init__(self) -> None:
         self.position = ScrollPosition()
         self.element_id = 0
         self.bound = 0
         self.bar_element = 0
+        self.follow_end = 0
 
     def watch(self, element_id: int) -> None:
         self.bar_element = element_id
@@ -68,6 +70,11 @@ class ScrollController:
         if nxt == self.position.pixels:
             return
         self.position.pixels = nxt
+        if self.position.max_pixels > 0.0:
+            if nxt >= self.position.max_pixels:
+                self.follow_end = 1
+            else:
+                self.follow_end = 0
         self._dirty()
         if self.bar_element != 0:
             dirty_element_id(self.bar_element)
@@ -89,7 +96,12 @@ class ScrollController:
         self.position.viewport = viewport
         self.position.content = content
         self.position.max_pixels = limit
-        if self.position.pixels > limit:
+        if self.follow_end == 1:
+            if self.position.pixels != limit:
+                self.position.pixels = limit
+                self._dirty()
+                changed = 1
+        elif self.position.pixels > limit:
             self.position.pixels = limit
             self._dirty()
             changed = 1
@@ -110,6 +122,12 @@ class ItemSource:
 
     def keep_alive(self, index: int) -> bool:
         return False
+
+    def extent_at(self, index: int, width: float) -> float:
+        return 0.0
+
+    def revision(self) -> int:
+        return 0
 
 
 _host_ids: list[int] = []
@@ -155,6 +173,8 @@ class RenderViewport(RenderBox):
     extent: float
     item_count: int
     pixels: float
+    heights: list[float]
+    offsets: list[float]
 
     def __init__(self) -> None:
         super().__init__()
@@ -162,12 +182,19 @@ class RenderViewport(RenderBox):
         self.extent = 1.0
         self.item_count = 0
         self.pixels = 0.0
+        self.heights = []
+        self.offsets = []
         self.has_scroll = True
 
     def bind_viewport(self, extent: float, item_count: int, pixels: float) -> None:
         self.extent = extent
         self.item_count = item_count
         self.pixels = pixels
+        self.mark_needs_layout()
+
+    def set_row_metrics(self, heights: list[float], offsets: list[float]) -> None:
+        self.heights = heights
+        self.offsets = offsets
         self.mark_needs_layout()
 
     def set_host_id(self, host_id: int) -> None:
@@ -180,21 +207,28 @@ class RenderViewport(RenderBox):
         self.width = self.constraints.constrain_width(self.constraints.max_width)
         self.height = self.constraints.constrain_height(self.constraints.max_height)
         content: float = 0.0
-        n: int = 0
-        while n < self.item_count and self.extent > 0.0:
-            content = content + self.extent
-            n = n + 1
+        if len(self.offsets) == self.item_count + 1:
+            content = self.offsets[self.item_count]
+        else:
+            n: int = 0
+            while n < self.item_count and self.extent > 0.0:
+                content = content + self.extent
+                n = n + 1
         report_host(self.host_id, self.width, self.height, content)
-        child_h: float = self.extent
-        if child_h < 0.0:
-            child_h = 0.0
-        limits: Constraints = Constraints(0.0, self.width, child_h, child_h)
         i: int = 0
         while i < len(self.children):
             child: RenderBox = self.children[i]
-            child.layout(limits)
+            child_h: float = self.extent
+            if child.slot_index >= 0 and child.slot_index < len(self.heights):
+                child_h = self.heights[child.slot_index]
+            if child_h < 1.0:
+                child_h = 1.0
+            child.layout(Constraints(0.0, self.width, child_h, child_h))
+            origin: float = float(child.slot_index) * self.extent
+            if child.slot_index >= 0 and child.slot_index < len(self.offsets):
+                origin = self.offsets[child.slot_index]
             child.offset_x = 0.0
-            child.offset_y = float(child.slot_index) * self.extent - self.pixels
+            child.offset_y = origin - self.pixels
             i = i + 1
 
     def paint_children(self, context: PaintingContext) -> None:
@@ -244,8 +278,10 @@ class Viewport(RenderObjectWidget):
     item_count: int
     slots: list[Widget]
     host_id: int
+    heights: list[float]
+    offsets: list[float]
 
-    def __init__(self, metrics: ViewportMetrics, controller: ScrollController, extent: float, item_count: int, slots: list[Widget], host_id: int) -> None:
+    def __init__(self, metrics: ViewportMetrics, controller: ScrollController, extent: float, item_count: int, slots: list[Widget], host_id: int, heights: list[float], offsets: list[float]) -> None:
         super().__init__(TYPE_VIEWPORT, None)
         self.metrics = metrics
         self.controller = controller
@@ -253,6 +289,8 @@ class Viewport(RenderObjectWidget):
         self.item_count = item_count
         self.slots = slots
         self.host_id = host_id
+        self.heights = heights
+        self.offsets = offsets
 
     def create_render(self) -> RenderBox | None:
         return RenderViewport()
@@ -265,6 +303,7 @@ class Viewport(RenderObjectWidget):
         if box is None:
             return
         box.set_host_id(self.host_id)
+        box.set_row_metrics(self.heights, self.offsets)
         box.bind_viewport(self.extent, self.item_count, self.controller.position.pixels)
         box.has_scroll = True
 
@@ -281,6 +320,11 @@ class VirtualList(StatelessWidget):
     controller: ScrollController
     metrics: ViewportMetrics
     host_id: int
+    cache_width: float
+    cache_count: int
+    cache_revision: int
+    heights: list[float]
+    offsets: list[float]
 
     def __init__(self, source: ItemSource, extent: float, controller: ScrollController | None = None, key: Key | None = None) -> None:
         super().__init__(TYPE_LIST, key)
@@ -289,25 +333,63 @@ class VirtualList(StatelessWidget):
         self.controller = _controller_or_new(controller)
         self.metrics = ViewportMetrics()
         self.host_id = register_host(self.controller, self.metrics)
+        self.cache_width = -1.0
+        self.cache_count = -1
+        self.cache_revision = -1
+        self.heights = []
+        self.offsets = []
 
     def build(self, context: BuildContext) -> Widget:
         self.controller.bind(context.element.element_id)
-        return Viewport(self.metrics, self.controller, self.extent, self.source.count(), self._slots(), self.host_id)
+        if self.metrics.width > 0.0:
+            self._ensure_cache(self.metrics.width)
+        return Viewport(self.metrics, self.controller, self.extent, self.source.count(), self._slots(), self.host_id, self.heights, self.offsets)
+
+    def _ensure_cache(self, width: float) -> None:
+        total: int = self.source.count()
+        rev: int = self.source.revision()
+        if self.cache_width == width and self.cache_count == total and self.cache_revision == rev:
+            return
+        heights: list[float] = []
+        offsets: list[float] = []
+        offsets.append(0.0)
+        cursor: float = 0.0
+        i: int = 0
+        while i < total:
+            row: float = self.source.extent_at(i, width)
+            if row <= 0.0:
+                row = self.extent
+            if row < 1.0:
+                row = 1.0
+            heights.append(row)
+            cursor = cursor + row
+            offsets.append(cursor)
+            i = i + 1
+        self.heights = heights
+        self.offsets = offsets
+        self.cache_width = width
+        self.cache_count = total
+        self.cache_revision = rev
 
     def _slots(self) -> list[Widget]:
         slots: list[Widget] = []
-        if self.metrics.height <= 0.0 or self.extent <= 0.0:
+        if self.metrics.height <= 0.0 or self.metrics.width <= 0.0:
             return slots
-        total: int = self.source.count()
-        first: int = _floor_div(self.controller.position.pixels, self.extent)
-        if first < 0:
-            first = 0
-        if first > total:
-            first = total
-        visible: int = _fit_count(self.metrics.height, self.extent) + 1
-        last: int = first + visible
-        if last > total:
-            last = total
+        total: int = self.cache_count
+        if total <= 0 or len(self.heights) != total:
+            return slots
+        pixels: float = self.controller.position.pixels
+        limit: float = pixels + self.metrics.height
+        first: int = 0
+        while first < total:
+            if self.offsets[first] + self.heights[first] > pixels:
+                break
+            first = first + 1
+        last: int = first
+        while last < total:
+            if self.offsets[last] >= limit:
+                break
+            last = last + 1
         i: int = first
         while i < last:
             slots.append(ListSlot(i, self.source.widget_at(i)))
@@ -321,17 +403,6 @@ class VirtualList(StatelessWidget):
                     extra = extra + 1
             k = k + 1
         return slots
-
-
-def _floor_div(numer: float, denom: float) -> int:
-    if denom <= 0.0 or numer <= 0.0:
-        return 0
-    count: int = 0
-    cursor: float = 0.0
-    while cursor + denom <= numer:
-        cursor = cursor + denom
-        count = count + 1
-    return count
 
 
 class Fling(Ticker):
@@ -387,16 +458,3 @@ def begin_fling(scheduler: Scheduler, host_id: int, velocity: float, time_s: flo
     created.alive = 1
     _flings.append(created)
     scheduler.add(created)
-
-
-def _fit_count(space: float, extent: float) -> int:
-    if extent <= 0.0 or space <= 0.0:
-        return 0
-    count: int = 0
-    cursor: float = 0.0
-    while cursor + extent <= space:
-        cursor = cursor + extent
-        count = count + 1
-    if count == 0:
-        return 1
-    return count
