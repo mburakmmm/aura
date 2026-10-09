@@ -1,6 +1,12 @@
 #!/bin/sh
 set -eu
 cd "$(dirname "$0")/.."
+ROOT="$(pwd)"
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    export PATH="$ROOT/native:$PATH"
+    ;;
+esac
 ./scripts/test.sh
 noxc run examples/counter/main.nox -- --self-check
 noxc run examples/rectangle/main.nox -- --self-check

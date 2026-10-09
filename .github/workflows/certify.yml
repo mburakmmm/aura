@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: noxc
         run: |
-          curl -fsSL https://noxlang.com/install.sh | bash
+          curl -fsSL https://noxlang.com/install.sh | NOX_VERSION=v2.0.0 bash
           echo "$HOME/.nox-lang/bin" >> "$GITHUB_PATH"
       - name: Sertifika
         run: bash ./scripts/certify.sh
@@ -24,6 +24,7 @@ jobs:
       - name: noxc
         shell: pwsh
         run: |
+          $env:NOX_VERSION = "v2.0.0"
           irm https://noxlang.com/install.ps1 | iex
           Add-Content $env:GITHUB_PATH "$env:USERPROFILE\.nox-lang\bin"
       - name: MinGW cc
@@ -59,7 +60,7 @@ jobs:
             libdbus-1-dev libfontconfig1-dev xvfb
       - name: noxc
         run: |
-          curl -fsSL https://noxlang.com/install.sh | bash
+          curl -fsSL https://noxlang.com/install.sh | NOX_VERSION=v2.0.0 bash
           echo "$HOME/.nox-lang/bin" >> "$GITHUB_PATH"
       - name: Sertifika
         run: xvfb-run -a bash ./scripts/certify.sh
@@ -77,7 +78,7 @@ jobs:
             libdbus-1-dev libfontconfig1-dev weston
       - name: noxc
         run: |
-          curl -fsSL https://noxlang.com/install.sh | bash
+          curl -fsSL https://noxlang.com/install.sh | NOX_VERSION=v2.0.0 bash
           echo "$HOME/.nox-lang/bin" >> "$GITHUB_PATH"
       - name: Weston
         run: |
