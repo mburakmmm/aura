@@ -370,7 +370,7 @@ STDMETHODIMP AuraProvider::GetEmbeddedFragmentRoots(SAFEARRAY **roots) {
 }
 
 STDMETHODIMP AuraProvider::SetFocus() {
-    SetFocus(owner_->hwnd);
+    ::SetFocus(owner_->hwnd);
     return S_OK;
 }
 

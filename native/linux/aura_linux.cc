@@ -612,6 +612,8 @@ static void text_done(void *data, struct zwp_text_input_v3 *input, uint32_t seri
 
 static const struct zwp_text_input_v3_listener text_input_listener = { text_enter, text_leave, text_preedit, text_commit, text_delete, text_done };
 
+static void push_uri_list(AuraWindow *window, const char *data);
+
 static char *read_fd_text(int fd) {
     char *buffer = (char *)malloc(65536);
     int total = 0;
@@ -636,11 +638,10 @@ static void offer_mime(void *data, struct wl_data_offer *offer, const char *mime
     }
 }
 
-static void offer_actions(void *data, struct wl_data_offer *offer, uint32_t source, uint32_t action) {
+static void offer_actions(void *data, struct wl_data_offer *offer, uint32_t source) {
     (void)data;
     (void)offer;
     (void)source;
-    (void)action;
 }
 
 static void offer_action(void *data, struct wl_data_offer *offer, uint32_t action) {
