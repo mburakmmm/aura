@@ -4,13 +4,13 @@ Bu dosya 0.4’ten mobil temelin kapanışına kadar bağlayıcı teslimat sözl
 
 Bir sürüm bitmeden sonrakine geçilmez. Her sürümün self-check’i bir öncekini kırmaz. Nox derleyicisi değişmez. Widget katmanında `extern def` ve platform dalı yoktur. Yerleşim, sahne, kabuk, gezinme, durum, signal veya çizim backend’i değişecekse önce ADR yazılır.
 
-0.1, 0.2 ve 0.3 kabul edilmiştir. 0.3 masaüstünde Skia raster boyamayı, ortak kabuk köprüsünü, DevTools sayaçlarını, plugin kaydını ve `examples/proof` kanıtını tanımlar. Windows ve Linux kaynakları bu ağaçtadır. O kabukların çalışır sertifikası 0.4’tür.
+0.1, 0.2, 0.3 ve 0.4 kabul edilmiştir. 0.4 aynı Nox programını macOS, Windows ve Linux kabuklarında sertifikalar. Kapı `scripts/certify.sh` ve GitHub Actions’tır.
 
 ## 0.4 — Kabuk sertifikası
 
-Üç masaüstü aynı programı koşar. Kanıt uygulaması `examples/proof`’tur. Sayaç, dikdörtgen, todo ve hesap makinesi self-check’leri de aynı kaynaktır.
+Tamamlandı. Üç masaüstü aynı programı koşar. Kanıt uygulaması `examples/proof`’tur. Sayaç, dikdörtgen, todo ve hesap makinesi self-check’leri de aynı kaynaktır.
 
-Pano, imleç, dosya bırakma, IME ve erişilebilirlik listesi kabukta kalır. Karakter sanal tuştan üretilmez. Native kod Nox’a geri çağrı yapmaz. Bu turda bulunan sözleşme farkı kapanmadan 0.5 başlamaz.
+Pano, imleç, dosya bırakma, IME ve erişilebilirlik listesi kabukta kalır. Karakter sanal tuştan üretilmez. Native kod Nox’a geri çağrı yapmaz.
 
 ## 0.5 — Notes
 

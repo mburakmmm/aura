@@ -19,7 +19,7 @@ class CounterPage(StatelessWidget):
 
 Widget konfigürasyondur. Element kimliği, yaşam döngüsünü ve kirli durumu tutar. RenderObject yerleşir, boyar ve vuruş testi yapar. Bu üçü birbirinin yerine geçmez.
 
-**Şu anki sürüm 0.3.0’dır.** macOS’ta Skia raster boyama, ortak kabuk köprüsü, DevTools sayaçları, plugin kaydı ve kanıt uygulaması çalışır. Windows ve Linux kabuklarının kaynakları ağaçtadır. Üç işletim sisteminde aynı self-check’in geçmesi [0.4 kapısıdır](roadmap.md).
+**Şu anki sürüm 0.4.0’dır.** Aynı program macOS, Windows ve Linux kabuklarında sertifikalıdır. Kapı [roadmap.md](roadmap.md) bölüm 0.4’tür: `scripts/certify.sh` testleri ve beş gizli self-check’i koşturur. GitHub Actions bunu macOS, Win32, X11 ve Wayland üzerinde çalıştırır.
 
 ## Yol haritası
 
@@ -27,7 +27,7 @@ Bağlayıcı teslimat sözleşmesi [roadmap.md](roadmap.md) dosyasındadır. `AG
 
 | Sürüm | Teslim |
 | --- | --- |
-| 0.4 | Üç masaüstü kabuğunda aynı self-check |
+| 0.4 | Tamam: üç masaüstü kabuğunda aynı self-check |
 | 0.5 | Notes: sarılmış metinde seçim ve pano |
 | 0.6 | Settings: tema ve pencere API’si |
 | 0.7 | Chat: değişken satır yüksekliğinde sanal liste |
@@ -41,7 +41,7 @@ Web, hot reload, sliver ve zengin metin bu sözleşmenin dışındadır.
 ## Gereksinimler
 
 - Nox 2.0 (`noxc`)
-- Doğrulanmış kabuk: macOS, Apple clang
+- Doğrulanmış kabuklar: macOS, Windows ve Linux. Linux paketi Wayland, Xkbcommon, X11, D-Bus ve wayland-protocols ister. Windows kabuğu MSVC ile Skia’ya bağlanır; Nox programını MinGW `cc` bağlar.
 - Ağ: ilk derleme sabit Skia arşivini `third_party/` altına indirir
 
 Çalışma dizini depo köküdür. Metin, `native/fonts/` altındaki OFL Noto Sans ile ölçülür.
@@ -71,10 +71,11 @@ noxc run examples/proof/main.nox -- --self-check
 
 ```sh
 ./scripts/test.sh
+./scripts/certify.sh
 ./scripts/bench.sh
 ```
 
-`test.sh` kabuğu derler ve `noxc test` çalıştırır. Birim testler pencere açmaz. Gizli pencere kullanan testler kapanır. Benchmark sekiz senaryonun faz sürelerini ve kurulum sayaçlarını yazar.
+`test.sh` kabuğu derler ve `noxc test` çalıştırır. `certify.sh` buna beş gizli self-check ekler ve pencereyi açık bırakmaz. Benchmark sekiz senaryonun faz sürelerini ve kurulum sayaçlarını yazar.
 
 ## Düzen
 
