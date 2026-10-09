@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: noxc
         run: |
-          curl -fsSL https://noxlang.com/install.sh | sh
+          curl -fsSL https://noxlang.com/install.sh | bash
           echo "$HOME/.nox-lang/bin" >> "$GITHUB_PATH"
       - name: Sertifika
         run: bash ./scripts/certify.sh
@@ -61,7 +61,7 @@ jobs:
             libdbus-1-dev libfontconfig1-dev xvfb
       - name: noxc
         run: |
-          curl -fsSL https://noxlang.com/install.sh | sh
+          curl -fsSL https://noxlang.com/install.sh | bash
           echo "$HOME/.nox-lang/bin" >> "$GITHUB_PATH"
       - name: Sertifika
         run: xvfb-run -a bash ./scripts/certify.sh
@@ -79,7 +79,7 @@ jobs:
             libdbus-1-dev libfontconfig1-dev weston
       - name: noxc
         run: |
-          curl -fsSL https://noxlang.com/install.sh | sh
+          curl -fsSL https://noxlang.com/install.sh | bash
           echo "$HOME/.nox-lang/bin" >> "$GITHUB_PATH"
       - name: Weston
         run: |

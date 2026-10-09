@@ -89,6 +89,8 @@ case "$OS" in
       -lrt -ldl -lpthread -lm
     ;;
   MINGW*|MSYS*|CYGWIN*)
+    export MSYS_NO_PATHCONV=1
+    export MSYS2_ARG_CONV_EXCL='*'
     win_path() {
       if command -v cygpath >/dev/null 2>&1; then
         cygpath -m "$1"
