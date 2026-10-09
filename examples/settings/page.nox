@@ -1,16 +1,35 @@
 from aura.controls import Button
-from aura.foundation.color import COLOR_ACCENT, COLOR_BUTTON, COLOR_BUTTON_TEXT, COLOR_TEXT
-from aura.foundation.insets import insets_all
-from aura.layout import Column, Expanded, Padding
-from aura.layout.flex import CROSS_STRETCH
+from aura.foundation.color import COLOR_ACCENT, COLOR_BUTTON, COLOR_BUTTON_TEXT, COLOR_TEXT, rgb
+from aura.foundation.insets import insets_all, EdgeInsets
+from aura.layout import ColoredBox, Column, Padding, Row, SizedBox
+from aura.layout.flex import CROSS_CENTER, CROSS_STRETCH, MAIN_MIN
 from aura.text import Text, TextEditingController, TextField
 from aura.widgets import BuildContext, State, StatefulWidget, Theme, ThemeData, Widget
 from aura.widgets.theme import ColorScheme, Typography, default_scheme
 from aura.widgets.type_ids import alloc_type_id
+from aura.window import window_height, window_scale, window_title, window_width
 
 TYPE_SETTINGS: int = alloc_type_id()
 
-note: TextEditingController = TextEditingController("")
+COLOR_PANEL: int = rgb(38, 36, 33)
+COLOR_MUTED: int = rgb(168, 162, 154)
+
+name: TextEditingController = TextEditingController("Harbor")
+
+
+def number_text(value: float) -> str:
+    text: str = str(value)
+    if len(text) >= 2:
+        if text[len(text) - 2:len(text)] == ".0":
+            return text[0:len(text) - 2]
+    return text
+
+
+def labeled_row(label: str, value: str) -> Widget:
+    return Row([
+        SizedBox(132.0, None, Text(label, color=COLOR_MUTED)),
+        Text(value, color=COLOR_TEXT),
+    ], cross_align=CROSS_CENTER, main_size=MAIN_MIN, spacing=12.0)
 
 
 class SettingsState(State):
@@ -30,12 +49,25 @@ class SettingsState(State):
     def build(self, context: BuildContext) -> Widget:
         scheme: ColorScheme = default_scheme()
         scheme.text = self.text_color
-        return Theme(ThemeData(scheme, Typography()), Padding(insets_all(32.0), Column([
+        size: str = number_text(window_width()) + " × " + number_text(window_height())
+        return Theme(ThemeData(scheme, Typography()), Padding(insets_all(40.0), Column([
             Text("Settings", font_size=32.0, color=COLOR_TEXT),
+            SizedBox(None, 8.0),
             Text("Appearance follows the theme."),
-            Expanded(TextField(note)),
-            Button("Theme", self.toggle_theme, color=COLOR_BUTTON_TEXT, background=COLOR_BUTTON),
-        ], spacing=20.0, cross_align=CROSS_STRETCH)))
+            SizedBox(None, 28.0),
+            ColoredBox(COLOR_PANEL, Padding(EdgeInsets(24.0, 24.0, 24.0, 24.0), Column([
+                Text("Window", font_size=14.0, weight=600, color=COLOR_ACCENT),
+                labeled_row("Title", window_title()),
+                labeled_row("Size", size),
+                labeled_row("Scale", number_text(window_scale())),
+                SizedBox(None, 8.0),
+                Text("Display name", color=COLOR_TEXT),
+                TextField(name),
+                Row([
+                    Button("Switch ink", self.toggle_theme, color=COLOR_BUTTON_TEXT, background=COLOR_BUTTON),
+                ], cross_align=CROSS_CENTER, main_size=MAIN_MIN),
+            ], spacing=14.0, cross_align=CROSS_STRETCH, main_size=MAIN_MIN))),
+        ], cross_align=CROSS_STRETCH, main_size=MAIN_MIN)))
 
 
 class SettingsPage(StatefulWidget):

@@ -7,13 +7,6 @@ from examples.settings.page import SettingsPage
 from nox.os import arg, arg_count
 
 
-def child_at(element: Element, index: int) -> Element:
-    found: Element | None = element.children[index]
-    if found is None:
-        raise Exception("missing child")
-    return found
-
-
 def require_root(binding: Binding) -> Element:
     root: Element | None = binding.pump.root
     if root is None:
@@ -44,8 +37,54 @@ def stop(binding: Binding, reason: str) -> None:
     raise Exception(reason)
 
 
-def column_of(binding: Binding) -> Element:
-    return child_at(child_at(child_at(require_root(binding), 0), 0), 0)
+def find_labeled(element: Element, label: str) -> Element | None:
+    box: RenderBox | None = element.render
+    found: Element | None = None
+    i: int = 0
+    child: Element | None = None
+    if box is not None:
+        if box.semantics_label == label:
+            return element
+    while i < len(element.children):
+        child = element.children[i]
+        if child is not None:
+            found = find_labeled(child, label)
+            if found is not None:
+                return found
+        i = i + 1
+    return None
+
+
+def find_role_element(element: Element, role: str) -> Element | None:
+    box: RenderBox | None = element.render
+    found: Element | None = None
+    i: int = 0
+    child: Element | None = None
+    if box is not None:
+        if box.semantics_role == role:
+            return element
+    while i < len(element.children):
+        child = element.children[i]
+        if child is not None:
+            found = find_role_element(child, role)
+            if found is not None:
+                return found
+        i = i + 1
+    return None
+
+
+def require_labeled(binding: Binding, label: str) -> Element:
+    found: Element | None = find_labeled(require_root(binding), label)
+    if found is None:
+        raise Exception(label)
+    return found
+
+
+def require_role(binding: Binding, role: str) -> Element:
+    found: Element | None = find_role_element(require_root(binding), role)
+    if found is None:
+        raise Exception(role)
+    return found
 
 
 def self_check() -> None:
@@ -76,18 +115,16 @@ def self_check() -> None:
     if cursor_kind() != 0:
         stop(binding, "arrow cursor")
         return
-    column: Element = column_of(binding)
-    header: Element = child_at(column, 0)
-    dependent: Element = child_at(column, 1)
-    theme_button: Element = child_at(column, 3)
+    header: Element = require_labeled(binding, "Settings")
+    dependent: Element = require_labeled(binding, "Appearance follows the theme.")
+    theme_button: Element = require_role(binding, "button")
     header_count: int = header.rebuild_count
     button_count: int = theme_button.rebuild_count
     binding.post_click(button.absolute_x() + button.width / 2.0, button.absolute_y() + button.height / 2.0)
     binding.frame()
-    column = column_of(binding)
-    header = child_at(column, 0)
-    dependent = child_at(column, 1)
-    theme_button = child_at(column, 3)
+    header = require_labeled(binding, "Settings")
+    dependent = require_labeled(binding, "Appearance follows the theme.")
+    theme_button = require_role(binding, "button")
     if dependent.rebuild_count < 1:
         stop(binding, "theme dependent was not rebuilt")
         return
