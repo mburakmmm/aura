@@ -36,7 +36,7 @@ Yeni mesaj, kullanıcı sondayken altta kalır. IME kompozisyonu imleçte görü
 
 ## 0.8 — Dosya gezgini
 
-Dizin okuma UI iş parçacığının dışında biter. Sonuç state’e yazılır ve `invalidate` edilir. `build` sırasında bloklayan bekleyiş yoktur.
+Tamamlandı. `examples/files` bir dizin açar. Dizin okuma UI iş parçacığının dışında biter. Sonuç state’e yazılır ve `invalidate` edilir. `build` sırasında bloklayan bekleyiş yoktur.
 
 Liste sanaldır. Önizleme görüntüdür. Bırakılan dosya mevcut bırakma kuyruğuna düşer. İkinci pencere önizlemeyi açar.
 

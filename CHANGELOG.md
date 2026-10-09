@@ -2,6 +2,15 @@
 
 Bu dosya yayımlanan sürümleri tutar. Sürüm numarası `nox.json` ile, git etiketi `v` önekiyle aynıdır. Sonraki teslimatların sırası [roadmap.md](roadmap.md) dosyasındadır.
 
+## 0.8.0
+
+Dosya gezgini. Dizin okuma UI iş parçacığının dışında biter. Sonuç state’e yazılır ve bir sonraki karede kurulur. `build` dizini okumaz ve beklemez. Kapı `scripts/certify.sh` ve GitHub Actions’tır: macOS, gizli Win32, X11 ve Wayland.
+
+- Liste sanaldır. Ekran dışındaki satırlar kurulmaz. Kaydırma çubuğu yalnız içerik taşınca görünür.
+- Görüntü satırı ikinci pencerede mevcut `Image` ile açılır. Bırakılan görüntü aynı bırakma kuyruğuna düşer ve aynı önizlemeyi açar.
+- `examples/files` self-check’i ilk kareden önce listenin boş olduğunu görür. Alt dizine girer, `..` ile geri döner. Görüntü ikinci pencereyi açar. `tests/fixtures/pixel.png` bırakması önizlemeyi yeniden açar.
+- Sertifika Chat’ten sonra dosya gezginini gizli pencerede koşturur. Pencere açık kalmaz.
+
 ## 0.7.0
 
 Chat. Satır yüksekliği metinden gelir. Ekran dışındaki satırlar kurulmaz. Yeni mesaj altta kalır ve IME ile yazılır. Sliver yoktur. Kapı `scripts/certify.sh` ve GitHub Actions’tır: macOS, gizli Win32, X11 ve Wayland.

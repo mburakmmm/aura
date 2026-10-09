@@ -19,7 +19,7 @@ class CounterPage(StatelessWidget):
 
 Widget konfigürasyondur. Element kimliği, yaşam döngüsünü ve kirli durumu tutar. RenderObject yerleşir, boyar ve vuruş testi yapar. Bu üçü birbirinin yerine geçmez.
 
-**Şu anki sürüm 0.7.0’dır.** Chat satır yüksekliğini metinden alır. Yeni mesaj IME ile yazılır ve listenin sonunda kalır. Kapı [roadmap.md](roadmap.md) bölüm 0.7’dir: `scripts/certify.sh` testleri ve sekiz gizli self-check’i koşturur. GitHub Actions bunu macOS, Win32, X11 ve Wayland üzerinde çalıştırır.
+**Şu anki sürüm 0.8.0’dır.** Dosya gezgini dizini UI iş parçacığının dışında okur. Liste sanaldır. Görüntü ikinci pencerede açılır. Kapı [roadmap.md](roadmap.md) bölüm 0.8’dir: `scripts/certify.sh` testleri ve dokuz gizli self-check’i koşturur. GitHub Actions bunu macOS, Win32, X11 ve Wayland üzerinde çalıştırır.
 
 ## Yol haritası
 
@@ -31,7 +31,7 @@ Bağlayıcı teslimat sözleşmesi [roadmap.md](roadmap.md) dosyasındadır. `AG
 | 0.5 | Tamam: Notes, sarılmış satırda seçim, pano ve IME |
 | 0.6 | Tamam: Settings, tema kirletmesi ve pencere okuması |
 | 0.7 | Tamam: Chat, değişken satır yüksekliği ve IME |
-| 0.8 | Dosya gezgini: UI iş parçacığı dışında iş |
+| 0.8 | Tamam: Dosya gezgini, UI iş parçacığı dışında okuma |
 | 0.9 | Dashboard: örtük animasyon, altın görüntü, kare bütçesi |
 | 1.0 | Genel API dondurma |
 | 1.1–1.5 | iOS kabuğu, klavye, dokunuş, Android, GPU yüzeyi |
@@ -64,6 +64,9 @@ noxc run examples/todo/main.nox -- --self-check
 noxc run examples/calculator/main.nox -- --self-check
 noxc run examples/proof/main.nox -- --self-check
 noxc run examples/notes/main.nox -- --self-check
+noxc run examples/settings/main.nox -- --self-check
+noxc run examples/chat/main.nox -- --self-check
+noxc run examples/files/main.nox -- --self-check
 ```
 
 `examples/proof` 0.3’ü tek ekranda gösterir: paketlenmiş font, PNG ve JPEG, opaklık, debug sınırı, kayıtlı `badge` görünümü ve yerli `PlatformView`.
@@ -76,7 +79,7 @@ noxc run examples/notes/main.nox -- --self-check
 ./scripts/bench.sh
 ```
 
-`test.sh` kabuğu derler ve `noxc test` çalıştırır. `certify.sh` buna altı gizli self-check ekler ve pencereyi açık bırakmaz. Benchmark sekiz senaryonun faz sürelerini ve kurulum sayaçlarını yazar.
+`test.sh` kabuğu derler ve `noxc test` çalıştırır. `certify.sh` buna dokuz gizli self-check ekler ve pencereyi açık bırakmaz. Benchmark sekiz senaryonun faz sürelerini ve kurulum sayaçlarını yazar.
 
 ## Düzen
 
