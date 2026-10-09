@@ -1,10 +1,10 @@
 # Aura yol haritası
 
-Bu dosya 0.6’dan mobil temelin kapanışına kadar bağlayıcı teslimat sözleşmesidir. `AGENTS.md` invariant’ları geçerlidir. Çelişki olursa `AGENTS.md` kazanır ve bu dosya ona göre güncellenir.
+Bu dosya 0.7’den mobil temelin kapanışına kadar bağlayıcı teslimat sözleşmesidir. `AGENTS.md` invariant’ları geçerlidir. Çelişki olursa `AGENTS.md` kazanır ve bu dosya ona göre güncellenir.
 
 Bir sürüm bitmeden sonrakine geçilmez. Her sürümün self-check’i bir öncekini kırmaz. Nox derleyicisi değişmez. Widget katmanında `extern def` ve platform dalı yoktur. Yerleşim, sahne, kabuk, gezinme, durum, signal veya çizim backend’i değişecekse önce ADR yazılır.
 
-0.1, 0.2, 0.3, 0.4, 0.5 ve 0.6 kabul edilmiştir. 0.6 tema kirletmesini ve pencere okumasını dondurur. Kapı `scripts/certify.sh` ve GitHub Actions’tır.
+0.1, 0.2, 0.3, 0.4, 0.5, 0.6 ve 0.7 kabul edilmiştir. 0.7 sanal listede satır yüksekliğini metne bağlar. Kapı `scripts/certify.sh` ve GitHub Actions’tır.
 
 ## 0.4 — Kabuk sertifikası
 
@@ -30,9 +30,9 @@ Genel adlar `theme_of`, `Theme`, `ThemeData`, `ColorScheme`, `Typography`, `wind
 
 ## 0.7 — Chat
 
-`VirtualList` satır yüksekliğini içerikten alır. Ekran dışındaki satırlar kurulmaz. `keep_alive` sınırlıdır. 10.000 satır kaydırma belleği patlatmaz.
+Tamamlandı. `examples/chat` yüksekliği metinden gelen bir liste açar. Ekran dışındaki satırlar kurulmaz. `keep_alive` en fazla 32 ek satır tutar. 10.000 satır belleği patlatmaz.
 
-Yeni mesaj altta kalır ve IME ile yazılır. Sliver kopyası yoktur. Yerleşim protokolü değişirse ADR gerekir.
+Yeni mesaj, kullanıcı sondayken altta kalır. IME kompozisyonu imleçte görünür ve commit mevcut ekleme yoluna girer. Karakter sanal tuştan üretilmez. Sliver yoktur. Yerleşim protokolü değişmedi.
 
 ## 0.8 — Dosya gezgini
 

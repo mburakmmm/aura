@@ -2,6 +2,16 @@
 
 Bu dosya yayımlanan sürümleri tutar. Sürüm numarası `nox.json` ile, git etiketi `v` önekiyle aynıdır. Sonraki teslimatların sırası [roadmap.md](roadmap.md) dosyasındadır.
 
+## 0.7.0
+
+Chat. Satır yüksekliği metinden gelir. Ekran dışındaki satırlar kurulmaz. Yeni mesaj altta kalır ve IME ile yazılır. Sliver yoktur. Kapı `scripts/certify.sh` ve GitHub Actions’tır: macOS, gizli Win32, X11 ve Wayland.
+
+- `extent_at` sıfır dönerse listenin tek yüksekliği kullanılır. Sıfırdan büyük dönüş o satırın yüksekliğidir. Yükseklikler görünüm genişliği için önbellekte durur.
+- `keep_alive` en fazla 32 ek satır kurar. 10.000 satırda kurulan çocuk sayısı görünür pencereyle sınırlı kalır.
+- `follow_end` açıksa içerik uzayınca ofset sonda kalır. Yukarı kaydırınca kapanır, sona gelince yeniden açılır.
+- `examples/chat` self-check’i 10.000 mesaj kurar. Kısa ve sarmalanmış satırın yükseklikleri ayrılır. Kompozisyon imleçte görünür, commit alana yazılır ve gönderilen metin son satırda kalır.
+- Sertifika Settings’ten sonra Chat’i gizli pencerede koşturur. Pencere açık kalmaz.
+
 ## 0.6.0
 
 Settings. Tema değişince yalnız temaya bakan eleman kirlenir. Uygulama pencere başlığını, boyutunu, ölçeğini ve imleci okur. Kapı `scripts/certify.sh` ve GitHub Actions’tır: macOS, gizli Win32, X11 ve Wayland.

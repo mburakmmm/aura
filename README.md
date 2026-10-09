@@ -19,7 +19,7 @@ class CounterPage(StatelessWidget):
 
 Widget konfigürasyondur. Element kimliği, yaşam döngüsünü ve kirli durumu tutar. RenderObject yerleşir, boyar ve vuruş testi yapar. Bu üçü birbirinin yerine geçmez.
 
-**Şu anki sürüm 0.6.0’dır.** Settings temayı değiştirir ve pencere başlığını, boyutunu, ölçeğini ve imleci okur. Kapı [roadmap.md](roadmap.md) bölüm 0.6’dır: `scripts/certify.sh` testleri ve yedi gizli self-check’i koşturur. GitHub Actions bunu macOS, Win32, X11 ve Wayland üzerinde çalıştırır.
+**Şu anki sürüm 0.7.0’dır.** Chat satır yüksekliğini metinden alır. Yeni mesaj IME ile yazılır ve listenin sonunda kalır. Kapı [roadmap.md](roadmap.md) bölüm 0.7’dir: `scripts/certify.sh` testleri ve sekiz gizli self-check’i koşturur. GitHub Actions bunu macOS, Win32, X11 ve Wayland üzerinde çalıştırır.
 
 ## Yol haritası
 
@@ -30,7 +30,7 @@ Bağlayıcı teslimat sözleşmesi [roadmap.md](roadmap.md) dosyasındadır. `AG
 | 0.4 | Tamam: üç masaüstü kabuğunda aynı self-check |
 | 0.5 | Tamam: Notes, sarılmış satırda seçim, pano ve IME |
 | 0.6 | Tamam: Settings, tema kirletmesi ve pencere okuması |
-| 0.7 | Chat: değişken satır yüksekliğinde sanal liste |
+| 0.7 | Tamam: Chat, değişken satır yüksekliği ve IME |
 | 0.8 | Dosya gezgini: UI iş parçacığı dışında iş |
 | 0.9 | Dashboard: örtük animasyon, altın görüntü, kare bütçesi |
 | 1.0 | Genel API dondurma |
