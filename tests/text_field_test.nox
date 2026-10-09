@@ -3,8 +3,8 @@ from aura.input.events import EVENT_IME_DELETE, EVENT_IME_INSERT, EVENT_IME_MARK
 from aura.platform.macos import clipboard_get, clipboard_set, set_cursor
 from aura.rendering.render_object import RenderBox
 from aura.runtime.binding import Binding
-from aura.text.editing import KEY_C, KEY_LEFT, KEY_RIGHT, KEY_V, KEY_X, MOD_COMMAND, MOD_SHIFT, TextEditingController
-from aura.text.measure import measure_width
+from aura.text.editing import KEY_C, KEY_DOWN_ARROW, KEY_LEFT, KEY_RIGHT, KEY_UP_ARROW, KEY_V, KEY_X, MOD_COMMAND, MOD_SHIFT, TextEditingController
+from aura.text.measure import measure_height, measure_width
 from aura.testing.tester import WidgetTester
 from aura.text.field import TextField
 
@@ -108,6 +108,26 @@ place.pump.dispatch(EVENT_KEY_DOWN, 0.0, 0.0, KEY_C, "", MOD_COMMAND)
 place.pump.dispatch(EVENT_KEY_DOWN, 0.0, 0.0, KEY_X, "", MOD_COMMAND)
 place.pump.dispatch(EVENT_KEY_DOWN, 0.0, 0.0, KEY_V, "", MOD_COMMAND)
 place.pump_frame()
+ship_w: float = measure_width("Ship", 16.0, 400, "")
+pair_w: float = measure_width("Ship notes", 16.0, 400, "")
+wrap_at: float = (ship_w + pair_w) / 2.0
+edited: TextEditingController = TextEditingController("Ship notes")
+arrows: WidgetTester = WidgetTester()
+arrows.pump_widget(TextField(edited, multiline=1), wrap_at + 16.0, 160.0)
+arrow_box: RenderBox = require_box(arrows.view().only_child, "arrows")
+line_h: float = measure_height(16.0, 400, "")
+second_y: float = arrow_box.absolute_y() + 8.0 + line_h + 2.0
+arrows.pump.pointer_down(arrow_box.absolute_x() + 8.0, second_y)
+arrows.pump.pointer_up(arrow_box.absolute_x() + 8.0, second_y)
+arrows.pump_frame()
+nox.test.assert_eq_int(edited.cursor, 5, "click on the wrapped line uses y")
+arrows.pump.dispatch(EVENT_KEY_DOWN, 0.0, 0.0, KEY_UP_ARROW, "")
+arrows.pump_frame()
+nox.test.assert_eq_int(edited.cursor, 0, "up arrow keeps the column on the previous line")
+arrows.pump.dispatch(EVENT_KEY_DOWN, 0.0, 0.0, KEY_DOWN_ARROW, "", MOD_SHIFT)
+arrows.pump_frame()
+nox.test.assert_eq_int(edited.sel_start(), 0, "shift down keeps the anchor")
+nox.test.assert_true(edited.sel_end() > edited.sel_start(), "shift down extends onto the next line")
 set_cursor(1)
 set_cursor(0)
 clipboard_set(kept)

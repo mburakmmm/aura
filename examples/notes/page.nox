@@ -1,0 +1,29 @@
+from aura.layout import Column, SizedBox
+from aura.text import Text, TextEditingController, TextField
+from aura.text.measure import measure_width
+from aura.widgets import BuildContext, StatelessWidget, Widget
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_NOTES: int = alloc_type_id()
+
+SENTENCE: str = "Ship notes"
+SECOND: str = "Filed under today"
+DOCUMENT: str = "Ship notes\nFiled under today"
+
+_one: float = measure_width("Ship", 16.0, 400, "")
+_both: float = measure_width(SENTENCE, 16.0, 400, "")
+FIELD_WIDTH: float = (_one + _both) / 2.0 + 16.0
+FIELD_HEIGHT: float = 220.0
+
+document: TextEditingController = TextEditingController(DOCUMENT)
+
+
+class NotesPage(StatelessWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_NOTES, None)
+
+    def build(self, context: BuildContext) -> Widget:
+        return Column([
+            Text("Notes", font_size=32.0),
+            SizedBox(FIELD_WIDTH, FIELD_HEIGHT, TextField(document, multiline=1)),
+        ], spacing=12.0)

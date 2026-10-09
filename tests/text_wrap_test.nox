@@ -1,5 +1,5 @@
 import nox.test
-from aura.text.measure import measure_width, wrap_text
+from aura.text.measure import TextLine, layout_lines, measure_width, wrap_text
 
 one: float = measure_width("alpha", 16.0, 400, "")
 both: float = measure_width("alpha beta", 16.0, 400, "")
@@ -11,6 +11,22 @@ lines: list[str] = wrap_text("alpha beta", mid, 16.0, 400, "")
 nox.test.assert_eq_int(len(lines), 2, "wrapped lines")
 nox.test.assert_eq_str(lines[0], "alpha", "first line")
 nox.test.assert_eq_str(lines[1], "beta", "second line")
+mapped: list[TextLine] = layout_lines("alpha beta", mid, 16.0, 400, "")
+nox.test.assert_eq_int(mapped[0].start, 0, "alpha starts at the source")
+nox.test.assert_eq_int(mapped[0].end, 5, "alpha ends before the space")
+nox.test.assert_eq_int(mapped[1].start, 6, "beta starts after the space")
+nox.test.assert_eq_int(mapped[1].end, 10, "beta ends at the source end")
+paragraphs: list[TextLine] = layout_lines("a\n\nb", 400.0, 16.0, 400, "")
+nox.test.assert_eq_int(len(paragraphs), 3, "blank paragraph is its own line")
+nox.test.assert_eq_str(paragraphs[1].text, "", "middle line is empty")
+nox.test.assert_eq_int(paragraphs[2].start, 3, "second paragraph keeps its offset")
+token: str = "MMMMMM"
+limit: float = measure_width("MM", 16.0, 400, "")
+pieces: list[str] = wrap_text(token, limit, 16.0, 400, "")
+nox.test.assert_eq_int(len(pieces), 3, "a wide word splits by character")
+nox.test.assert_eq_str(pieces[0], "MM", "first piece fits")
+nox.test.assert_eq_str(pieces[1], "MM", "second piece fits")
+nox.test.assert_eq_str(pieces[2], "MM", "third piece fits")
 
 system_w: float = measure_width("MMMM", 32.0, 400, "")
 missing_w: float = measure_width("MMMM", 32.0, 400, "NoSuchAuraFontXYZ")

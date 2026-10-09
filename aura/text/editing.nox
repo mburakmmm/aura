@@ -1,6 +1,6 @@
 from aura.input.focus import FocusManager, FocusNode
 from aura.platform.bridge import clipboard_get, clipboard_set
-from aura.text.measure import measure_width
+from aura.text.measure import TextLine, layout_lines, line_for_offset, measure_height, measure_width
 from aura.widgets.framework import dirty_element_id
 
 KEY_LEFT: int = 123
@@ -24,6 +24,10 @@ class TextEditingController:
     target_id: int
     element_id: int
     bound: int
+    wrap_width: float
+    multiline: int
+    goal_x: float
+    edge: int
 
     def __init__(self, text: str) -> None:
         self.text = text
@@ -33,6 +37,10 @@ class TextEditingController:
         self.target_id = _remember(self)
         self.element_id = 0
         self.bound = 0
+        self.wrap_width = 100000.0
+        self.multiline = 0
+        self.goal_x = 0.0
+        self.edge = 1
 
     def bind(self, element_id: int) -> None:
         self.element_id = element_id
@@ -66,12 +74,40 @@ class TextEditingController:
                 self.collapse(self.sel_start())
             else:
                 self.collapse(self.sel_end())
+            self._follow_caret()
             return
         index: int = self.cursor + delta
         if extend == 1:
             self.extend_to(index)
         else:
             self.collapse(index)
+        self._follow_caret()
+
+    def move_line(self, delta: int, extend: int) -> None:
+        shown: str = display_text(self.text, self.cursor, self.composing)
+        lines: list[TextLine] = self._visual_lines(shown)
+        display_index: int = self.cursor + len(self.composing)
+        row: int = line_for_offset(lines, display_index, self.edge)
+        next_row: int = row + delta
+        if next_row < 0:
+            next_row = 0
+        if next_row >= len(lines):
+            next_row = len(lines) - 1
+        if len(lines) == 0:
+            return
+        line: TextLine = lines[next_row]
+        inner: int = index_at(line.text, self.goal_x)
+        if inner >= len(line.text):
+            self.edge = 0
+        else:
+            self.edge = 1
+        hit: int = from_display(line.start + inner, self.cursor, len(self.composing))
+        kept: float = self.goal_x
+        if extend == 1:
+            self.extend_to(hit)
+        else:
+            self.collapse(hit)
+        self.goal_x = kept
 
     def insert(self, value: str) -> None:
         self._delete_selection()
@@ -82,11 +118,13 @@ class TextEditingController:
         self.anchor = self.cursor
         self.composing = ""
         self._notify()
+        self._follow_caret()
 
     def backspace(self) -> None:
         if self._delete_selection() == 1:
             self.composing = ""
             self._notify()
+            self._follow_caret()
             return
         if self.cursor <= 0:
             return
@@ -97,6 +135,7 @@ class TextEditingController:
         self.anchor = self.cursor
         self.composing = ""
         self._notify()
+        self._follow_caret()
 
     def cut(self) -> None:
         if self.sel_start() == self.sel_end():
@@ -104,6 +143,7 @@ class TextEditingController:
         clipboard_set(self.selected_text())
         self._delete_selection()
         self._notify()
+        self._follow_caret()
 
     def copy(self) -> None:
         if self.sel_start() == self.sel_end():
@@ -112,6 +152,37 @@ class TextEditingController:
 
     def paste(self) -> None:
         self.insert(clipboard_get())
+
+    def offset_at(self, local_x: float, local_y: float) -> int:
+        shown: str = display_text(self.text, self.cursor, self.composing)
+        lines: list[TextLine] = self._visual_lines(shown)
+        if len(lines) == 0:
+            return 0
+        row: int = row_at(local_y, _line_height(), len(lines))
+        line: TextLine = lines[row]
+        inner: int = index_at(line.text, local_x)
+        if inner >= len(line.text):
+            self.edge = 0
+        else:
+            self.edge = 1
+        return from_display(line.start + inner, self.cursor, len(self.composing))
+
+    def _visual_lines(self, shown: str) -> list[TextLine]:
+        if self.multiline == 0:
+            single: list[TextLine] = []
+            single.append(TextLine(0, len(shown), shown))
+            return single
+        width: float = self.wrap_width
+        if width < 1.0:
+            width = 1.0
+        return layout_lines(shown, width, 16.0, 400, "")
+
+    def _follow_caret(self) -> None:
+        shown: str = display_text(self.text, self.cursor, self.composing)
+        lines: list[TextLine] = self._visual_lines(shown)
+        display_index: int = self.cursor + len(self.composing)
+        self.goal_x = _caret_x(lines, display_index, self.edge)
+        self.edge = 1
 
     def _delete_selection(self) -> int:
         start: int = self.sel_start()
@@ -155,6 +226,14 @@ def _find(target_id: int) -> TextEditingController | None:
             return _targets[i]
         i = i + 1
     return None
+
+
+def remember_field_metrics(target_id: int, wrap_width: float, multiline: int) -> None:
+    controller: TextEditingController | None = _find(target_id)
+    if controller is None:
+        return
+    controller.wrap_width = wrap_width
+    controller.multiline = multiline
 
 
 def _focused_target(manager: FocusManager) -> TextEditingController | None:
@@ -203,15 +282,9 @@ def deliver_key(manager: FocusManager, code: int, mods: int) -> None:
     elif code == KEY_RIGHT:
         controller.move_by(1, extend)
     elif code == KEY_UP_ARROW:
-        if extend == 1:
-            controller.extend_to(0)
-        else:
-            controller.collapse(0)
+        controller.move_line(-1, extend)
     elif code == KEY_DOWN_ARROW:
-        if extend == 1:
-            controller.extend_to(len(controller.text))
-        else:
-            controller.collapse(len(controller.text))
+        controller.move_line(1, extend)
 
 
 def _clamp(index: int, count: int) -> int:
@@ -220,6 +293,59 @@ def _clamp(index: int, count: int) -> int:
     if index > count:
         return count
     return index
+
+
+def display_text(value: str, cursor: int, composing: str) -> str:
+    if composing == "":
+        return value
+    point: int = _clamp(cursor, len(value))
+    return value[0:point] + composing + value[point:len(value)]
+
+
+def to_display(index: int, cursor: int, composing_len: int) -> int:
+    if index <= cursor:
+        return index
+    return index + composing_len
+
+
+def from_display(index: int, cursor: int, composing_len: int) -> int:
+    if composing_len <= 0:
+        return index
+    if index <= cursor:
+        return index
+    end: int = cursor + composing_len
+    if index >= end:
+        return index - composing_len
+    return cursor
+
+
+def row_at(local_y: float, line_height: float, count: int) -> int:
+    if count <= 1 or local_y <= 0.0 or line_height <= 0.0:
+        return 0
+    row: int = 0
+    limit: float = line_height
+    while row + 1 < count and local_y >= limit:
+        row = row + 1
+        limit = limit + line_height
+    return row
+
+
+def _line_height() -> float:
+    return measure_height(16.0, 400, "")
+
+
+def _caret_x(lines: list[TextLine], index: int, edge: int) -> float:
+    if len(lines) == 0:
+        return 0.0
+    row: int = line_for_offset(lines, index, edge)
+    line: TextLine = lines[row]
+    local: int = index - line.start
+    if local < 0:
+        local = 0
+    count: int = len(line.text)
+    if local > count:
+        local = count
+    return measure_width(line.text[0:local], 16.0, 400, "")
 
 
 def index_at(text: str, local_x: float) -> int:
@@ -238,15 +364,21 @@ def index_at(text: str, local_x: float) -> int:
     return count
 
 
-def pointer_text_down(target_id: int, local_x: float) -> None:
+def pointer_text_down(target_id: int, local_x: float, local_y: float, content_width: float) -> None:
     controller: TextEditingController | None = _find(target_id)
     if controller is None:
         return
-    controller.collapse(index_at(controller.text, local_x))
+    if content_width >= 1.0:
+        controller.wrap_width = content_width
+    controller.collapse(controller.offset_at(local_x, local_y))
+    controller.goal_x = local_x
 
 
-def pointer_text_move(target_id: int, local_x: float) -> None:
+def pointer_text_move(target_id: int, local_x: float, local_y: float, content_width: float) -> None:
     controller: TextEditingController | None = _find(target_id)
     if controller is None:
         return
-    controller.extend_to(index_at(controller.text, local_x))
+    if content_width >= 1.0:
+        controller.wrap_width = content_width
+    controller.extend_to(controller.offset_at(local_x, local_y))
+    controller.goal_x = local_x

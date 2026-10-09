@@ -4,8 +4,8 @@ from aura.platform.bridge import sync_text_input
 from aura.rendering.layer import PaintingContext
 from aura.rendering.render_object import RenderBox
 from aura.semantics.semantics_node import SemanticsNode
-from aura.text.editing import TextEditingController
-from aura.text.measure import measure_height, measure_width, wrap_text
+from aura.text.editing import TextEditingController, display_text, remember_field_metrics, to_display
+from aura.text.measure import TextLine, layout_lines, line_for_offset, measure_height, measure_width
 from aura.widgets.framework import Element, RenderObjectWidget
 from aura.widgets.key import Key
 from aura.widgets.type_ids import alloc_type_id
@@ -15,6 +15,10 @@ TYPE_FIELD: int = alloc_type_id()
 
 SELECTION: int = rgba(196, 122, 74, 90)
 
+_paint_ids: list[int] = []
+_paint_rows: list[int] = []
+_paint_text: list[str] = []
+
 
 class RenderTextField(RenderBox):
     value: str
@@ -22,7 +26,9 @@ class RenderTextField(RenderBox):
     cursor: int
     anchor: int
     multiline: int
+    edge: int
     lines: list[str]
+    mapped: list[TextLine]
     line_height: float
 
     def __init__(self) -> None:
@@ -32,19 +38,23 @@ class RenderTextField(RenderBox):
         self.cursor = 0
         self.anchor = 0
         self.multiline = 0
+        self.edge = 1
         self.lines = []
+        empty: list[TextLine] = []
+        self.mapped = empty
         self.line_height = 16.0
         self.semantics_role = "text-field"
 
-    def set_text_field(self, value: str, composing: str, cursor: int, anchor: int, multiline: int) -> None:
+    def set_text_field(self, value: str, composing: str, cursor: int, anchor: int, multiline: int, edge: int) -> None:
         changed: bool = False
-        if self.value != value or self.composing != composing or self.cursor != cursor or self.anchor != anchor or self.multiline != multiline:
+        if self.value != value or self.composing != composing or self.cursor != cursor or self.anchor != anchor or self.multiline != multiline or self.edge != edge:
             changed = True
         self.value = value
         self.composing = composing
         self.cursor = cursor
         self.anchor = anchor
         self.multiline = multiline
+        self.edge = edge
         self.semantics_label = value
         if changed:
             self.mark_needs_layout()
@@ -52,20 +62,30 @@ class RenderTextField(RenderBox):
 
     def perform_layout(self) -> None:
         self.line_height = measure_height(16.0, 400, "")
-        shown: str = self.value
-        if self.composing != "":
-            shown = shown + self.composing
+        shown: str = display_text(self.value, self.cursor, self.composing)
+        content: float = self.constraints.max_width - 16.0
+        if content < 1.0:
+            content = 1.0
+        built: list[TextLine] = []
         if self.multiline == 0:
-            self.lines = [shown]
+            built.append(TextLine(0, len(shown), shown))
         else:
-            self.lines = wrap_text(shown, self.constraints.max_width - 16.0, 16.0, 400, "")
-        if len(self.lines) == 0:
-            self.lines = [""]
+            built = layout_lines(shown, content, 16.0, 400, "")
+        if len(built) == 0:
+            built.append(TextLine(0, 0, ""))
+        self.mapped = built
+        texts: list[str] = []
+        n: int = 0
+        while n < len(self.mapped):
+            texts.append(self.mapped[n].text)
+            n = n + 1
+        self.lines = texts
         self.width = self.constraints.constrain_width(self.constraints.max_width)
         if self.multiline == 0:
             self.height = self.constraints.constrain_height(self.line_height + 16.0)
         else:
             self.height = self.constraints.constrain_height(self.line_height * float(len(self.lines)) + 16.0)
+        remember_field_metrics(self.text_target, content, self.multiline)
 
     def paint_self(self, context: PaintingContext) -> None:
         context.fill_rect(0.0, 0.0, self.width, self.height, 4294967295)
@@ -74,20 +94,48 @@ class RenderTextField(RenderBox):
         if start > end:
             start = self.anchor
             end = self.cursor
-        if start != end:
-            left: float = 8.0 + measure_width(self.value[0:start], 16.0, 400, "")
-            right: float = 8.0 + measure_width(self.value[0:end], 16.0, 400, "")
-            context.fill_rect(left, 8.0, right - left, self.line_height, SELECTION)
+        sel_a: int = to_display(start, self.cursor, len(self.composing))
+        sel_b: int = to_display(end, self.cursor, len(self.composing))
+        rows: int = 0
         i: int = 0
+        while i < len(self.mapped):
+            line: TextLine = self.mapped[i]
+            left_i: int = sel_a
+            right_i: int = sel_b
+            if left_i < line.start:
+                left_i = line.start
+            if right_i > line.end:
+                right_i = line.end
+            if start != end and left_i < right_i:
+                local_l: int = left_i - line.start
+                local_r: int = right_i - line.start
+                x0: float = 8.0 + measure_width(line.text[0:local_l], 16.0, 400, "")
+                x1: float = 8.0 + measure_width(line.text[0:local_r], 16.0, 400, "")
+                if x1 > x0:
+                    y: float = 8.0 + float(i) * self.line_height
+                    context.fill_rect(x0, y, x1 - x0, self.line_height, SELECTION)
+                    rows = rows + 1
+            i = i + 1
+        i = 0
         while i < len(self.lines):
             context.fill_text(8.0, 8.0 + float(i) * self.line_height, self.lines[i], 16.0, 400, COLOR_TEXT, "")
             i = i + 1
-        caret_text: str = self.value
-        if self.composing != "":
-            caret_text = self.value + self.composing
-        caret: str = caret_text[0:self.cursor + len(self.composing)]
-        caret_x: float = 8.0 + measure_width(caret, 16.0, 400, "")
-        context.fill_rect(caret_x, 8.0, 1.0, self.line_height, COLOR_ACCENT)
+        if len(self.mapped) == 0:
+            context.fill_rect(8.0, 8.0, 1.0, self.line_height, COLOR_ACCENT)
+            _store_paint(self.text_target, rows, _join_lines(self.lines))
+            return
+        caret_index: int = self.cursor + len(self.composing)
+        caret_row: int = line_for_offset(self.mapped, caret_index, self.edge)
+        caret_line: TextLine = self.mapped[caret_row]
+        local: int = caret_index - caret_line.start
+        if local < 0:
+            local = 0
+        if local > len(caret_line.text):
+            local = len(caret_line.text)
+        caret_x: float = 8.0 + measure_width(caret_line.text[0:local], 16.0, 400, "")
+        caret_y: float = 8.0 + float(caret_row) * self.line_height
+        context.fill_rect(caret_x, caret_y, 1.0, self.line_height, COLOR_ACCENT)
+        _store_paint(self.text_target, rows, _join_lines(self.lines))
 
     def hit_test_self(self, x: float, y: float) -> bool:
         return True
@@ -120,11 +168,55 @@ class TextField(RenderObjectWidget):
             return
         box.set_tap(element.focus_field)
         box.set_text_target(self.controller.target_id)
-        box.set_text_field(self.controller.text, self.controller.composing, self.controller.cursor, self.controller.anchor, self.multiline)
+        box.set_text_field(self.controller.text, self.controller.composing, self.controller.cursor, self.controller.anchor, self.multiline, self.controller.edge)
         if _field_is_focused(element):
             start: int = self.controller.sel_start()
             length: int = self.controller.sel_end() - start
             sync_text_input(self.controller.text, start, length)
+
+
+def selection_row_count(target_id: int) -> int:
+    i: int = 0
+    while i < len(_paint_ids):
+        if _paint_ids[i] == target_id:
+            return _paint_rows[i]
+        i = i + 1
+    return 0
+
+
+def painted_text(target_id: int) -> str:
+    i: int = 0
+    while i < len(_paint_ids):
+        if _paint_ids[i] == target_id:
+            return _paint_text[i]
+        i = i + 1
+    return ""
+
+
+def _store_paint(target_id: int, rows: int, text: str) -> None:
+    if target_id == 0:
+        return
+    i: int = 0
+    while i < len(_paint_ids):
+        if _paint_ids[i] == target_id:
+            _paint_rows[i] = rows
+            _paint_text[i] = text
+            return
+        i = i + 1
+    _paint_ids.append(target_id)
+    _paint_rows.append(rows)
+    _paint_text.append(text)
+
+
+def _join_lines(lines: list[str]) -> str:
+    joined: str = ""
+    i: int = 0
+    while i < len(lines):
+        if i > 0:
+            joined = joined + "\n"
+        joined = joined + lines[i]
+        i = i + 1
+    return joined
 
 
 def _field_is_focused(element: Element) -> bool:
