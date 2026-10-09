@@ -1,10 +1,10 @@
 # Aura yol haritası
 
-Bu dosya 0.5’ten mobil temelin kapanışına kadar bağlayıcı teslimat sözleşmesidir. `AGENTS.md` invariant’ları geçerlidir. Çelişki olursa `AGENTS.md` kazanır ve bu dosya ona göre güncellenir.
+Bu dosya 0.6’dan mobil temelin kapanışına kadar bağlayıcı teslimat sözleşmesidir. `AGENTS.md` invariant’ları geçerlidir. Çelişki olursa `AGENTS.md` kazanır ve bu dosya ona göre güncellenir.
 
 Bir sürüm bitmeden sonrakine geçilmez. Her sürümün self-check’i bir öncekini kırmaz. Nox derleyicisi değişmez. Widget katmanında `extern def` ve platform dalı yoktur. Yerleşim, sahne, kabuk, gezinme, durum, signal veya çizim backend’i değişecekse önce ADR yazılır.
 
-0.1, 0.2, 0.3, 0.4 ve 0.5 kabul edilmiştir. 0.5 tek bir düz metin belgesidir. Kapı `scripts/certify.sh` ve GitHub Actions’tır.
+0.1, 0.2, 0.3, 0.4, 0.5 ve 0.6 kabul edilmiştir. 0.6 tema kirletmesini ve pencere okumasını dondurur. Kapı `scripts/certify.sh` ve GitHub Actions’tır.
 
 ## 0.4 — Kabuk sertifikası
 
@@ -22,9 +22,11 @@ Zengin metin, çift yön, emoji, not listesi ve kayıt bu sürüme girmedi.
 
 ## 0.6 — Settings
 
-Tema değişince yalnız temaya bağlı eleman kirlenir. Pencere başlığı, boyutu, ölçeği ve imleç uygulama kodundan okunur.
+Tamamlandı. `examples/settings` temayı değiştirir. Temaya bakan satır kirlenir. Açık renk verilmiş başlık ve temaya bakmayan düğme yeniden kurulmaz.
 
-Bu dilimden sonra tema ve pencere adları genel API sayılır. Kırılması ana sürüm ister.
+Self-check gizli pencerede başlığı `Settings`, boyutu `800` ve `600`, ölçeği sıfırdan büyük okur. İşaretçi metin alanının üstündeyken `cursor_kind` `1`, dışında `0` olur.
+
+Genel adlar `theme_of`, `Theme`, `ThemeData`, `ColorScheme`, `Typography`, `window_title`, `window_width`, `window_height`, `window_scale` ve `cursor_kind`’dır. Kırılması ana sürüm ister. Kalıcı ayar, çok bölmeli form ve sohbet bu sürüme girmedi.
 
 ## 0.7 — Chat
 

@@ -2,6 +2,16 @@
 
 Bu dosya yayımlanan sürümleri tutar. Sürüm numarası `nox.json` ile, git etiketi `v` önekiyle aynıdır. Sonraki teslimatların sırası [roadmap.md](roadmap.md) dosyasındadır.
 
+## 0.6.0
+
+Settings. Tema değişince yalnız temaya bakan eleman kirlenir. Uygulama pencere başlığını, boyutunu, ölçeğini ve imleci okur. Kapı `scripts/certify.sh` ve GitHub Actions’tır: macOS, gizli Win32, X11 ve Wayland.
+
+- `theme_of`, `Theme`, `ThemeData`, `ColorScheme` ve `Typography` bu sürümün genel adlarıdır. `theme_for_element` içte kalır.
+- `window_title`, `window_width`, `window_height`, `window_scale` ve `cursor_kind` etkin pencereyi okur. Başlık panonun uzunluk ve bayt çiftiyle döner. İmleç pencerede tutulan son türdür: ok `0`, metin `1`.
+- `examples/settings` self-check’i başlığı `Settings`, boyutu `800` ve `600`, ölçeği sıfırdan büyük okur. İşaretçi metin alanının üstündeyken imleç `1`, dışında `0` olur.
+- Tema düğmesi temayı değiştirir. Temaya bakan satırın `rebuild_count` değeri artar. Açık renkli başlık ve temaya bakmayan düğme yeniden kurulmaz.
+- Sertifika Notes’tan sonra Settings’i gizli pencerede koşturur. Pencere açık kalmaz.
+
 ## 0.5.0
 
 Notes. Tek belge, düz metin. Paragraflar satır sonuyla ayrılır. Zengin metin, çift yön ve emoji yoktur. Kapı `scripts/certify.sh` ve GitHub Actions’tır: macOS, gizli Win32, X11 ve Wayland.
