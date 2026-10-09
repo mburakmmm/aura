@@ -132,7 +132,7 @@ struct X11Atoms {
 static X11Atoms g_atoms;
 
 static void ensure_atoms(Display *display) {
-    if (g_atoms.ready || display == NULL) {
+    if (display == NULL) {
         return;
     }
     g_atoms.protocols = XInternAtom(display, "WM_PROTOCOLS", False);
@@ -838,6 +838,25 @@ static int create_wayland(AuraWindow *window, int64_t width, int64_t height, con
     return 1;
 }
 
+static void ensure_xim(AuraWindow *window) {
+    if (window->im != NULL || window->display == NULL || window->xwindow == 0) {
+        return;
+    }
+    if (!XSupportsLocale()) {
+        return;
+    }
+    XSetLocaleModifiers("");
+    window->im = XOpenIM(window->display, NULL, NULL, NULL);
+    if (window->im == NULL) {
+        return;
+    }
+    window->ic = XCreateIC(window->im, XNInputStyle, XIMPreeditNothing | XIMStatusNothing, XNClientWindow, window->xwindow, NULL);
+    if (window->ic == NULL) {
+        XCloseIM(window->im);
+        window->im = NULL;
+    }
+}
+
 static int create_x11(AuraWindow *window, int64_t width, int64_t height, const char *title, int64_t visible) {
     XSetWindowAttributes attrs;
     window->display = XOpenDisplay(NULL);
@@ -854,16 +873,13 @@ static int create_x11(AuraWindow *window, int64_t width, int64_t height, const c
     }
     XStoreName(window->display, window->xwindow, title != NULL ? title : "Aura");
     ensure_atoms(window->display);
-    XSetWMProtocols(window->display, window->xwindow, &g_atoms.wm_delete, 1);
     {
+        Atom protocol = g_atoms.wm_delete;
         long version = 5;
+        XSetWMProtocols(window->display, window->xwindow, &protocol, 1);
         XChangeProperty(window->display, window->xwindow, g_atoms.xdnd_aware, XA_ATOM, 32, PropModeReplace, (unsigned char *)&version, 1);
     }
     window->gc = XCreateGC(window->display, window->xwindow, 0, NULL);
-    window->im = XOpenIM(window->display, NULL, NULL, NULL);
-    if (window->im != NULL) {
-        window->ic = XCreateIC(window->im, XNInputStyle, XIMPreeditNothing | XIMStatusNothing, XNClientWindow, window->xwindow, NULL);
-    }
     window->width = (int)width;
     window->height = (int)height;
     window->shell = AURA_SHELL_X11;
@@ -1144,6 +1160,9 @@ static void poll_x11(AuraWindow *window) {
                 mods |= 1;
             }
             aura_queue_push(&window->queue, event.type == KeyPress ? AURA_KEY_DOWN : AURA_KEY_UP, 0, 0, (int64_t)event.xkey.keycode, mods);
+            if (event.type == KeyPress && window->text_focus) {
+                ensure_xim(window);
+            }
             if (event.type == KeyPress && window->text_focus && window->ic != NULL) {
                 length = Xutf8LookupString(window->ic, &event.xkey, text, (int)sizeof(text) - 1, &symbol, &status);
                 if (length > 0) {
@@ -1655,8 +1674,11 @@ extern "C" int64_t aura_text_focus(int64_t handle, int64_t enabled) {
         return -1;
     }
     window->text_focus = enabled != 0;
-    if (window->shell == AURA_SHELL_X11 && window->ic != NULL && enabled != 0) {
-        XSetICFocus(window->ic);
+    if (window->shell == AURA_SHELL_X11 && enabled != 0) {
+        ensure_xim(window);
+        if (window->ic != NULL) {
+            XSetICFocus(window->ic);
+        }
     }
     if (window->shell == AURA_SHELL_WAYLAND && window->text_input != NULL) {
         if (enabled != 0) {

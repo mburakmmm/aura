@@ -35,15 +35,13 @@ jobs:
         shell: bash
         run: |
           gcc_path="$(command -v gcc)"
-          mkdir -p "$HOME/bin"
-          cp "$gcc_path" "$HOME/bin/cc.exe"
-          echo "$HOME/bin" >> "$GITHUB_PATH"
+          cp "$gcc_path" "$(dirname "$gcc_path")/cc.exe"
       - name: Sertifika
         shell: cmd
         run: |
           for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VS=%%i"
           call "%VS%\VC\Auxiliary\Build\vcvars64.bat"
-          set "PATH=%USERPROFILE%\bin;%USERPROFILE%\.nox-lang\bin;%PATH%"
+          set "PATH=%USERPROFILE%\.nox-lang\bin;%PATH%"
           bash ./scripts/certify.sh
 
   linux-x11:
