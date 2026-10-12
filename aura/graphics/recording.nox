@@ -8,6 +8,20 @@ KIND_OPACITY_POP: int = 5
 KIND_IMAGE: int = 6
 KIND_CLIP: int = 7
 KIND_CLIP_POP: int = 8
+KIND_TEXT_STYLE: int = 9
+KIND_RRECT: int = 10
+KIND_RRECT_STROKE: int = 11
+KIND_OVAL: int = 12
+KIND_LINE: int = 13
+KIND_SHADOW: int = 14
+KIND_PATH_BEGIN: int = 15
+KIND_PATH_MOVE: int = 16
+KIND_PATH_LINE: int = 17
+KIND_PATH_QUAD: int = 18
+KIND_PATH_CUBIC: int = 19
+KIND_PATH_CLOSE: int = 20
+KIND_PATH_FILL: int = 21
+KIND_PATH_STROKE: int = 22
 
 
 class RecordingCanvas(Canvas):
@@ -21,6 +35,9 @@ class RecordingCanvas(Canvas):
     argbs: list[int]
     texts: list[str]
     families: list[str]
+    extras: list[float]
+    dxs: list[float]
+    dys: list[float]
     presented: int
 
     def __init__(self) -> None:
@@ -34,6 +51,9 @@ class RecordingCanvas(Canvas):
         self.argbs = []
         self.texts = []
         self.families = []
+        self.extras = []
+        self.dxs = []
+        self.dys = []
         self.presented = 0
 
     def clear(self, argb: int) -> None:
@@ -47,6 +67,9 @@ class RecordingCanvas(Canvas):
         self.argbs.append(argb)
         self.texts.append("")
         self.families.append("")
+        self.extras.append(0.0)
+        self.dxs.append(0.0)
+        self.dys.append(0.0)
 
     def fill_rect(self, x: float, y: float, w: float, h: float, argb: int) -> None:
         self.kinds.append(KIND_RECT)
@@ -59,6 +82,9 @@ class RecordingCanvas(Canvas):
         self.argbs.append(argb)
         self.texts.append("")
         self.families.append("")
+        self.extras.append(0.0)
+        self.dxs.append(0.0)
+        self.dys.append(0.0)
 
     def fill_text(self, x: float, y: float, text: str, size: float, weight: int, argb: int, family: str) -> None:
         self.kinds.append(KIND_TEXT)
@@ -71,6 +97,87 @@ class RecordingCanvas(Canvas):
         self.argbs.append(argb)
         self.texts.append(text)
         self.families.append(family)
+        self.extras.append(0.0)
+        self.dxs.append(0.0)
+        self.dys.append(0.0)
+
+    def fill_text_style(self, x: float, y: float, text: str, size: float, weight: int, argb: int, family: str, italic: int) -> None:
+        mark: float = 0.0
+        if italic != 0:
+            mark = 1.0
+        self.kinds.append(KIND_TEXT_STYLE)
+        self.xs.append(x)
+        self.ys.append(y)
+        self.ws.append(0.0)
+        self.hs.append(mark)
+        self.sizes.append(size)
+        self.weights.append(weight)
+        self.argbs.append(argb)
+        self.texts.append(text)
+        self.families.append(family)
+        self.extras.append(0.0)
+        self.dxs.append(0.0)
+        self.dys.append(0.0)
+
+    def fill_rrect(self, x: float, y: float, w: float, h: float, radius: float, argb: int) -> None:
+        self.kinds.append(KIND_RRECT)
+        self.xs.append(x)
+        self.ys.append(y)
+        self.ws.append(w)
+        self.hs.append(h)
+        self.sizes.append(radius)
+        self.weights.append(0)
+        self.argbs.append(argb)
+        self.texts.append("")
+        self.families.append("")
+        self.extras.append(0.0)
+        self.dxs.append(0.0)
+        self.dys.append(0.0)
+
+    def stroke_rrect(self, x: float, y: float, w: float, h: float, radius: float, stroke: float, argb: int) -> None:
+        self.kinds.append(KIND_RRECT_STROKE)
+        self.xs.append(x)
+        self.ys.append(y)
+        self.ws.append(w)
+        self.hs.append(h)
+        self.sizes.append(radius)
+        self.weights.append(0)
+        self.argbs.append(argb)
+        self.texts.append("")
+        self.families.append("")
+        self.extras.append(stroke)
+        self.dxs.append(0.0)
+        self.dys.append(0.0)
+
+    def fill_oval(self, x: float, y: float, w: float, h: float, argb: int) -> None:
+        self.kinds.append(KIND_OVAL)
+        self.xs.append(x)
+        self.ys.append(y)
+        self.ws.append(w)
+        self.hs.append(h)
+        self.sizes.append(0.0)
+        self.weights.append(0)
+        self.argbs.append(argb)
+        self.texts.append("")
+        self.families.append("")
+        self.extras.append(0.0)
+        self.dxs.append(0.0)
+        self.dys.append(0.0)
+
+    def draw_line(self, x: float, y: float, x2: float, y2: float, stroke: float, argb: int) -> None:
+        self.kinds.append(KIND_LINE)
+        self.xs.append(x)
+        self.ys.append(y)
+        self.ws.append(x2)
+        self.hs.append(y2)
+        self.sizes.append(stroke)
+        self.weights.append(0)
+        self.argbs.append(argb)
+        self.texts.append("")
+        self.families.append("")
+        self.extras.append(0.0)
+        self.dxs.append(0.0)
+        self.dys.append(0.0)
 
     def push_opacity(self, opacity: float) -> None:
         self.kinds.append(KIND_OPACITY)
@@ -83,6 +190,9 @@ class RecordingCanvas(Canvas):
         self.argbs.append(0)
         self.texts.append("")
         self.families.append("")
+        self.extras.append(0.0)
+        self.dxs.append(0.0)
+        self.dys.append(0.0)
 
     def draw_image(self, x: float, y: float, w: float, h: float, image: int) -> None:
         self.kinds.append(KIND_IMAGE)
@@ -95,6 +205,9 @@ class RecordingCanvas(Canvas):
         self.argbs.append(0)
         self.texts.append("")
         self.families.append("")
+        self.extras.append(0.0)
+        self.dxs.append(0.0)
+        self.dys.append(0.0)
 
     def pop_opacity(self) -> None:
         self.kinds.append(KIND_OPACITY_POP)
@@ -107,6 +220,9 @@ class RecordingCanvas(Canvas):
         self.argbs.append(0)
         self.texts.append("")
         self.families.append("")
+        self.extras.append(0.0)
+        self.dxs.append(0.0)
+        self.dys.append(0.0)
 
     def push_clip(self, x: float, y: float, w: float, h: float) -> None:
         self.kinds.append(KIND_CLIP)
@@ -119,6 +235,9 @@ class RecordingCanvas(Canvas):
         self.argbs.append(0)
         self.texts.append("")
         self.families.append("")
+        self.extras.append(0.0)
+        self.dxs.append(0.0)
+        self.dys.append(0.0)
 
     def pop_clip(self) -> None:
         self.kinds.append(KIND_CLIP_POP)
@@ -131,6 +250,144 @@ class RecordingCanvas(Canvas):
         self.argbs.append(0)
         self.texts.append("")
         self.families.append("")
+        self.extras.append(0.0)
+        self.dxs.append(0.0)
+        self.dys.append(0.0)
+
+    def fill_shadow(self, x: float, y: float, w: float, h: float, radius: float, dx: float, dy: float, blur: float, argb: int) -> None:
+        self.kinds.append(KIND_SHADOW)
+        self.xs.append(x)
+        self.ys.append(y)
+        self.ws.append(w)
+        self.hs.append(h)
+        self.sizes.append(radius)
+        self.weights.append(0)
+        self.argbs.append(argb)
+        self.texts.append("")
+        self.families.append("")
+        self.extras.append(blur)
+        self.dxs.append(dx)
+        self.dys.append(dy)
+
+    def path_begin(self) -> None:
+        self.kinds.append(KIND_PATH_BEGIN)
+        self.xs.append(0.0)
+        self.ys.append(0.0)
+        self.ws.append(0.0)
+        self.hs.append(0.0)
+        self.sizes.append(0.0)
+        self.weights.append(0)
+        self.argbs.append(0)
+        self.texts.append("")
+        self.families.append("")
+        self.extras.append(0.0)
+        self.dxs.append(0.0)
+        self.dys.append(0.0)
+
+    def path_move(self, x: float, y: float) -> None:
+        self.kinds.append(KIND_PATH_MOVE)
+        self.xs.append(x)
+        self.ys.append(y)
+        self.ws.append(0.0)
+        self.hs.append(0.0)
+        self.sizes.append(0.0)
+        self.weights.append(0)
+        self.argbs.append(0)
+        self.texts.append("")
+        self.families.append("")
+        self.extras.append(0.0)
+        self.dxs.append(0.0)
+        self.dys.append(0.0)
+
+    def path_line(self, x: float, y: float) -> None:
+        self.kinds.append(KIND_PATH_LINE)
+        self.xs.append(x)
+        self.ys.append(y)
+        self.ws.append(0.0)
+        self.hs.append(0.0)
+        self.sizes.append(0.0)
+        self.weights.append(0)
+        self.argbs.append(0)
+        self.texts.append("")
+        self.families.append("")
+        self.extras.append(0.0)
+        self.dxs.append(0.0)
+        self.dys.append(0.0)
+
+    def path_quad(self, cx: float, cy: float, x: float, y: float) -> None:
+        self.kinds.append(KIND_PATH_QUAD)
+        self.xs.append(x)
+        self.ys.append(y)
+        self.ws.append(cx)
+        self.hs.append(cy)
+        self.sizes.append(0.0)
+        self.weights.append(0)
+        self.argbs.append(0)
+        self.texts.append("")
+        self.families.append("")
+        self.extras.append(0.0)
+        self.dxs.append(0.0)
+        self.dys.append(0.0)
+
+    def path_cubic(self, c1x: float, c1y: float, c2x: float, c2y: float, x: float, y: float) -> None:
+        self.kinds.append(KIND_PATH_CUBIC)
+        self.xs.append(x)
+        self.ys.append(y)
+        self.ws.append(c1x)
+        self.hs.append(c1y)
+        self.sizes.append(c2x)
+        self.weights.append(0)
+        self.argbs.append(0)
+        self.texts.append("")
+        self.families.append("")
+        self.extras.append(c2y)
+        self.dxs.append(0.0)
+        self.dys.append(0.0)
+
+    def path_close(self) -> None:
+        self.kinds.append(KIND_PATH_CLOSE)
+        self.xs.append(0.0)
+        self.ys.append(0.0)
+        self.ws.append(0.0)
+        self.hs.append(0.0)
+        self.sizes.append(0.0)
+        self.weights.append(0)
+        self.argbs.append(0)
+        self.texts.append("")
+        self.families.append("")
+        self.extras.append(0.0)
+        self.dxs.append(0.0)
+        self.dys.append(0.0)
+
+    def path_fill(self, argb: int) -> None:
+        self.kinds.append(KIND_PATH_FILL)
+        self.xs.append(0.0)
+        self.ys.append(0.0)
+        self.ws.append(0.0)
+        self.hs.append(0.0)
+        self.sizes.append(0.0)
+        self.weights.append(0)
+        self.argbs.append(argb)
+        self.texts.append("")
+        self.families.append("")
+        self.extras.append(0.0)
+        self.dxs.append(0.0)
+        self.dys.append(0.0)
+
+    def path_stroke(self, stroke: float, argb: int) -> None:
+        self.kinds.append(KIND_PATH_STROKE)
+        self.xs.append(0.0)
+        self.ys.append(0.0)
+        self.ws.append(0.0)
+        self.hs.append(0.0)
+        self.sizes.append(stroke)
+        self.weights.append(0)
+        self.argbs.append(argb)
+        self.texts.append("")
+        self.families.append("")
+        self.extras.append(0.0)
+        self.dxs.append(0.0)
+        self.dys.append(0.0)
 
     def present(self) -> None:
         self.presented = self.presented + 1
@@ -146,6 +403,9 @@ class RecordingCanvas(Canvas):
         self.argbs = []
         self.texts = []
         self.families = []
+        self.extras = []
+        self.dxs = []
+        self.dys = []
         self.presented = 0
 
     def rect_count(self) -> int:
@@ -171,6 +431,15 @@ class RecordingCanvas(Canvas):
         i: int = 0
         while i < len(self.kinds):
             if self.kinds[i] == KIND_TEXT:
+                count = count + 1
+            i = i + 1
+        return count
+
+    def text_style_count(self) -> int:
+        count: int = 0
+        i: int = 0
+        while i < len(self.kinds):
+            if self.kinds[i] == KIND_TEXT_STYLE:
                 count = count + 1
             i = i + 1
         return count

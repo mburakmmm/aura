@@ -1,0 +1,235 @@
+from aura.rendering.layer import PaintingContext
+from aura.rendering.render_object import RenderBox
+from aura.semantics.semantics_node import SemanticsNode
+from aura.text.measure import measure_height, measure_width_style
+from aura.widgets.framework import Element, RenderObjectWidget
+from aura.widgets.key import Key
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_RICH: int = alloc_type_id()
+
+
+class TextRun:
+    text: str
+    font_size: float
+    weight: int
+    italic: int
+    color: int
+
+    def __init__(self, text: str, font_size: float, weight: int, italic: int, color: int) -> None:
+        self.text = text
+        self.font_size = font_size
+        self.weight = weight
+        self.italic = italic
+        self.color = color
+
+
+class RichPiece:
+    text: str
+    x: float
+    y: float
+    font_size: float
+    weight: int
+    italic: int
+    color: int
+
+    def __init__(self, text: str, x: float, y: float, font_size: float, weight: int, italic: int, color: int) -> None:
+        self.text = text
+        self.x = x
+        self.y = y
+        self.font_size = font_size
+        self.weight = weight
+        self.italic = italic
+        self.color = color
+
+
+class RichLayout:
+    pieces: list[RichPiece]
+    width: float
+    height: float
+    cursor_x: float
+    cursor_y: float
+    line_h: float
+
+    def __init__(self) -> None:
+        self.pieces = []
+        self.width = 0.0
+        self.height = 0.0
+        self.cursor_x = 0.0
+        self.cursor_y = 0.0
+        self.line_h = 0.0
+
+
+def _newline(layout: RichLayout) -> None:
+    tall: float = layout.line_h
+    if tall <= 0.0:
+        tall = measure_height(16.0, 400, "")
+    layout.cursor_y = layout.cursor_y + tall
+    layout.cursor_x = 0.0
+    layout.line_h = 0.0
+
+
+def _place_token(layout: RichLayout, text: str, font_size: float, weight: int, italic: int, color: int, max_width: float) -> None:
+    wide: float = 0.0
+    tall: float = 0.0
+    piece: RichPiece = RichPiece("", 0.0, 0.0, font_size, weight, italic, color)
+    i: int = 0
+    if text == "":
+        return
+    wide = measure_width_style(text, font_size, weight, "", italic)
+    tall = measure_height(font_size, weight, "")
+    if text == " " and layout.cursor_x == 0.0:
+        return
+    if text == " " and layout.cursor_x + wide > max_width:
+        _newline(layout)
+        return
+    if layout.cursor_x > 0.0 and layout.cursor_x + wide > max_width:
+        _newline(layout)
+    if len(text) > 1 and wide > max_width:
+        while i < len(text):
+            _place_token(layout, text[i:i + 1], font_size, weight, italic, color, max_width)
+            i = i + 1
+        return
+    piece = RichPiece(text, layout.cursor_x, layout.cursor_y, font_size, weight, italic, color)
+    layout.pieces.append(piece)
+    layout.cursor_x = layout.cursor_x + wide
+    if layout.cursor_x > layout.width:
+        layout.width = layout.cursor_x
+    if tall > layout.line_h:
+        layout.line_h = tall
+
+
+def _place_run(layout: RichLayout, run: TextRun, max_width: float) -> None:
+    word: str = ""
+    i: int = 0
+    ch: str = ""
+    while i < len(run.text):
+        ch = run.text[i:i + 1]
+        if ch == "\n":
+            if word != "":
+                _place_token(layout, word, run.font_size, run.weight, run.italic, run.color, max_width)
+                word = ""
+            _newline(layout)
+        elif ch == " ":
+            if word != "":
+                _place_token(layout, word, run.font_size, run.weight, run.italic, run.color, max_width)
+                word = ""
+            _place_token(layout, " ", run.font_size, run.weight, run.italic, run.color, max_width)
+        else:
+            word = word + ch
+        i = i + 1
+    if word != "":
+        _place_token(layout, word, run.font_size, run.weight, run.italic, run.color, max_width)
+
+
+def layout_rich(runs: list[TextRun], max_width: float) -> RichLayout:
+    layout: RichLayout = RichLayout()
+    i: int = 0
+    while i < len(runs):
+        _place_run(layout, runs[i], max_width)
+        i = i + 1
+    layout.height = layout.cursor_y + layout.line_h
+    if layout.height <= 0.0:
+        layout.height = measure_height(16.0, 400, "")
+    return layout
+
+
+def rich_height(runs: list[TextRun], max_width: float) -> float:
+    return layout_rich(runs, max_width).height
+
+
+def _same_runs(left: list[TextRun], right: list[TextRun]) -> bool:
+    i: int = 0
+    if len(left) != len(right):
+        return False
+    while i < len(left):
+        if left[i].text != right[i].text or left[i].font_size != right[i].font_size or left[i].weight != right[i].weight or left[i].italic != right[i].italic or left[i].color != right[i].color:
+            return False
+        i = i + 1
+    return True
+
+
+class RenderRich(RenderBox):
+    runs: list[TextRun]
+    pieces: list[RichPiece]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.runs = []
+        self.pieces = []
+        self.semantics_role = "text"
+        self.semantics_label = ""
+
+    def set_rich(self, texts: list[str], sizes: list[float], weights: list[int], italics: list[int], colors: list[int]) -> None:
+        copied: list[TextRun] = []
+        count: int = len(texts)
+        i: int = 0
+        if len(sizes) < count:
+            count = len(sizes)
+        if len(weights) < count:
+            count = len(weights)
+        if len(italics) < count:
+            count = len(italics)
+        if len(colors) < count:
+            count = len(colors)
+        while i < count:
+            copied.append(TextRun(texts[i], sizes[i], weights[i], italics[i], colors[i]))
+            i = i + 1
+        if _same_runs(self.runs, copied):
+            return
+        self.runs = copied
+        self.mark_needs_layout()
+
+    def perform_layout(self) -> None:
+        laid: RichLayout = layout_rich(self.runs, self.constraints.max_width)
+        self.pieces = laid.pieces
+        self.width = self.constraints.constrain_width(laid.width)
+        self.height = self.constraints.constrain_height(laid.height)
+
+    def paint_self(self, context: PaintingContext) -> None:
+        i: int = 0
+        piece: RichPiece = RichPiece("", 0.0, 0.0, 16.0, 400, 0, 0)
+        while i < len(self.pieces):
+            piece = self.pieces[i]
+            if piece.italic != 0:
+                context.fill_text_style(piece.x, piece.y, piece.text, piece.font_size, piece.weight, piece.color, "", piece.italic)
+            else:
+                context.fill_text(piece.x, piece.y, piece.text, piece.font_size, piece.weight, piece.color, "")
+            i = i + 1
+
+    def hit_test_self(self, x: float, y: float) -> bool:
+        return True
+
+    def describe_semantics(self, node: SemanticsNode) -> None:
+        node.role = "text"
+        node.label = self.semantics_label
+        node.value = self.semantics_label
+        node.enabled = True
+        node.checked = False
+
+
+class RichText(RenderObjectWidget):
+    runs: list[TextRun]
+
+    def __init__(self, runs: list[TextRun], key: Key | None = None) -> None:
+        super().__init__(TYPE_RICH, key)
+        self.runs = runs
+
+    def create_render(self) -> RenderBox | None:
+        return RenderRich()
+
+    def sync_render(self, element: Element) -> None:
+        texts: list[str] = []
+        sizes: list[float] = []
+        weights: list[int] = []
+        italics: list[int] = []
+        colors: list[int] = []
+        i: int = 0
+        while i < len(self.runs):
+            texts.append(self.runs[i].text)
+            sizes.append(self.runs[i].font_size)
+            weights.append(self.runs[i].weight)
+            italics.append(self.runs[i].italic)
+            colors.append(self.runs[i].color)
+            i = i + 1
+        element.apply_rich(texts, sizes, weights, italics, colors)

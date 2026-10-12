@@ -1060,11 +1060,109 @@ int64_t aura_cmd_rect(int64_t handle, double x, double y, double w, double h, in
     return aura_paint_rect(x, y, w, h, argb);
 }
 
+int64_t aura_cmd_rrect(int64_t handle, double x, double y, double w, double h, double radius, int64_t argb) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_paint_rrect(x, y, w, h, radius, argb);
+}
+
+int64_t aura_cmd_rrect_stroke(int64_t handle, double x, double y, double w, double h, double radius, double stroke, int64_t argb) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_paint_rrect_stroke(x, y, w, h, radius, stroke, argb);
+}
+
+int64_t aura_cmd_oval(int64_t handle, double x, double y, double w, double h, int64_t argb) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_paint_oval(x, y, w, h, argb);
+}
+
+int64_t aura_cmd_line(int64_t handle, double x, double y, double x2, double y2, double stroke, int64_t argb) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_paint_line(x, y, x2, y2, stroke, argb);
+}
+
+int64_t aura_cmd_shadow(int64_t handle, double x, double y, double w, double h, double radius, double dx, double dy, double blur, int64_t argb) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_paint_shadow(x, y, w, h, radius, dx, dy, blur, argb);
+}
+
+int64_t aura_cmd_path_begin(int64_t handle) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_path_begin();
+}
+
+int64_t aura_cmd_path_move(int64_t handle, double x, double y) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_path_move(x, y);
+}
+
+int64_t aura_cmd_path_line(int64_t handle, double x, double y) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_path_line(x, y);
+}
+
+int64_t aura_cmd_path_quad(int64_t handle, double cx, double cy, double x, double y) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_path_quad(cx, cy, x, y);
+}
+
+int64_t aura_cmd_path_cubic(int64_t handle, double c1x, double c1y, double c2x, double c2y, double x, double y) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_path_cubic(c1x, c1y, c2x, c2y, x, y);
+}
+
+int64_t aura_cmd_path_close(int64_t handle) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_path_close();
+}
+
+int64_t aura_cmd_path_fill(int64_t handle, int64_t argb) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_path_fill(argb);
+}
+
+int64_t aura_cmd_path_stroke(int64_t handle, double stroke, int64_t argb) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_path_stroke(stroke, argb);
+}
+
 int64_t aura_cmd_text(int64_t handle, double x, double y, const char *text, double size, int64_t weight, int64_t argb, const char *family) {
     if (window_get(handle, 1) == NULL) {
         return -1;
     }
     return aura_paint_text(x, y, text, size, weight, argb, family);
+}
+
+int64_t aura_cmd_text_style(int64_t handle, double x, double y, const char *text, double size, int64_t weight, int64_t argb, const char *family, int64_t italic) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_paint_text_style(x, y, text, size, weight, argb, family, italic);
 }
 
 int64_t aura_cmd_opacity(int64_t handle, double opacity) {
@@ -1479,6 +1577,8 @@ int64_t aura_set_cursor(int64_t handle, int64_t kind) {
     window->cursor_kind = (int)kind;
     if (kind == 1) {
         [[NSCursor IBeamCursor] set];
+    } else if (kind == 2) {
+        [[NSCursor pointingHandCursor] set];
     } else {
         [[NSCursor arrowCursor] set];
     }

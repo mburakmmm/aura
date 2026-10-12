@@ -1,13 +1,19 @@
+from aura.animation.ticker import AnimationController
 from aura.foundation.constraints import Constraints
-from aura.foundation.geometry import Matrix4
+from aura.foundation.geometry import Matrix4, matrix4_translation
+from aura.layout.boxes import SizedBox
 from aura.rendering.layer import PaintingContext
 from aura.rendering.render_object import HitTestResult, RenderBox
-from aura.widgets.framework import Element, RenderObjectWidget, Widget
+from aura.widgets.framework import BuildContext, Element, RenderObjectWidget, State, StatefulWidget, Widget
 from aura.widgets.key import Key
+from aura.widgets.scheduler import Scheduler
 from aura.widgets.type_ids import alloc_type_id
 
 TYPE_OPACITY: int = alloc_type_id()
 TYPE_TRANSFORM: int = alloc_type_id()
+TYPE_ANIM_OPACITY: int = alloc_type_id()
+TYPE_ANIM_SIZE: int = alloc_type_id()
+TYPE_ANIM_POSITION: int = alloc_type_id()
 
 
 class RenderOpacity(RenderBox):
@@ -130,3 +136,317 @@ class Transform(RenderObjectWidget):
 
     def sync_render(self, element: Element) -> None:
         element.apply_translation(self.matrix.m03, self.matrix.m13)
+
+
+def _lerp(origin: float, goal: float, t: float) -> float:
+    return origin + (goal - origin) * t
+
+
+def _scheduler(state: State) -> Scheduler | None:
+    element: Element | None = state.element
+    if element is None:
+        return None
+    return element.scheduler
+
+
+def _motion_child(state: State, fallback: Widget) -> Widget:
+    element: Element | None = state.element
+    widget: Widget | None = None
+    supplied: Widget | None = None
+    if element is not None:
+        widget = element.widget
+    if widget is not None:
+        supplied = widget._motion_child()
+    if supplied is not None:
+        return supplied
+    return fallback
+
+
+class AnimatedOpacityState(State):
+    controller: AnimationController
+    origin: float
+    goal: float
+    child: Widget
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.controller = AnimationController(0.0)
+        self.origin = 1.0
+        self.goal = 1.0
+        self.child = SizedBox(0.0, 0.0)
+
+    def init_state(self) -> None:
+        self.controller.on_tick = self.refresh
+        self.controller.has_listener = True
+
+    def refresh(self) -> None:
+        self.invalidate()
+
+    def shown(self) -> float:
+        return _lerp(self.origin, self.goal, self.controller.value)
+
+    def did_update_widget(self, old_widget: Widget) -> None:
+        element: Element | None = self.element
+        widget: Widget | None = None
+        nxt: float = self.goal
+        found: Scheduler | None = None
+        if element is None:
+            return
+        widget = element.widget
+        if widget is None:
+            return
+        if old_widget.type_id != widget.type_id:
+            return
+        nxt = widget._motion_x()
+        if nxt == self.shown() and not self.controller.playing:
+            return
+        if nxt == self.goal and self.controller.playing:
+            return
+        self.origin = self.shown()
+        self.goal = nxt
+        self.controller.value = 0.0
+        found = _scheduler(self)
+        if found is not None:
+            self.controller.animate_to(1.0, found)
+
+    def dispose(self) -> None:
+        found: Scheduler | None = _scheduler(self)
+        if found is not None:
+            self.controller.dispose(found)
+        super().dispose()
+
+    def build(self, context: BuildContext) -> Widget:
+        return Opacity(self.shown(), _motion_child(self, self.child))
+
+
+class AnimatedOpacity(StatefulWidget):
+    opacity: float
+    duration_s: float
+    child: Widget
+
+    def __init__(self, opacity: float, duration_s: float, child: Widget, key: Key | None = None) -> None:
+        super().__init__(TYPE_ANIM_OPACITY, key)
+        self.opacity = opacity
+        self.duration_s = duration_s
+        self.child = child
+
+    def _motion_x(self) -> float:
+        return self.opacity
+
+    def _motion_child(self) -> Widget | None:
+        return self.child
+
+    def create_state(self) -> State:
+        state: AnimatedOpacityState = AnimatedOpacityState()
+        state.controller = AnimationController(self.duration_s)
+        state.origin = self.opacity
+        state.goal = self.opacity
+        state.child = self.child
+        return state
+
+
+class AnimatedSizeState(State):
+    controller: AnimationController
+    origin_w: float
+    origin_h: float
+    goal_w: float
+    goal_h: float
+    child: Widget
+    tag: int
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.controller = AnimationController(0.0)
+        self.origin_w = 0.0
+        self.origin_h = 0.0
+        self.goal_w = 0.0
+        self.goal_h = 0.0
+        self.child = SizedBox(0.0, 0.0)
+        self.tag = 0
+
+    def init_state(self) -> None:
+        self.controller.on_tick = self.refresh
+        self.controller.has_listener = True
+
+    def refresh(self) -> None:
+        self.invalidate()
+
+    def shown_w(self) -> float:
+        return _lerp(self.origin_w, self.goal_w, self.controller.value)
+
+    def shown_h(self) -> float:
+        return _lerp(self.origin_h, self.goal_h, self.controller.value)
+
+    def did_update_widget(self, old_widget: Widget) -> None:
+        element: Element | None = self.element
+        widget: Widget | None = None
+        nxt_w: float = self.goal_w
+        nxt_h: float = self.goal_h
+        found: Scheduler | None = None
+        if element is None:
+            return
+        widget = element.widget
+        if widget is None:
+            return
+        if old_widget.type_id != widget.type_id:
+            return
+        nxt_w = widget._motion_x()
+        nxt_h = widget._motion_y()
+        if nxt_w == self.shown_w() and nxt_h == self.shown_h() and not self.controller.playing:
+            return
+        if nxt_w == self.goal_w and nxt_h == self.goal_h and self.controller.playing:
+            return
+        self.origin_w = self.shown_w()
+        self.origin_h = self.shown_h()
+        self.goal_w = nxt_w
+        self.goal_h = nxt_h
+        self.controller.value = 0.0
+        found = _scheduler(self)
+        if found is not None:
+            self.controller.animate_to(1.0, found)
+
+    def dispose(self) -> None:
+        found: Scheduler | None = _scheduler(self)
+        if found is not None:
+            self.controller.dispose(found)
+        super().dispose()
+
+    def build(self, context: BuildContext) -> Widget:
+        return SizedBox(self.shown_w(), self.shown_h(), _motion_child(self, self.child), self.tag, clip=1)
+
+
+class AnimatedSize(StatefulWidget):
+    width: float
+    height: float
+    duration_s: float
+    child: Widget
+    tag: int
+
+    def __init__(self, width: float, height: float, duration_s: float, child: Widget, tag: int = 0, key: Key | None = None) -> None:
+        super().__init__(TYPE_ANIM_SIZE, key)
+        self.width = width
+        self.height = height
+        self.duration_s = duration_s
+        self.child = child
+        self.tag = tag
+
+    def _motion_x(self) -> float:
+        return self.width
+
+    def _motion_y(self) -> float:
+        return self.height
+
+    def _motion_child(self) -> Widget | None:
+        return self.child
+
+    def create_state(self) -> State:
+        state: AnimatedSizeState = AnimatedSizeState()
+        state.controller = AnimationController(self.duration_s)
+        state.origin_w = self.width
+        state.origin_h = self.height
+        state.goal_w = self.width
+        state.goal_h = self.height
+        state.child = self.child
+        state.tag = self.tag
+        return state
+
+
+class AnimatedPositionState(State):
+    controller: AnimationController
+    origin_x: float
+    origin_y: float
+    goal_x: float
+    goal_y: float
+    child: Widget
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.controller = AnimationController(0.0)
+        self.origin_x = 0.0
+        self.origin_y = 0.0
+        self.goal_x = 0.0
+        self.goal_y = 0.0
+        self.child = SizedBox(0.0, 0.0)
+
+    def init_state(self) -> None:
+        self.controller.on_tick = self.refresh
+        self.controller.has_listener = True
+
+    def refresh(self) -> None:
+        self.invalidate()
+
+    def shown_x(self) -> float:
+        return _lerp(self.origin_x, self.goal_x, self.controller.value)
+
+    def shown_y(self) -> float:
+        return _lerp(self.origin_y, self.goal_y, self.controller.value)
+
+    def did_update_widget(self, old_widget: Widget) -> None:
+        element: Element | None = self.element
+        widget: Widget | None = None
+        nxt_x: float = self.goal_x
+        nxt_y: float = self.goal_y
+        found: Scheduler | None = None
+        if element is None:
+            return
+        widget = element.widget
+        if widget is None:
+            return
+        if old_widget.type_id != widget.type_id:
+            return
+        nxt_x = widget._motion_x()
+        nxt_y = widget._motion_y()
+        if nxt_x == self.shown_x() and nxt_y == self.shown_y() and not self.controller.playing:
+            return
+        if nxt_x == self.goal_x and nxt_y == self.goal_y and self.controller.playing:
+            return
+        self.origin_x = self.shown_x()
+        self.origin_y = self.shown_y()
+        self.goal_x = nxt_x
+        self.goal_y = nxt_y
+        self.controller.value = 0.0
+        found = _scheduler(self)
+        if found is not None:
+            self.controller.animate_to(1.0, found)
+
+    def dispose(self) -> None:
+        found: Scheduler | None = _scheduler(self)
+        if found is not None:
+            self.controller.dispose(found)
+        super().dispose()
+
+    def build(self, context: BuildContext) -> Widget:
+        return Transform(matrix4_translation(self.shown_x(), self.shown_y()), _motion_child(self, self.child))
+
+
+class AnimatedPosition(StatefulWidget):
+    x: float
+    y: float
+    duration_s: float
+    child: Widget
+
+    def __init__(self, x: float, y: float, duration_s: float, child: Widget, key: Key | None = None) -> None:
+        super().__init__(TYPE_ANIM_POSITION, key)
+        self.x = x
+        self.y = y
+        self.duration_s = duration_s
+        self.child = child
+
+    def _motion_x(self) -> float:
+        return self.x
+
+    def _motion_y(self) -> float:
+        return self.y
+
+    def _motion_child(self) -> Widget | None:
+        return self.child
+
+    def create_state(self) -> State:
+        state: AnimatedPositionState = AnimatedPositionState()
+        state.controller = AnimationController(self.duration_s)
+        state.origin_x = self.x
+        state.origin_y = self.y
+        state.goal_x = self.x
+        state.goal_y = self.y
+        state.child = self.child
+        return state

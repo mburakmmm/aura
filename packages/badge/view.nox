@@ -1,0 +1,6 @@
+from aura.text import Text
+from aura.widgets.framework import Widget
+
+
+def make_badge() -> Widget:
+    return Text("badge")

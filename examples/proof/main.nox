@@ -11,7 +11,8 @@ from aura.semantics.bridge import publish_total
 from aura.testing.tester import WidgetTester
 from aura.widgets import build_view, register_view
 from aura.widgets.framework import Element, Widget
-from examples.proof.page import ProofPage, make_badge
+from examples.proof.page import ProofPage
+from packages.badge.view import make_badge
 from nox.os import arg, arg_count
 
 

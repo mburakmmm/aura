@@ -1,10 +1,12 @@
 import nox.test
-from aura.animation.effects import Opacity, Transform
+from aura.animation.effects import AnimatedOpacity, AnimatedPosition, AnimatedSize, Opacity, Transform
 from aura.animation.ticker import AnimationController, EaseInCurve, Tween
-from aura.foundation.color import COLOR_ACCENT
+from aura.foundation.color import COLOR_ACCENT, COLOR_BUTTON, COLOR_FIELD
 from aura.foundation.geometry import matrix4_translation
 from aura.graphics.recording import KIND_OPACITY, KIND_RECT
+from aura.layout import Column
 from aura.layout.boxes import ColoredBox, SizedBox
+from aura.layout.flex import CROSS_START, MAIN_MIN
 from aura.rendering.layer import PaintingContext
 from aura.rendering.render_object import RenderBox
 from aura.testing.tester import WidgetTester
@@ -14,6 +16,11 @@ from aura.widgets.type_ids import alloc_type_id
 
 TYPE_FADE: int = alloc_type_id()
 TYPE_DEFER: int = alloc_type_id()
+TYPE_DRIVE: int = alloc_type_id()
+TYPE_PUSH: int = alloc_type_id()
+
+drive_held: DriveState | None = None
+push_held: PushState | None = None
 
 
 def scheduler_of(state: State) -> Scheduler | None:
@@ -125,4 +132,137 @@ deferred_box: RenderBox = require_box(deferred.view().find_tag(11), "defer box")
 nox.test.assert_eq_int(deferred_box.layout_count, 1, "layout before deferred flush")
 deferred.pump_frame()
 nox.test.assert_eq_int(deferred_box.layout_count, 2, "deferred layout next frame")
+
+
+class DriveState(State):
+    opacity: float
+    width: float
+    x: float
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.opacity = 1.0
+        self.width = 10.0
+        self.x = 0.0
+
+    def init_state(self) -> None:
+        drive_held = self
+
+    def retarget(self) -> None:
+        self.opacity = 0.0
+        self.width = 30.0
+        self.x = 20.0
+        self.invalidate()
+
+    def build(self, context: BuildContext) -> Widget:
+        return Column([
+            AnimatedOpacity(self.opacity, 1.0, SizedBox(20.0, 10.0, ColoredBox(COLOR_ACCENT))),
+            AnimatedSize(self.width, 10.0, 1.0, ColoredBox(COLOR_FIELD)),
+            AnimatedPosition(self.x, 0.0, 1.0, SizedBox(20.0, 10.0, ColoredBox(COLOR_BUTTON))),
+        ], cross_align=CROSS_START, main_size=MAIN_MIN)
+
+
+class DrivePage(StatefulWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_DRIVE, None)
+
+    def create_state(self) -> State:
+        return DriveState()
+
+
+def rect_of(tester: WidgetTester, color: int) -> int:
+    i: int = 0
+    while i < len(tester.canvas.kinds):
+        if tester.canvas.kinds[i] == KIND_RECT and tester.canvas.argbs[i] == color:
+            return i
+        i = i + 1
+    return -1
+
+
+def require_drive() -> DriveState:
+    held: DriveState | None = drive_held
+    if held is None:
+        raise Exception("missing drive")
+    return held
+
+
+drive: WidgetTester = WidgetTester()
+drive.pump.frame_time = 2.0
+drive.pump_widget(DrivePage(), 80.0, 80.0)
+field_at: int = rect_of(drive, COLOR_FIELD)
+button_at: int = rect_of(drive, COLOR_BUTTON)
+if field_at < 0 or button_at < 0:
+    raise Exception("missing animated rect")
+start_x: float = drive.canvas.xs[button_at]
+nox.test.assert_eq_float(opacity_at(drive), 1.0, "implicit opacity starts at target")
+nox.test.assert_eq_float(drive.canvas.ws[field_at], 10.0, "implicit size starts at target")
+require_drive().retarget()
+drive.pump_frame()
+field_at = rect_of(drive, COLOR_FIELD)
+button_at = rect_of(drive, COLOR_BUTTON)
+nox.test.assert_eq_float(opacity_at(drive), 1.0, "same frame time does not advance")
+nox.test.assert_eq_float(drive.canvas.ws[field_at], 10.0, "size waits for the frame stamp")
+nox.test.assert_eq_float(drive.canvas.xs[button_at], start_x, "position waits for the frame stamp")
+drive.pump.frame_time = 2.5
+drive.pump_frame()
+field_at = rect_of(drive, COLOR_FIELD)
+button_at = rect_of(drive, COLOR_BUTTON)
+nox.test.assert_eq_float(opacity_at(drive), 0.5, "opacity follows the frame stamp")
+nox.test.assert_eq_float(drive.canvas.ws[field_at], 20.0, "size follows the frame stamp")
+nox.test.assert_eq_float(drive.canvas.xs[button_at], start_x + 10.0, "position follows the frame stamp")
+
+
+class PushState(State):
+    height: float
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.height = 10.0
+
+    def init_state(self) -> None:
+        push_held = self
+
+    def retarget(self) -> None:
+        self.height = 80.0
+        self.invalidate()
+
+    def build(self, context: BuildContext) -> Widget:
+        return Column([
+            AnimatedSize(40.0, self.height, 1.0, ColoredBox(COLOR_FIELD), 9),
+            SizedBox(40.0, 10.0, ColoredBox(COLOR_BUTTON), 8),
+        ], cross_align=CROSS_START, main_size=MAIN_MIN)
+
+
+class PushPage(StatefulWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_PUSH, None)
+
+    def create_state(self) -> State:
+        return PushState()
+
+
+def require_push() -> PushState:
+    held: PushState | None = push_held
+    if held is None:
+        raise Exception("missing push")
+    return held
+
+
+push: WidgetTester = WidgetTester()
+push.pump.frame_time = 5.0
+push.pump_widget(PushPage(), 120.0, 200.0)
+follower: RenderBox = require_box(push.view().find_tag(8), "follower")
+nox.test.assert_eq_float(follower.offset_y, 10.0, "button starts under the short panel")
+require_push().retarget()
+push.pump_frame()
+follower = require_box(push.view().find_tag(8), "follower")
+nox.test.assert_eq_float(follower.offset_y, 10.0, "button waits for the frame stamp")
+push.pump.frame_time = 5.5
+push.pump_frame()
+follower = require_box(push.view().find_tag(8), "follower")
+nox.test.assert_eq_float(follower.offset_y, 45.0, "button moves with the growing panel")
+push.pump.frame_time = 6.0
+push.pump_frame()
+follower = require_box(push.view().find_tag(8), "follower")
+nox.test.assert_eq_float(follower.offset_y, 80.0, "button ends under the open panel")
 print("animation ok")

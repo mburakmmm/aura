@@ -11,7 +11,12 @@
 #include "include/core/SkFontMetrics.h"
 #include "include/core/SkFontMgr.h"
 #include "include/core/SkImage.h"
+#include "include/core/SkBlurTypes.h"
+#include "include/core/SkMaskFilter.h"
 #include "include/core/SkPaint.h"
+#include "include/core/SkPath.h"
+#include "include/core/SkPathBuilder.h"
+#include "include/core/SkRRect.h"
 #include "include/core/SkSurface.h"
 #include "include/ports/SkFontMgr_empty.h"
 
@@ -34,6 +39,7 @@ struct Picture {
 };
 
 sk_sp<SkSurface> g_surface;
+SkPathBuilder g_path;
 double g_scale = 1.0;
 int g_opacity = 0;
 int g_clip = 0;
@@ -87,6 +93,14 @@ SkFont make_font(double size, int64_t weight) {
     font.setSubpixel(true);
     if (weight >= 600) {
         font.setEmbolden(true);
+    }
+    return font;
+}
+
+SkFont make_font_style(double size, int64_t weight, int64_t italic) {
+    SkFont font = make_font(size, weight);
+    if (italic != 0) {
+        font.setSkewX(-0.25f);
     }
     return font;
 }
@@ -174,6 +188,7 @@ extern "C" int aura_paint_begin(int64_t width, int64_t height, double scale) {
     }
     g_scale = scale < 1.0 ? 1.0 : scale;
     g_opacity = 0;
+    g_path.reset();
     ensure_font();
     info = SkImageInfo::Make(static_cast<int>(width), static_cast<int>(height), kRGBA_8888_SkColorType, kPremul_SkAlphaType);
     g_surface = SkSurfaces::Raster(info);
@@ -204,6 +219,204 @@ extern "C" int aura_paint_rect(double x, double y, double w, double h, int64_t a
     return 0;
 }
 
+extern "C" int aura_paint_rrect(double x, double y, double w, double h, double radius, int64_t argb) {
+    SkPaint paint;
+    SkRRect round;
+    double scale;
+    float rx;
+    if (!g_surface) {
+        return -1;
+    }
+    if (w <= 0.0 || h <= 0.0) {
+        return 0;
+    }
+    scale = logical_scale();
+    rx = static_cast<float>(radius * scale);
+    if (rx < 0.0f) {
+        rx = 0.0f;
+    }
+    paint.setColor(sk_color(argb));
+    paint.setAntiAlias(true);
+    round = SkRRect::MakeRectXY(SkRect::MakeXYWH(static_cast<float>(x * scale), static_cast<float>(y * scale), static_cast<float>(w * scale), static_cast<float>(h * scale)), rx, rx);
+    g_surface->getCanvas()->drawRRect(round, paint);
+    return 0;
+}
+
+extern "C" int aura_paint_rrect_stroke(double x, double y, double w, double h, double radius, double stroke, int64_t argb) {
+    SkPaint paint;
+    SkRRect round;
+    double scale;
+    float rx;
+    if (!g_surface) {
+        return -1;
+    }
+    if (w <= 0.0 || h <= 0.0 || stroke <= 0.0) {
+        return 0;
+    }
+    scale = logical_scale();
+    rx = static_cast<float>(radius * scale);
+    if (rx < 0.0f) {
+        rx = 0.0f;
+    }
+    paint.setColor(sk_color(argb));
+    paint.setAntiAlias(true);
+    paint.setStyle(SkPaint::kStroke_Style);
+    paint.setStrokeWidth(static_cast<float>(stroke * scale));
+    round = SkRRect::MakeRectXY(SkRect::MakeXYWH(static_cast<float>(x * scale), static_cast<float>(y * scale), static_cast<float>(w * scale), static_cast<float>(h * scale)), rx, rx);
+    g_surface->getCanvas()->drawRRect(round, paint);
+    return 0;
+}
+
+extern "C" int aura_paint_oval(double x, double y, double w, double h, int64_t argb) {
+    SkPaint paint;
+    double scale;
+    if (!g_surface) {
+        return -1;
+    }
+    if (w <= 0.0 || h <= 0.0) {
+        return 0;
+    }
+    scale = logical_scale();
+    paint.setColor(sk_color(argb));
+    paint.setAntiAlias(true);
+    g_surface->getCanvas()->drawOval(SkRect::MakeXYWH(static_cast<float>(x * scale), static_cast<float>(y * scale), static_cast<float>(w * scale), static_cast<float>(h * scale)), paint);
+    return 0;
+}
+
+extern "C" int aura_paint_line(double x, double y, double x2, double y2, double stroke, int64_t argb) {
+    SkPaint paint;
+    double scale;
+    if (!g_surface) {
+        return -1;
+    }
+    scale = logical_scale();
+    paint.setColor(sk_color(argb));
+    paint.setAntiAlias(true);
+    paint.setStyle(SkPaint::kStroke_Style);
+    paint.setStrokeWidth(static_cast<float>(stroke * scale));
+    g_surface->getCanvas()->drawLine(static_cast<float>(x * scale), static_cast<float>(y * scale), static_cast<float>(x2 * scale), static_cast<float>(y2 * scale), paint);
+    return 0;
+}
+
+extern "C" int aura_paint_shadow(double x, double y, double w, double h, double radius, double dx, double dy, double blur, int64_t argb) {
+    SkPaint paint;
+    SkRRect round;
+    double scale;
+    float rx;
+    float sigma;
+    if (!g_surface) {
+        return -1;
+    }
+    if (w <= 0.0 || h <= 0.0) {
+        return 0;
+    }
+    scale = logical_scale();
+    rx = static_cast<float>(radius * scale);
+    if (rx < 0.0f) {
+        rx = 0.0f;
+    }
+    sigma = static_cast<float>(blur * scale);
+    if (sigma < 0.0f) {
+        sigma = 0.0f;
+    }
+    paint.setColor(sk_color(argb));
+    paint.setAntiAlias(true);
+    if (sigma > 0.0f) {
+        paint.setMaskFilter(SkMaskFilter::MakeBlur(kNormal_SkBlurStyle, sigma, false));
+    }
+    round = SkRRect::MakeRectXY(SkRect::MakeXYWH(static_cast<float>((x + dx) * scale), static_cast<float>((y + dy) * scale), static_cast<float>(w * scale), static_cast<float>(h * scale)), rx, rx);
+    g_surface->getCanvas()->drawRRect(round, paint);
+    return 0;
+}
+
+static float path_scale(double value) {
+    return static_cast<float>(value * logical_scale());
+}
+
+extern "C" int aura_path_begin(void) {
+    if (!g_surface) {
+        return -1;
+    }
+    g_path.reset();
+    return 0;
+}
+
+extern "C" int aura_path_move(double x, double y) {
+    if (!g_surface) {
+        return -1;
+    }
+    g_path.moveTo(path_scale(x), path_scale(y));
+    return 0;
+}
+
+extern "C" int aura_path_line(double x, double y) {
+    if (!g_surface) {
+        return -1;
+    }
+    g_path.lineTo(path_scale(x), path_scale(y));
+    return 0;
+}
+
+extern "C" int aura_path_quad(double cx, double cy, double x, double y) {
+    if (!g_surface) {
+        return -1;
+    }
+    g_path.quadTo(path_scale(cx), path_scale(cy), path_scale(x), path_scale(y));
+    return 0;
+}
+
+extern "C" int aura_path_cubic(double c1x, double c1y, double c2x, double c2y, double x, double y) {
+    if (!g_surface) {
+        return -1;
+    }
+    g_path.cubicTo(path_scale(c1x), path_scale(c1y), path_scale(c2x), path_scale(c2y), path_scale(x), path_scale(y));
+    return 0;
+}
+
+extern "C" int aura_path_close(void) {
+    if (!g_surface) {
+        return -1;
+    }
+    g_path.close();
+    return 0;
+}
+
+extern "C" int aura_path_fill(int64_t argb) {
+    SkPaint paint;
+    SkPath built;
+    if (!g_surface) {
+        return -1;
+    }
+    if (g_path.isEmpty()) {
+        return 0;
+    }
+    built = g_path.snapshot();
+    paint.setColor(sk_color(argb));
+    paint.setAntiAlias(true);
+    g_surface->getCanvas()->drawPath(built, paint);
+    return 0;
+}
+
+extern "C" int aura_path_stroke(double stroke, int64_t argb) {
+    SkPaint paint;
+    SkPath built;
+    double scale;
+    if (!g_surface) {
+        return -1;
+    }
+    if (g_path.isEmpty() || stroke <= 0.0) {
+        return 0;
+    }
+    scale = logical_scale();
+    built = g_path.snapshot();
+    paint.setColor(sk_color(argb));
+    paint.setAntiAlias(true);
+    paint.setStyle(SkPaint::kStroke_Style);
+    paint.setStrokeWidth(static_cast<float>(stroke * scale));
+    g_surface->getCanvas()->drawPath(built, paint);
+    return 0;
+}
+
 extern "C" int aura_paint_text(double x, double y, const char *text, double size, int64_t weight, int64_t argb, const char *family) {
     SkFont font;
     SkFontMetrics metrics;
@@ -219,6 +432,28 @@ extern "C" int aura_paint_text(double x, double y, const char *text, double size
     ensure_font();
     scale = logical_scale();
     font = make_font(size, weight);
+    font.getMetrics(&metrics);
+    paint.setColor(sk_color(argb));
+    paint.setAntiAlias(true);
+    g_surface->getCanvas()->drawString(text, static_cast<float>(x * scale), static_cast<float>(y * scale - metrics.fAscent), font, paint);
+    return 0;
+}
+
+extern "C" int aura_paint_text_style(double x, double y, const char *text, double size, int64_t weight, int64_t argb, const char *family, int64_t italic) {
+    SkFont font;
+    SkFontMetrics metrics;
+    SkPaint paint;
+    double scale;
+    (void)family;
+    if (!g_surface) {
+        return -1;
+    }
+    if (text == nullptr) {
+        text = "";
+    }
+    ensure_font();
+    scale = logical_scale();
+    font = make_font_style(size, weight, italic);
     font.getMetrics(&metrics);
     paint.setColor(sk_color(argb));
     paint.setAntiAlias(true);
@@ -350,6 +585,21 @@ extern "C" double aura_text_width(const char *text, double size, int64_t weight,
         return 0.0;
     }
     font = make_font(size, weight);
+    font.setSize(static_cast<float>(size));
+    return static_cast<double>(font.measureText(text, std::strlen(text), SkTextEncoding::kUTF8));
+}
+
+extern "C" double aura_text_width_style(const char *text, double size, int64_t weight, const char *family, int64_t italic) {
+    SkFont font;
+    (void)family;
+    if (text == nullptr) {
+        text = "";
+    }
+    ensure_font();
+    if (!g_regular) {
+        return 0.0;
+    }
+    font = make_font_style(size, weight, italic);
     font.setSize(static_cast<float>(size));
     return static_cast<double>(font.measureText(text, std::strlen(text), SkTextEncoding::kUTF8));
 }

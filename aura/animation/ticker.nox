@@ -45,6 +45,7 @@ class AnimationController(Ticker):
     has_listener: bool
 
     def __init__(self, duration_s: float) -> None:
+        super().__init__()
         self.duration_s = duration_s
         self.value = 0.0
         self.from_v = 0.0
@@ -57,10 +58,16 @@ class AnimationController(Ticker):
         self.has_listener = False
 
     def forward(self, scheduler: Scheduler) -> None:
+        self.animate_to(1.0, scheduler)
+
+    def animate_to(self, target: float, scheduler: Scheduler) -> None:
+        if self.value == target and not self.playing:
+            return
         self.from_v = self.value
-        self.to_v = 1.0
+        self.to_v = target
         self.playing = True
-        self.has_start = False
+        self.has_start = True
+        self.start_s = scheduler.time_s
         scheduler.add(self)
 
     def tick(self, time_s: float) -> None:

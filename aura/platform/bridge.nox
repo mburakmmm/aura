@@ -18,12 +18,27 @@ extern def aura_frame_begin(handle: int) -> int from "native/libaura_host.dylib"
 extern def aura_frame_end(handle: int) -> int from "native/libaura_host.dylib"
 extern def aura_cmd_clear(handle: int, argb: int) -> int from "native/libaura_host.dylib"
 extern def aura_cmd_rect(handle: int, x: float, y: float, w: float, h: float, argb: int) -> int from "native/libaura_host.dylib"
+extern def aura_cmd_rrect(handle: int, x: float, y: float, w: float, h: float, radius: float, argb: int) -> int from "native/libaura_host.dylib"
+extern def aura_cmd_rrect_stroke(handle: int, x: float, y: float, w: float, h: float, radius: float, stroke: float, argb: int) -> int from "native/libaura_host.dylib"
+extern def aura_cmd_oval(handle: int, x: float, y: float, w: float, h: float, argb: int) -> int from "native/libaura_host.dylib"
+extern def aura_cmd_line(handle: int, x: float, y: float, x2: float, y2: float, stroke: float, argb: int) -> int from "native/libaura_host.dylib"
+extern def aura_cmd_shadow(handle: int, x: float, y: float, w: float, h: float, radius: float, dx: float, dy: float, blur: float, argb: int) -> int from "native/libaura_host.dylib"
+extern def aura_cmd_path_begin(handle: int) -> int from "native/libaura_host.dylib"
+extern def aura_cmd_path_move(handle: int, x: float, y: float) -> int from "native/libaura_host.dylib"
+extern def aura_cmd_path_line(handle: int, x: float, y: float) -> int from "native/libaura_host.dylib"
+extern def aura_cmd_path_quad(handle: int, cx: float, cy: float, x: float, y: float) -> int from "native/libaura_host.dylib"
+extern def aura_cmd_path_cubic(handle: int, c1x: float, c1y: float, c2x: float, c2y: float, x: float, y: float) -> int from "native/libaura_host.dylib"
+extern def aura_cmd_path_close(handle: int) -> int from "native/libaura_host.dylib"
+extern def aura_cmd_path_fill(handle: int, argb: int) -> int from "native/libaura_host.dylib"
+extern def aura_cmd_path_stroke(handle: int, stroke: float, argb: int) -> int from "native/libaura_host.dylib"
 extern def aura_cmd_text(handle: int, x: float, y: float, text: str, size: float, weight: int, argb: int, family: str) -> int from "native/libaura_host.dylib"
+extern def aura_cmd_text_style(handle: int, x: float, y: float, text: str, size: float, weight: int, argb: int, family: str, italic: int) -> int from "native/libaura_host.dylib"
 extern def aura_cmd_opacity(handle: int, opacity: float) -> int from "native/libaura_host.dylib"
 extern def aura_cmd_opacity_pop(handle: int) -> int from "native/libaura_host.dylib"
 extern def aura_cmd_clip(handle: int, x: float, y: float, w: float, h: float) -> int from "native/libaura_host.dylib"
 extern def aura_cmd_clip_pop(handle: int) -> int from "native/libaura_host.dylib"
 extern def aura_text_width(text: str, size: float, weight: int, family: str) -> float from "native/libaura_host.dylib"
+extern def aura_text_width_style(text: str, size: float, weight: int, family: str, italic: int) -> float from "native/libaura_host.dylib"
 extern def aura_text_height(size: float, weight: int, family: str) -> float from "native/libaura_host.dylib"
 extern def aura_post_mouse(handle: int, kind: int, x: float, y: float, button: int) -> int from "native/libaura_host.dylib"
 extern def aura_window_event_text_len(handle: int, index: int) -> int from "native/libaura_host.dylib"
@@ -201,8 +216,92 @@ def cmd_rect(handle: int, x: float, y: float, w: float, h: float, argb: int) -> 
         raise FrameworkError("use after close")
 
 
+def cmd_rrect(handle: int, x: float, y: float, w: float, h: float, radius: float, argb: int) -> None:
+    code: int = aura_cmd_rrect(handle, x, y, w, h, radius, argb)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
+def cmd_rrect_stroke(handle: int, x: float, y: float, w: float, h: float, radius: float, stroke: float, argb: int) -> None:
+    code: int = aura_cmd_rrect_stroke(handle, x, y, w, h, radius, stroke, argb)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
+def cmd_oval(handle: int, x: float, y: float, w: float, h: float, argb: int) -> None:
+    code: int = aura_cmd_oval(handle, x, y, w, h, argb)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
+def cmd_line(handle: int, x: float, y: float, x2: float, y2: float, stroke: float, argb: int) -> None:
+    code: int = aura_cmd_line(handle, x, y, x2, y2, stroke, argb)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
+def cmd_shadow(handle: int, x: float, y: float, w: float, h: float, radius: float, dx: float, dy: float, blur: float, argb: int) -> None:
+    code: int = aura_cmd_shadow(handle, x, y, w, h, radius, dx, dy, blur, argb)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
+def cmd_path_begin(handle: int) -> None:
+    code: int = aura_cmd_path_begin(handle)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
+def cmd_path_move(handle: int, x: float, y: float) -> None:
+    code: int = aura_cmd_path_move(handle, x, y)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
+def cmd_path_line(handle: int, x: float, y: float) -> None:
+    code: int = aura_cmd_path_line(handle, x, y)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
+def cmd_path_quad(handle: int, cx: float, cy: float, x: float, y: float) -> None:
+    code: int = aura_cmd_path_quad(handle, cx, cy, x, y)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
+def cmd_path_cubic(handle: int, c1x: float, c1y: float, c2x: float, c2y: float, x: float, y: float) -> None:
+    code: int = aura_cmd_path_cubic(handle, c1x, c1y, c2x, c2y, x, y)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
+def cmd_path_close(handle: int) -> None:
+    code: int = aura_cmd_path_close(handle)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
+def cmd_path_fill(handle: int, argb: int) -> None:
+    code: int = aura_cmd_path_fill(handle, argb)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
+def cmd_path_stroke(handle: int, stroke: float, argb: int) -> None:
+    code: int = aura_cmd_path_stroke(handle, stroke, argb)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
 def cmd_text(handle: int, x: float, y: float, text: str, size: float, weight: int, argb: int, family: str) -> None:
     code: int = aura_cmd_text(handle, x, y, text, size, weight, argb, family)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
+def cmd_text_style(handle: int, x: float, y: float, text: str, size: float, weight: int, argb: int, family: str, italic: int) -> None:
+    code: int = aura_cmd_text_style(handle, x, y, text, size, weight, argb, family, italic)
     if code < 0:
         raise FrameworkError("use after close")
 
@@ -233,6 +332,10 @@ def cmd_clip_pop(handle: int) -> None:
 
 def text_width(text: str, size: float, weight: int, family: str) -> float:
     return aura_text_width(text, size, weight, family)
+
+
+def text_width_style(text: str, size: float, weight: int, family: str, italic: int) -> float:
+    return aura_text_width_style(text, size, weight, family, italic)
 
 
 def text_height(size: float, weight: int, family: str) -> float:

@@ -1,0 +1,301 @@
+import nox.test
+from aura.foundation.color import COLOR_BACKGROUND
+from aura.foundation.geometry import ALIGNMENT_TOP_LEFT
+from aura.graphics.recording import KIND_PATH_CUBIC, KIND_PATH_FILL, KIND_SHADOW
+from aura.layout import Align, Column, DecoratedBox, Positioned, Row, SizedBox, Stack
+from aura.platform.macos import sample_pixel
+from aura.rendering.layer import PaintingContext
+from aura.rendering.painter import Painter
+from aura.rendering.render_object import RenderBox
+from aura.runtime.binding import Binding
+from aura.testing.tester import WidgetTester
+from aura.text import Text
+from aura.widgets import BuildContext, CURSOR_HAND, CustomPaint, Element, Inherited, MouseRegion, ScopeAsk, State, StatefulWidget, TextScope, Widget, inherit
+from aura.widgets.type_ids import alloc_type_id
+from aura.window import cursor_kind
+
+TYPE_BUNDLE: int = alloc_type_id()
+TYPE_INNER: int = alloc_type_id()
+TYPE_PAGE: int = alloc_type_id()
+TYPE_READ: int = alloc_type_id()
+TYPE_INNER_READ: int = alloc_type_id()
+
+FILL_COLOR: int = 0xFF2244CC
+SHADOW_COLOR: int = 0xFF00CC44
+PATH_COLOR: int = 0xFFCC2266
+
+surface_title: str = ""
+surface_count: int = 0
+surface_scale: float = 0.0
+surface_near: str = ""
+surface_enters: int = 0
+surface_exits: int = 0
+surface_outer_enters: int = 0
+surface_outer_exits: int = 0
+surface_inner_enters: int = 0
+surface_inner_exits: int = 0
+
+
+class BundleAsk(ScopeAsk):
+    title: str
+    count: int
+    scale: float
+
+    def __init__(self) -> None:
+        self.title = ""
+        self.count = 0
+        self.scale = 0.0
+
+    def apply_text(self, value: str) -> None:
+        self.title = value
+
+    def apply_int(self, value: int) -> None:
+        self.count = value
+
+    def apply_float(self, value: float) -> None:
+        self.scale = value
+
+
+class BundleScope(Inherited):
+    title: str
+    count: int
+    scale: float
+
+    def __init__(self, title: str, count: int, scale: float, child: Widget) -> None:
+        super().__init__(TYPE_BUNDLE, child, None)
+        self.title = title
+        self.count = count
+        self.scale = scale
+
+    def answer(self, ask: ScopeAsk) -> None:
+        ask.apply_text(self.title)
+        ask.apply_int(self.count)
+        ask.apply_float(self.scale)
+
+    def same_scope(self, previous: Widget) -> int:
+        probe: BundleAsk = BundleAsk()
+        previous.answer(probe)
+        if probe.title == self.title and probe.count == self.count and probe.scale == self.scale:
+            return 1
+        return 0
+
+
+class InnerScope(Inherited):
+    title: str
+
+    def __init__(self, title: str, child: Widget) -> None:
+        super().__init__(TYPE_INNER, child, None)
+        self.title = title
+
+    def answer(self, ask: ScopeAsk) -> None:
+        ask.apply_text(self.title)
+
+
+class ReadPage(StatelessWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_READ, None)
+
+    def build(self, context: BuildContext) -> Widget:
+        ask: BundleAsk = BundleAsk()
+        inherit(context, TYPE_BUNDLE, ask)
+        surface_title = ask.title
+        surface_count = ask.count
+        surface_scale = ask.scale
+        return Text(ask.title)
+
+
+class InnerRead(StatelessWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_INNER_READ, None)
+
+    def build(self, context: BuildContext) -> Widget:
+        ask: TextScope = TextScope()
+        inherit(context, TYPE_INNER, ask)
+        surface_near = ask.value
+        return Text(ask.value)
+
+
+class PageState(State):
+    title: str
+    count: int
+    scale: float
+    tick: int
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.title = "one"
+        self.count = 3
+        self.scale = 1.5
+        self.tick = 0
+        surface_holder = self
+
+    def build(self, context: BuildContext) -> Widget:
+        if self.tick < 0:
+            return Text("")
+        return BundleScope(self.title, self.count, self.scale, Column([
+            ReadPage(),
+            Text("still"),
+            InnerScope("near", InnerRead()),
+        ]))
+
+
+surface_holder: PageState | None = None
+
+
+class ScopePage(StatefulWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_PAGE, None)
+
+    def create_state(self) -> State:
+        return PageState()
+
+
+class CurvePainter(Painter):
+    def paint(self, context: PaintingContext, width: float, height: float) -> None:
+        context.path_begin()
+        context.path_move(4.0, 4.0)
+        context.path_line(width - 4.0, 4.0)
+        context.path_cubic(width - 4.0, 28.0, width - 4.0, 52.0, width - 4.0, height - 4.0)
+        context.path_line(4.0, height - 4.0)
+        context.path_close()
+        context.path_fill(PATH_COLOR)
+
+
+def require_state() -> PageState:
+    current: PageState | None = surface_holder
+    if current is None:
+        raise Exception("missing scope state")
+    return current
+
+
+def require_box(box: RenderBox | None, name: str) -> RenderBox:
+    if box is None:
+        raise Exception(name)
+    return box
+
+
+def require_element(element: Element | None, name: str) -> Element:
+    if element is None:
+        raise Exception(name)
+    return element
+
+
+def child_at(element: Element, index: int) -> Element:
+    return require_element(element.children[index], "missing child")
+
+
+def kind_count(tester: WidgetTester, kind: int) -> int:
+    count: int = 0
+    i: int = 0
+    while i < len(tester.canvas.kinds):
+        if tester.canvas.kinds[i] == kind:
+            count = count + 1
+        i = i + 1
+    return count
+
+
+def surface_enter() -> None:
+    surface_enters = surface_enters + 1
+
+
+def surface_exit() -> None:
+    surface_exits = surface_exits + 1
+
+
+def surface_outer_enter() -> None:
+    surface_outer_enters = surface_outer_enters + 1
+
+
+def surface_outer_exit() -> None:
+    surface_outer_exits = surface_outer_exits + 1
+
+
+def surface_inner_enter() -> None:
+    surface_inner_enters = surface_inner_enters + 1
+
+
+def surface_inner_exit() -> None:
+    surface_inner_exits = surface_inner_exits + 1
+
+
+def paint_page() -> Widget:
+    card: Widget = MouseRegion(DecoratedBox(FILL_COLOR, radius=4.0, shadow=SHADOW_COLOR, shadow_dx=0.0, shadow_dy=10.0, shadow_blur=2.0, child=SizedBox(40.0, 40.0)), surface_enter, surface_exit, CURSOR_HAND)
+    curve: Widget = CustomPaint(CurvePainter(), width=80.0, height=80.0)
+    return Align(ALIGNMENT_TOP_LEFT, Row([card, curve], 0, 0))
+
+
+scope_tester: WidgetTester = WidgetTester()
+scope_tester.pump_widget(ScopePage(), 240.0, 160.0)
+nox.test.assert_eq_str(surface_title, "one", "inherited text")
+nox.test.assert_eq_int(surface_count, 3, "inherited int")
+nox.test.assert_eq_float(surface_scale, 1.5, "inherited float")
+nox.test.assert_eq_str(surface_near, "near", "nearest scope wins")
+scope_root: Element = require_element(scope_tester.pump.root, "scope root")
+scope_column: Element = child_at(child_at(scope_root, 0), 0)
+scope_reader: Element = child_at(scope_column, 0)
+scope_still: Element = child_at(scope_column, 1)
+nox.test.assert_eq_int(scope_reader.rebuild_count, 1, "reader mounted")
+nox.test.assert_eq_int(scope_still.rebuild_count, 0, "sibling is not a dependent")
+require_state().title = "two"
+require_state().invalidate()
+scope_tester.pump_frame()
+nox.test.assert_eq_str(surface_title, "two", "scope change reaches the reader")
+scope_reader = child_at(child_at(child_at(require_element(scope_tester.pump.root, "scope root"), 0), 0), 0)
+scope_still = child_at(child_at(child_at(require_element(scope_tester.pump.root, "scope root"), 0), 0), 1)
+nox.test.assert_true(scope_reader.rebuild_count >= 2, "dependent rebuilt")
+nox.test.assert_eq_int(scope_still.rebuild_count, 0, "sibling stayed")
+held: int = scope_reader.rebuild_count
+require_state().tick = require_state().tick + 1
+require_state().invalidate()
+scope_tester.pump_frame()
+scope_reader = child_at(child_at(child_at(require_element(scope_tester.pump.root, "scope root"), 0), 0), 0)
+nox.test.assert_eq_int(scope_reader.rebuild_count, held, "same scope does not rebuild")
+
+hover_tester: WidgetTester = WidgetTester()
+hover_tester.pump_widget(Align(ALIGNMENT_TOP_LEFT, Stack([
+    MouseRegion(SizedBox(80.0, 60.0), surface_outer_enter, surface_outer_exit),
+    Positioned(MouseRegion(SizedBox(20.0, 20.0), surface_inner_enter, surface_inner_exit), left=0.0, top=0.0),
+])), 200.0, 120.0)
+hover_tester.pump.pointer_move(8.0, 8.0)
+nox.test.assert_eq_int(surface_inner_enters, 1, "inner hover entered")
+nox.test.assert_eq_int(surface_outer_enters, 0, "outer waits")
+hover_tester.pump.pointer_move(10.0, 10.0)
+nox.test.assert_eq_int(surface_inner_enters, 1, "hover does not repeat")
+hover_tester.pump.pointer_move(50.0, 40.0)
+nox.test.assert_eq_int(surface_inner_exits, 1, "inner hover left")
+nox.test.assert_eq_int(surface_outer_enters, 1, "outer hover entered")
+hover_tester.pump.pointer_move(180.0, 100.0)
+nox.test.assert_eq_int(surface_outer_exits, 1, "outer hover left")
+
+paint_tester: WidgetTester = WidgetTester()
+paint_tester.pump_widget(paint_page(), 200.0, 120.0)
+nox.test.assert_true(kind_count(paint_tester, KIND_SHADOW) >= 1, "shadow recorded")
+nox.test.assert_true(kind_count(paint_tester, KIND_PATH_CUBIC) >= 1, "cubic recorded")
+nox.test.assert_true(kind_count(paint_tester, KIND_PATH_FILL) >= 1, "path fill recorded")
+
+binding: Binding = Binding(200, 120, "Aura", 0)
+binding.mount(paint_page())
+binding.frame()
+root_box: RenderBox = require_box(binding.pump.view.only_child, "align")
+row_box: RenderBox = require_box(root_box.only_child, "row")
+card_box: RenderBox = require_box(row_box.children[0], "card")
+curve_box: RenderBox = require_box(row_box.children[1], "curve")
+card_pixel: int = sample_pixel(binding.surface.handle, card_box.absolute_x() + 20.0, card_box.absolute_y() + 20.0)
+shadow_pixel: int = sample_pixel(binding.surface.handle, card_box.absolute_x() + 20.0, card_box.absolute_y() + card_box.height + 6.0)
+curve_pixel: int = sample_pixel(binding.surface.handle, curve_box.absolute_x() + curve_box.width / 2.0, curve_box.absolute_y() + curve_box.height / 2.0)
+nox.test.assert_eq_int(card_pixel, FILL_COLOR, "card fill")
+nox.test.assert_true(shadow_pixel != COLOR_BACKGROUND, "shadow is visible")
+nox.test.assert_true(shadow_pixel != FILL_COLOR, "shadow is not the fill")
+nox.test.assert_eq_int(curve_pixel, PATH_COLOR, "path fill")
+surface_enters = 0
+surface_exits = 0
+binding.post_move(card_box.absolute_x() + 4.0, card_box.absolute_y() + 4.0)
+binding.frame()
+nox.test.assert_eq_int(cursor_kind(), CURSOR_HAND, "hover cursor")
+nox.test.assert_true(surface_enters >= 1, "window hover entered")
+binding.post_move(190.0, 110.0)
+binding.frame()
+nox.test.assert_true(surface_exits >= 1, "window hover left")
+nox.test.assert_eq_int(cursor_kind(), 0, "cursor restored")
+binding.close()
+print("surface ok")

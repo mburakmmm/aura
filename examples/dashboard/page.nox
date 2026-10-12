@@ -1,0 +1,97 @@
+from aura.animation import AnimatedOpacity, AnimatedPosition, AnimatedSize
+from aura.controls.button import BUTTON_ALIGN_START, Button
+from aura.foundation.color import COLOR_ACCENT, COLOR_BACKGROUND, COLOR_BUTTON, COLOR_BUTTON_TEXT, COLOR_TEXT
+from aura.foundation.insets import insets_all
+from aura.layout import ColoredBox, Column, Padding, RepaintBoundary, Row, SizedBox
+from aura.layout.flex import CROSS_START, MAIN_MIN
+from aura.text import Text
+from aura.widgets import BuildContext, State, StatefulWidget, Widget
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_DASHBOARD: int = alloc_type_id()
+
+LANE_NONE: int = 0
+LANE_OPEN: int = 1
+LANE_IDLE: int = 2
+BAR_REST: float = 12.0
+BAR_GROWN: float = 160.0
+PANEL_WIDTH: float = 536.0
+BADGE_SHIFT: float = 24.0
+
+
+def card_background(lane: int, which: int) -> int:
+    if lane == which:
+        return COLOR_BUTTON
+    return COLOR_ACCENT
+
+
+def card_ink(lane: int, which: int) -> int:
+    if lane == which:
+        return COLOR_BUTTON_TEXT
+    return COLOR_TEXT
+
+
+def lane_card(title: str, tag: int, lane: int, which: int, handler: () -> None) -> Widget:
+    return RepaintBoundary(SizedBox(260.0, 120.0, Button(title, handler, font_size=20.0, color=card_ink(lane, which), background=card_background(lane, which), text_align=BUTTON_ALIGN_START), tag))
+
+
+class DashboardState(State):
+    count: int
+    lane: int
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.count = 0
+        self.lane = LANE_NONE
+
+    def refresh(self) -> None:
+        self.count = self.count + 1
+        self.invalidate()
+
+    def show_open(self) -> None:
+        self.lane = LANE_OPEN
+        self.invalidate()
+
+    def show_idle(self) -> None:
+        self.lane = LANE_IDLE
+        self.invalidate()
+
+    def build(self, context: BuildContext) -> Widget:
+        bar: float = BAR_REST
+        opacity: float = 0.0
+        shift: float = 0.0
+        title: str = "Live"
+        detail: str = "Counter is moving."
+        if self.count > 0 or self.lane != LANE_NONE:
+            bar = BAR_GROWN
+            opacity = 1.0
+            shift = BADGE_SHIFT
+        if self.lane == LANE_OPEN:
+            title = "Open"
+            detail = "Queue is receiving work."
+        if self.lane == LANE_IDLE:
+            title = "Idle"
+            detail = "Queue is waiting."
+        return ColoredBox(COLOR_BACKGROUND, Padding(insets_all(24.0), Column([
+            Text(str(self.count), font_size=40.0, color=COLOR_TEXT),
+            Row([
+                lane_card("Open", 4, self.lane, LANE_OPEN, self.show_open),
+                lane_card("Idle", 5, self.lane, LANE_IDLE, self.show_idle),
+            ], cross_align=CROSS_START, main_size=MAIN_MIN, spacing=16.0),
+            AnimatedSize(PANEL_WIDTH, bar, 0.5, ColoredBox(COLOR_BUTTON, Padding(insets_all(16.0), Column([
+                Text(title, font_size=22.0, color=COLOR_BUTTON_TEXT),
+                SizedBox(None, 8.0),
+                Text(detail, font_size=16.0, color=COLOR_BUTTON_TEXT),
+                SizedBox(None, 8.0),
+                AnimatedOpacity(opacity, 0.5, AnimatedPosition(shift, 0.0, 0.5, SizedBox(96.0, 32.0, ColoredBox(COLOR_ACCENT, Padding(insets_all(6.0), Text(title, font_size=16.0, color=COLOR_TEXT)))))),
+            ], cross_align=CROSS_START, main_size=MAIN_MIN))), 9),
+            Button("Refresh", self.refresh, color=COLOR_BUTTON_TEXT, background=COLOR_BUTTON),
+        ], spacing=16.0, cross_align=CROSS_START, main_size=MAIN_MIN)))
+
+
+class DashboardPage(StatefulWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_DASHBOARD, None)
+
+    def create_state(self) -> State:
+        return DashboardState()

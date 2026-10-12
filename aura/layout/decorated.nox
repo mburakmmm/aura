@@ -1,0 +1,125 @@
+from aura.rendering.layer import PaintingContext
+from aura.rendering.render_object import RenderBox
+from aura.widgets.framework import Element, RenderObjectWidget, Widget
+from aura.widgets.key import Key
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_DECORATED: int = alloc_type_id()
+
+
+class RenderDecoratedBox(RenderBox):
+    color: int
+    radius: float
+    border: int
+    border_width: float
+    shadow: int
+    shadow_dx: float
+    shadow_dy: float
+    shadow_blur: float
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.color = 0
+        self.radius = 0.0
+        self.border = 0
+        self.border_width = 0.0
+        self.shadow = 0
+        self.shadow_dx = 0.0
+        self.shadow_dy = 0.0
+        self.shadow_blur = 0.0
+
+    def set_decoration(self, color: int, radius: float, border: int, border_width: float, shadow: int = 0, shadow_dx: float = 0.0, shadow_dy: float = 0.0, shadow_blur: float = 0.0) -> None:
+        if self.color == color and self.radius == radius and self.border == border and self.border_width == border_width and self.shadow == shadow and self.shadow_dx == shadow_dx and self.shadow_dy == shadow_dy and self.shadow_blur == shadow_blur:
+            return
+        self.color = color
+        self.radius = radius
+        self.border = border
+        self.border_width = border_width
+        self.shadow = shadow
+        self.shadow_dx = shadow_dx
+        self.shadow_dy = shadow_dy
+        self.shadow_blur = shadow_blur
+        self.mark_needs_paint()
+
+    def perform_layout(self) -> None:
+        child: RenderBox | None = self.only_child
+        if child is not None:
+            child.layout(self.constraints)
+            child.offset_x = 0.0
+            child.offset_y = 0.0
+            self.width = self.constraints.constrain_width(child.width)
+            self.height = self.constraints.constrain_height(child.height)
+        else:
+            if self.constraints.has_bounded_width():
+                self.width = self.constraints.max_width
+            else:
+                self.width = self.constraints.min_width
+            if self.constraints.has_bounded_height():
+                self.height = self.constraints.max_height
+            else:
+                self.height = self.constraints.min_height
+
+    def paint_self(self, context: PaintingContext) -> None:
+        inset: float = 0.0
+        stroke_r: float = self.radius
+        stroke_w: float = self.width
+        stroke_h: float = self.height
+        if self.shadow != 0:
+            context.fill_shadow(0.0, 0.0, self.width, self.height, self.radius, self.shadow_dx, self.shadow_dy, self.shadow_blur, self.shadow)
+        if self.radius > 0.0:
+            context.fill_rrect(0.0, 0.0, self.width, self.height, self.radius, self.color)
+        else:
+            context.fill_rect(0.0, 0.0, self.width, self.height, self.color)
+        if self.border_width <= 0.0:
+            return
+        inset = self.border_width / 2.0
+        stroke_w = self.width - self.border_width
+        stroke_h = self.height - self.border_width
+        if stroke_w < 0.0:
+            stroke_w = 0.0
+        if stroke_h < 0.0:
+            stroke_h = 0.0
+        stroke_r = self.radius - inset
+        if stroke_r < 0.0:
+            stroke_r = 0.0
+        context.stroke_rrect(inset, inset, stroke_w, stroke_h, stroke_r, self.border_width, self.border)
+
+    def hit_test_self(self, x: float, y: float) -> bool:
+        return True
+
+
+class DecoratedBox(RenderObjectWidget):
+    color: int
+    radius: float
+    border: int
+    border_width: float
+    shadow: int
+    shadow_dx: float
+    shadow_dy: float
+    shadow_blur: float
+    child: Widget | None
+
+    def __init__(self, color: int, radius: float = 0.0, border: int = 0, border_width: float = 0.0, shadow: int = 0, shadow_dx: float = 0.0, shadow_dy: float = 0.0, shadow_blur: float = 0.0, child: Widget | None = None, key: Key | None = None) -> None:
+        super().__init__(TYPE_DECORATED, key)
+        self.color = color
+        self.radius = radius
+        self.border = border
+        self.border_width = border_width
+        self.shadow = shadow
+        self.shadow_dx = shadow_dx
+        self.shadow_dy = shadow_dy
+        self.shadow_blur = shadow_blur
+        self.child = child
+
+    def create_render(self) -> RenderBox | None:
+        return RenderDecoratedBox()
+
+    def child_widgets(self) -> list[Widget]:
+        child: Widget | None = self.child
+        if child is None:
+            empty: list[Widget] = []
+            return empty
+        return [child]
+
+    def sync_render(self, element: Element) -> None:
+        element.apply_decoration(self.color, self.radius, self.border, self.border_width, self.shadow, self.shadow_dx, self.shadow_dy, self.shadow_blur)

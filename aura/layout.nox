@@ -1,4 +1,7 @@
+from aura.layout.align import Align
 from aura.layout.boxes import Center, ColoredBox, Container, Padding, SizedBox
+from aura.layout.decorated import DecoratedBox
 from aura.layout.flex import Column, Expanded, Flexible, Row, Spacer
+from aura.layout.stack import Positioned, Stack
 from aura.layout.repaint import RepaintBoundary
 from aura.layout.virtual_list import ItemSource, ScrollController, ScrollPosition, Viewport, ViewportMetrics, VirtualList

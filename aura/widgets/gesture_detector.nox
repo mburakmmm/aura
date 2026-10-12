@@ -1,0 +1,69 @@
+from aura.rendering.render_object import RenderBox
+from aura.widgets.framework import Element, RenderObjectWidget, Widget
+from aura.widgets.key import Key
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_GESTURE: int = alloc_type_id()
+
+
+def _quiet_secondary(x: float, y: float) -> None:
+    if x == 0.0 and y == 0.0:
+        return
+
+
+class RenderGestureDetector(RenderBox):
+    def __init__(self) -> None:
+        super().__init__()
+
+    def perform_layout(self) -> None:
+        child: RenderBox | None = self.only_child
+        if child is not None:
+            child.layout(self.constraints)
+            child.offset_x = 0.0
+            child.offset_y = 0.0
+            self.width = self.constraints.constrain_width(child.width)
+            self.height = self.constraints.constrain_height(child.height)
+        else:
+            self.width = self.constraints.constrain_width(self.constraints.min_width)
+            self.height = self.constraints.constrain_height(self.constraints.min_height)
+
+    def hit_test_self(self, x: float, y: float) -> bool:
+        return True
+
+
+class GestureDetector(RenderObjectWidget):
+    child: Widget
+    on_tap: () -> None
+    on_secondary: (float, float) -> None
+    has_secondary: int
+    label: str
+
+    def __init__(self, child: Widget, on_tap: () -> None, label: str = "", key: Key | None = None) -> None:
+        super().__init__(TYPE_GESTURE, key)
+        self.child = child
+        self.on_tap = on_tap
+        self.on_secondary = _quiet_secondary
+        self.has_secondary = 0
+        self.label = label
+
+    def listen_secondary(self, handler: (float, float) -> None) -> None:
+        self.on_secondary = handler
+        self.has_secondary = 1
+
+    def create_render(self) -> RenderBox | None:
+        return RenderGestureDetector()
+
+    def child_widgets(self) -> list[Widget]:
+        return [self.child]
+
+    def sync_render(self, element: Element) -> None:
+        box: RenderBox | None = element.render
+        if box is None:
+            return
+        box.set_tap(self.on_tap)
+        box.semantics_role = "button"
+        box.semantics_label = self.label
+        if self.has_secondary == 1:
+            box.set_secondary(self.on_secondary)
+        else:
+            box.clear_secondary()

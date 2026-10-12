@@ -888,11 +888,109 @@ extern "C" int64_t aura_cmd_rect(int64_t handle, double x, double y, double w, d
     return aura_paint_rect(x, y, w, h, argb);
 }
 
+extern "C" int64_t aura_cmd_rrect(int64_t handle, double x, double y, double w, double h, double radius, int64_t argb) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_paint_rrect(x, y, w, h, radius, argb);
+}
+
+extern "C" int64_t aura_cmd_rrect_stroke(int64_t handle, double x, double y, double w, double h, double radius, double stroke, int64_t argb) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_paint_rrect_stroke(x, y, w, h, radius, stroke, argb);
+}
+
+extern "C" int64_t aura_cmd_oval(int64_t handle, double x, double y, double w, double h, int64_t argb) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_paint_oval(x, y, w, h, argb);
+}
+
+extern "C" int64_t aura_cmd_line(int64_t handle, double x, double y, double x2, double y2, double stroke, int64_t argb) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_paint_line(x, y, x2, y2, stroke, argb);
+}
+
+extern "C" int64_t aura_cmd_shadow(int64_t handle, double x, double y, double w, double h, double radius, double dx, double dy, double blur, int64_t argb) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_paint_shadow(x, y, w, h, radius, dx, dy, blur, argb);
+}
+
+extern "C" int64_t aura_cmd_path_begin(int64_t handle) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_path_begin();
+}
+
+extern "C" int64_t aura_cmd_path_move(int64_t handle, double x, double y) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_path_move(x, y);
+}
+
+extern "C" int64_t aura_cmd_path_line(int64_t handle, double x, double y) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_path_line(x, y);
+}
+
+extern "C" int64_t aura_cmd_path_quad(int64_t handle, double cx, double cy, double x, double y) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_path_quad(cx, cy, x, y);
+}
+
+extern "C" int64_t aura_cmd_path_cubic(int64_t handle, double c1x, double c1y, double c2x, double c2y, double x, double y) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_path_cubic(c1x, c1y, c2x, c2y, x, y);
+}
+
+extern "C" int64_t aura_cmd_path_close(int64_t handle) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_path_close();
+}
+
+extern "C" int64_t aura_cmd_path_fill(int64_t handle, int64_t argb) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_path_fill(argb);
+}
+
+extern "C" int64_t aura_cmd_path_stroke(int64_t handle, double stroke, int64_t argb) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_path_stroke(stroke, argb);
+}
+
 extern "C" int64_t aura_cmd_text(int64_t handle, double x, double y, const char *text, double size, int64_t weight, int64_t argb, const char *family) {
     if (window_get(handle, 1) == NULL) {
         return -1;
     }
     return aura_paint_text(x, y, text, size, weight, argb, family);
+}
+
+extern "C" int64_t aura_cmd_text_style(int64_t handle, double x, double y, const char *text, double size, int64_t weight, int64_t argb, const char *family, int64_t italic) {
+    if (window_get(handle, 1) == NULL) {
+        return -1;
+    }
+    return aura_paint_text_style(x, y, text, size, weight, argb, family, italic);
 }
 
 extern "C" int64_t aura_cmd_opacity(int64_t handle, double opacity) {
@@ -1346,7 +1444,7 @@ extern "C" int64_t aura_set_cursor(int64_t handle, int64_t kind) {
         return -1;
     }
     window->cursor_kind = (int)kind;
-    SetCursor(LoadCursorW(NULL, kind == 1 ? IDC_IBEAM : IDC_ARROW));
+    SetCursor(LoadCursorW(NULL, kind == 1 ? IDC_IBEAM : (kind == 2 ? IDC_HAND : IDC_ARROW)));
     return 0;
 }
 

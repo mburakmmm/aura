@@ -1,2 +1,2 @@
-from aura.animation.effects import Opacity, Transform
+from aura.animation.effects import AnimatedOpacity, AnimatedPosition, AnimatedSize, Opacity, Transform
 from aura.animation.ticker import AnimationController, Curve, EaseInCurve, LinearCurve, Tween

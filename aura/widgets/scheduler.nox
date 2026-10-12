@@ -1,4 +1,18 @@
+_next_ticker_id: int = 1
+
+
+def take_ticker_id() -> int:
+    issued: int = _next_ticker_id
+    _next_ticker_id = issued + 1
+    return issued
+
+
 class Ticker:
+    ticker_id: int
+
+    def __init__(self) -> None:
+        self.ticker_id = take_ticker_id()
+
     def tick(self, time_s: float) -> None:
         pass
 
@@ -14,7 +28,7 @@ class Scheduler:
     def add(self, ticker: Ticker) -> None:
         i: int = 0
         while i < len(self.tickers):
-            if self.tickers[i] == ticker:
+            if self.tickers[i].ticker_id == ticker.ticker_id:
                 return
             i = i + 1
         self.tickers.append(ticker)
@@ -23,7 +37,7 @@ class Scheduler:
         kept: list[Ticker] = []
         i: int = 0
         while i < len(self.tickers):
-            if self.tickers[i] != ticker:
+            if self.tickers[i].ticker_id != ticker.ticker_id:
                 kept.append(self.tickers[i])
             i = i + 1
         self.tickers = kept

@@ -39,6 +39,7 @@ class FramePump:
     laid_out: int
     painted: int
     layers: int
+    hovered: RenderBox | None
 
     def __init__(self) -> None:
         self.owner = BuildOwner()
@@ -64,6 +65,7 @@ class FramePump:
         self.laid_out = 0
         self.painted = 0
         self.layers = 0
+        self.hovered = None
         self.view.pipeline = self.pipeline
         self.pipeline.root = self.view
 
@@ -140,6 +142,7 @@ class FramePump:
     def pointer_up(self, x: float, y: float) -> None:
         self.arena.pointer_up(x, y, self.frame_time)
         begin_fling(self.scheduler, self.arena.fling_host, self.arena.fling_velocity, self.frame_time)
+        self._hover_cursor(x, y)
 
     def pointer_cancel(self) -> None:
         self.arena.pointer_cancel()
@@ -195,9 +198,33 @@ class FramePump:
         result: HitTestResult = HitTestResult()
         self.view.hit_test(result, x, y)
         kind: int = 0
+        next: RenderBox | None = None
         i: int = 0
         while i < len(result.targets):
-            if result.targets[i].text_target != 0:
+            target: RenderBox = result.targets[i]
+            if next is None and target.hover_id != 0:
+                next = target
+            if kind == 0 and target.text_target != 0:
                 kind = 1
+            if kind == 0 and target.cursor_kind != 0:
+                kind = target.cursor_kind
             i = i + 1
+        self._switch_hover(next)
         set_cursor(kind)
+
+    def _switch_hover(self, next: RenderBox | None) -> None:
+        previous: RenderBox | None = self.hovered
+        next_id: int = 0
+        prev_id: int = 0
+        if next is not None:
+            next_id = next.hover_id
+        if previous is not None:
+            prev_id = previous.hover_id
+        if prev_id != 0 and prev_id == next_id:
+            return
+        if previous is not None and prev_id != 0:
+            previous.leave_hover()
+        self.hovered = None
+        if next is not None and next_id != 0:
+            next.enter_hover()
+            self.hovered = next

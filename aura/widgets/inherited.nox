@@ -1,0 +1,66 @@
+from aura.core.diagnostics import FrameworkError
+from aura.widgets.framework import BuildContext, Element, InheritedElement, StatelessWidget, Widget
+from aura.widgets.key import Key
+from aura.widgets.scope import ScopeAsk
+
+
+class TextScope(ScopeAsk):
+    value: str
+
+    def __init__(self) -> None:
+        self.value = ""
+
+    def apply_text(self, value: str) -> None:
+        self.value = value
+
+
+class IntScope(ScopeAsk):
+    value: int
+
+    def __init__(self) -> None:
+        self.value = 0
+
+    def apply_int(self, value: int) -> None:
+        self.value = value
+
+
+class FloatScope(ScopeAsk):
+    value: float
+
+    def __init__(self) -> None:
+        self.value = 0.0
+
+    def apply_float(self, value: float) -> None:
+        self.value = value
+
+
+class Inherited(StatelessWidget):
+    child: Widget
+
+    def __init__(self, type_id: int, child: Widget, key: Key | None = None) -> None:
+        super().__init__(type_id, key)
+        self.child = child
+
+    def create_element(self) -> Element:
+        return InheritedElement()
+
+    def build(self, context: BuildContext) -> Widget:
+        return self.child
+
+    def answer(self, ask: ScopeAsk) -> None:
+        mark: int = ask.scope_marker()
+        if mark == 1:
+            return
+
+
+def inherit(context: BuildContext, slot: int, ask: ScopeAsk) -> None:
+    parent: Element | None = context.element.parent
+    while parent is not None:
+        current: Widget | None = parent.widget
+        if current is not None:
+            if current.type_id == slot:
+                parent.add_dependent(context.element)
+                current.answer(ask)
+                return
+        parent = parent.parent
+    raise FrameworkError("inherited value is missing")

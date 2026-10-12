@@ -1,5 +1,5 @@
 from aura.graphics.canvas import Canvas
-from aura.platform.bridge import cmd_clear, cmd_clip, cmd_clip_pop, cmd_image, cmd_opacity, cmd_opacity_pop, cmd_rect, cmd_text, frame_begin, frame_end
+from aura.platform.bridge import cmd_clear, cmd_clip, cmd_clip_pop, cmd_image, cmd_line, cmd_opacity, cmd_opacity_pop, cmd_oval, cmd_path_begin, cmd_path_close, cmd_path_cubic, cmd_path_fill, cmd_path_line, cmd_path_move, cmd_path_quad, cmd_path_stroke, cmd_rect, cmd_rrect, cmd_rrect_stroke, cmd_shadow, cmd_text, cmd_text_style, frame_begin, frame_end
 
 
 class HostCanvas(Canvas):
@@ -23,9 +23,65 @@ class HostCanvas(Canvas):
         self._begin()
         cmd_rect(self.handle, x, y, w, h, argb)
 
+    def fill_rrect(self, x: float, y: float, w: float, h: float, radius: float, argb: int) -> None:
+        self._begin()
+        cmd_rrect(self.handle, x, y, w, h, radius, argb)
+
+    def stroke_rrect(self, x: float, y: float, w: float, h: float, radius: float, stroke: float, argb: int) -> None:
+        self._begin()
+        cmd_rrect_stroke(self.handle, x, y, w, h, radius, stroke, argb)
+
+    def fill_oval(self, x: float, y: float, w: float, h: float, argb: int) -> None:
+        self._begin()
+        cmd_oval(self.handle, x, y, w, h, argb)
+
+    def draw_line(self, x: float, y: float, x2: float, y2: float, stroke: float, argb: int) -> None:
+        self._begin()
+        cmd_line(self.handle, x, y, x2, y2, stroke, argb)
+
+    def fill_shadow(self, x: float, y: float, w: float, h: float, radius: float, dx: float, dy: float, blur: float, argb: int) -> None:
+        self._begin()
+        cmd_shadow(self.handle, x, y, w, h, radius, dx, dy, blur, argb)
+
+    def path_begin(self) -> None:
+        self._begin()
+        cmd_path_begin(self.handle)
+
+    def path_move(self, x: float, y: float) -> None:
+        self._begin()
+        cmd_path_move(self.handle, x, y)
+
+    def path_line(self, x: float, y: float) -> None:
+        self._begin()
+        cmd_path_line(self.handle, x, y)
+
+    def path_quad(self, cx: float, cy: float, x: float, y: float) -> None:
+        self._begin()
+        cmd_path_quad(self.handle, cx, cy, x, y)
+
+    def path_cubic(self, c1x: float, c1y: float, c2x: float, c2y: float, x: float, y: float) -> None:
+        self._begin()
+        cmd_path_cubic(self.handle, c1x, c1y, c2x, c2y, x, y)
+
+    def path_close(self) -> None:
+        self._begin()
+        cmd_path_close(self.handle)
+
+    def path_fill(self, argb: int) -> None:
+        self._begin()
+        cmd_path_fill(self.handle, argb)
+
+    def path_stroke(self, stroke: float, argb: int) -> None:
+        self._begin()
+        cmd_path_stroke(self.handle, stroke, argb)
+
     def fill_text(self, x: float, y: float, text: str, size: float, weight: int, argb: int, family: str) -> None:
         self._begin()
         cmd_text(self.handle, x, y, text, size, weight, argb, family)
+
+    def fill_text_style(self, x: float, y: float, text: str, size: float, weight: int, argb: int, family: str, italic: int) -> None:
+        self._begin()
+        cmd_text_style(self.handle, x, y, text, size, weight, argb, family, italic)
 
     def push_opacity(self, opacity: float) -> None:
         self._begin()

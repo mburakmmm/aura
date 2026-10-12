@@ -5,7 +5,49 @@ class Canvas:
     def fill_rect(self, x: float, y: float, w: float, h: float, argb: int) -> None:
         pass
 
+    def fill_rrect(self, x: float, y: float, w: float, h: float, radius: float, argb: int) -> None:
+        pass
+
+    def stroke_rrect(self, x: float, y: float, w: float, h: float, radius: float, stroke: float, argb: int) -> None:
+        pass
+
+    def fill_oval(self, x: float, y: float, w: float, h: float, argb: int) -> None:
+        pass
+
+    def draw_line(self, x: float, y: float, x2: float, y2: float, stroke: float, argb: int) -> None:
+        pass
+
+    def fill_shadow(self, x: float, y: float, w: float, h: float, radius: float, dx: float, dy: float, blur: float, argb: int) -> None:
+        pass
+
+    def path_begin(self) -> None:
+        pass
+
+    def path_move(self, x: float, y: float) -> None:
+        pass
+
+    def path_line(self, x: float, y: float) -> None:
+        pass
+
+    def path_quad(self, cx: float, cy: float, x: float, y: float) -> None:
+        pass
+
+    def path_cubic(self, c1x: float, c1y: float, c2x: float, c2y: float, x: float, y: float) -> None:
+        pass
+
+    def path_close(self) -> None:
+        pass
+
+    def path_fill(self, argb: int) -> None:
+        pass
+
+    def path_stroke(self, stroke: float, argb: int) -> None:
+        pass
+
     def fill_text(self, x: float, y: float, text: str, size: float, weight: int, argb: int, family: str) -> None:
+        pass
+
+    def fill_text_style(self, x: float, y: float, text: str, size: float, weight: int, argb: int, family: str, italic: int) -> None:
         pass
 
     def push_opacity(self, opacity: float) -> None:

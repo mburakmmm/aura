@@ -1,0 +1,76 @@
+import nox.test
+from aura.graphics.recording import KIND_TEXT, KIND_TEXT_STYLE, RecordingCanvas
+from aura.rendering.layer import PaintingContext, PictureLayer
+from aura.testing.tester import WidgetTester
+from aura.text import Text
+from aura.text.measure import measure_height, measure_width
+from aura.text.rich import RichText, TextRun, rich_height
+from examples.files.markdown import parse_markdown_line
+
+
+def style_mark(canvas: RecordingCanvas) -> float:
+    i: int = 0
+    while i < len(canvas.kinds):
+        if canvas.kinds[i] == KIND_TEXT_STYLE:
+            return canvas.hs[i]
+        i = i + 1
+    return 0.0
+
+
+def wrapped_y(canvas: RecordingCanvas) -> int:
+    i: int = 0
+    seen: int = 0
+    while i < len(canvas.kinds):
+        if canvas.kinds[i] == KIND_TEXT and canvas.ys[i] > 1.0:
+            seen = 1
+        i = i + 1
+    return seen
+
+
+def run_plain(text: str, size: float, weight: int, italic: int) -> TextRun:
+    return TextRun(text, size, weight, italic, 1)
+
+
+plain_line: list[TextRun] = []
+mixed: list[TextRun] = []
+heading: list[TextRun] = []
+body: list[TextRun] = []
+both: list[TextRun] = []
+italic_runs: list[TextRun] = []
+tester: WidgetTester = WidgetTester()
+source: PictureLayer = PictureLayer()
+outer: PictureLayer = PictureLayer()
+recorded: RecordingCanvas = RecordingCanvas()
+limit: float = 0.0
+
+nox.test.assert_true(measure_width("kalın", 16.0, 700, "") > measure_width("kalın", 16.0, 400, ""), "bold is wider")
+heading = parse_markdown_line("# Başlık", 1)
+body = parse_markdown_line("gövde", 1)
+nox.test.assert_true(heading[0].font_size > body[0].font_size, "heading size")
+nox.test.assert_true(rich_height(heading, 400.0) > rich_height(body, 400.0), "heading is taller")
+nox.test.assert_true(rich_height(heading, 400.0) > measure_height(16.0, 400, ""), "heading line")
+mixed = parse_markdown_line("düz **kalın** *eğik*", 1)
+nox.test.assert_true(len(mixed) >= 3, "mixed runs")
+nox.test.assert_eq_int(mixed[1].weight, 700, "bold run")
+nox.test.assert_eq_int(mixed[1].italic, 0, "bold is upright")
+both = parse_markdown_line("***ikisi***", 1)
+nox.test.assert_eq_int(both[0].weight, 700, "both weight")
+nox.test.assert_eq_int(both[0].italic, 1, "both italic")
+plain_line.append(run_plain("hello world", 16.0, 400, 0))
+limit = measure_width("hello", 16.0, 400, "") + 2.0
+tester.pump_widget(RichText(plain_line), limit, 120.0)
+nox.test.assert_eq_int(wrapped_y(tester.canvas), 1, "line wraps")
+nox.test.assert_eq_int(tester.canvas.text_style_count(), 0, "plain wrap stays upright")
+italic_runs.append(run_plain("eğik", 16.0, 400, 1))
+tester.pump_widget(RichText(italic_runs), 240.0, 80.0)
+nox.test.assert_true(tester.canvas.text_style_count() >= 1, "italic command recorded")
+nox.test.assert_true(style_mark(tester.canvas) >= 1.0, "italic bit recorded")
+tester.pump_widget(Text("Aura markdown"), 240.0, 80.0)
+nox.test.assert_true(tester.canvas.text_count() >= 1, "plain text command")
+nox.test.assert_eq_int(tester.canvas.text_style_count(), 0, "plain text is not italic")
+PaintingContext(source).fill_text_style(3.0, 4.0, "eğik", 16.0, 400, 1, "", 1)
+PaintingContext(outer).blit(source)
+outer.replay(recorded)
+nox.test.assert_eq_int(recorded.text_style_count(), 1, "blit keeps italic")
+nox.test.assert_true(style_mark(recorded) >= 1.0, "blit keeps italic bit")
+print("rich text ok")

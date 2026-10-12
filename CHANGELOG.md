@@ -2,6 +2,28 @@
 
 Bu dosya yayımlanan sürümleri tutar. Sürüm numarası `nox.json` ile, git etiketi `v` önekiyle aynıdır. Sonraki teslimatların sırası [roadmap.md](roadmap.md) dosyasındadır.
 
+## 1.0.0
+
+Dondurma. Genel adlar bu sürümde donar. Kırılması ana sürüm ister. Kapı `scripts/certify.sh` ve GitHub Actions’tır: macOS, gizli Win32, X11 ve Wayland. Etiket bu sürüm notunun parçası değildir.
+
+- `Text(value, font_size, weight, color)` durur. `TextRun` ve `RichText` tek paragraf kurar. Parçalar ayrı ölçülür, satır genişliği dolunca kırılır ve her parça kendi punto ve ağırlığıyla boyanır.
+- Kalın, `weight >= 600` yoludur. Eğik ayrı font dosyası değildir: aynı yüze Skia eğimi uygulanır. `fill_text` ve `measure_width` imzası değişmez. Eğik komut `aura_cmd_text_style` ve `aura_text_width_style` olarak macOS, Windows ve Linux’ta aynı semboldür. Kayıt tuvali ve `PictureLayer` blit’i bu komutu taşır.
+- Dosya gezginindeki markdown satır satır ayrışır. `# ` ve `## ` başlıktır. `**` kalın, `*` eğik, `***` ikisidir. `extent_at` dosyanın tamamını ölçmez, yalnız o satırı ölçer. `Aura markdown` etiketi durur. Başlık satırı gövdeden yüksektir.
+- `packages/badge` kendi `nox.json` dosyasıyla durur. Kanıt uygulaması paketi import eder ve `register_view` çağırır. Fabrika paketin içindedir. Çekirdek dizin taramaz. Kayıt yoksa `FrameworkError("plugin view is not registered")` durur.
+- Mevcut on self-check, altın piksel ve sekiz benchmark durur. Zengin metin testi başlığın daha yüksek olduğunu, kalın parçanın aynı harften geniş olduğunu ve eğik komutun kayda geçtiğini görür.
+- Özel widget yüzeyi: `Stack` ve `Positioned`, `Align`, `GestureDetector`, `DecoratedBox`, `CustomPaint`. Tuval yuvarlak dikdörtgen, kontur, elips ve çizgi taşır. Üç kabuk aynı sembolleri çalar. Kayıt ve blit bu komutları düşürmez.
+- `Inherited` herhangi bir yuvayı alt ağaca yayınlar. Değişmeyen değer bağımlıyı yeniden kurmaz. `MouseRegion` girişi, çıkışı ve imleci bildirir. `DecoratedBox` gölge basar. `CustomPaint` hareket, çizgi, karesel ve kübik eğri ile dolgu ve kontur çizer. Üç kabuk aynı sembolleri çalar.
+
+## 0.9.0
+
+Dashboard. Örtük animasyon mevcut `AnimationController` ve kare damgasının üstüne oturur. Animasyon işletim sistemi saatini okumaz. Kapı `scripts/certify.sh` ve GitHub Actions’tır: macOS, gizli Win32, X11 ve Wayland.
+
+- `animate_to` geçerli değerden hedefe gider. İlk kare hedefin kendisidir. `AnimatedOpacity` yalnız boyar. `AnimatedPosition` mevcut `Transform` ile kayar. `AnimatedSize` `SizedBox` boyutunu değiştirir, bu yüzden yerleşim kirlenir.
+- `examples/dashboard` koyu sayfada iki sabit kartı `RepaintBoundary` içinde tutar. `Open` ve `Idle` seçilince panel o şeridin adını ve cümlesini koyu yazıyla gösterir. Refresh sayıyı artırır ve kartları yeniden boyamaz. Panel kendi kutusunun içinde açılır; yazı satır genişliğine gerilmez.
+- Altın görüntü tam ekran PNG değildir. Sabit kartın dolgu rengi birebirdir. Paketlenmiş Noto Sans ile çizilen harfin mürekkebi zeminden ayrıdır.
+- Profil satırı `budget_60_ms=16.67`, `budget_120_ms=8.33` ve en yavaş fazın adını yazar. Ölçülen kare 16.67 ms altında kaldığı için faz iyileştirmesi yapılmadı.
+- Sertifika dosya gezgininden sonra Dashboard’u gizli pencerede koşturur. Pencere açık kalmaz. Etiket bu sürüm notunun parçası değildir.
+
 ## 0.8.0
 
 Dosya gezgini. Dizin okuma UI iş parçacığının dışında biter. Sonuç state’e yazılır ve bir sonraki karede kurulur. `build` dizini okumaz ve beklemez. Kapı `scripts/certify.sh` ve GitHub Actions’tır: macOS, gizli Win32, X11 ve Wayland.

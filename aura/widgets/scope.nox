@@ -1,0 +1,15 @@
+class ScopeAsk:
+    def scope_marker(self) -> int:
+        return 0
+
+    def apply_text(self, value: str) -> None:
+        if value == "":
+            return
+
+    def apply_int(self, value: int) -> None:
+        if value == 0:
+            return
+
+    def apply_float(self, value: float) -> None:
+        if value == 0.0:
+            return

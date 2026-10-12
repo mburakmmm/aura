@@ -1,0 +1,6 @@
+from aura.rendering.layer import PaintingContext
+
+
+class Painter:
+    def paint(self, context: PaintingContext, width: float, height: float) -> None:
+        pass

@@ -1,4 +1,4 @@
-from aura.platform.bridge import text_height, text_width
+from aura.platform.bridge import text_height, text_width, text_width_style
 
 
 class TextLine:
@@ -14,6 +14,10 @@ class TextLine:
 
 def measure_width(text: str, font_size: float, weight: int, family: str) -> float:
     return text_width(text, font_size, weight, family)
+
+
+def measure_width_style(text: str, font_size: float, weight: int, family: str, italic: int) -> float:
+    return text_width_style(text, font_size, weight, family, italic)
 
 
 def measure_height(font_size: float, weight: int, family: str) -> float:

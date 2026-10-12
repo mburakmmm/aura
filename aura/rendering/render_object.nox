@@ -4,6 +4,7 @@ from aura.foundation.color import rgba
 from aura.foundation.constraints import BoxConstraints, Constraints
 from aura.graphics.canvas import Canvas
 from aura.rendering.layer import PaintingContext, PictureLayer, Scene
+from aura.rendering.painter import Painter
 from aura.semantics.semantics_node import SemanticsNode, SemanticsOwner
 
 PHASE_IDLE: int = 0
@@ -25,6 +26,10 @@ def _alloc_node_id() -> int:
 
 
 def _noop_tap() -> None:
+    pass
+
+
+def _noop_hover() -> None:
     pass
 
 
@@ -148,6 +153,21 @@ class RenderBox(RenderObject):
     has_file_drag: bool
     host_id: int
     plugin_id: int
+    clip_contents: int
+    placed: int
+    place_left: float
+    place_top: float
+    place_right: float
+    place_bottom: float
+    place_has_left: int
+    place_has_top: int
+    place_has_right: int
+    place_has_bottom: int
+    hover_id: int
+    hover_inside: int
+    on_enter: () -> None
+    on_exit: () -> None
+    cursor_kind: int
 
     def __init__(self) -> None:
         super().__init__()
@@ -168,6 +188,21 @@ class RenderBox(RenderObject):
         self.semantics_role = ""
         self.semantics_label = ""
         self.debug_tag = 0
+        self.clip_contents = 0
+        self.placed = 0
+        self.place_left = 0.0
+        self.place_top = 0.0
+        self.place_right = 0.0
+        self.place_bottom = 0.0
+        self.place_has_left = 0
+        self.place_has_top = 0
+        self.place_has_right = 0
+        self.place_has_bottom = 0
+        self.hover_id = 0
+        self.hover_inside = 0
+        self.on_enter = _noop_hover
+        self.on_exit = _noop_hover
+        self.cursor_kind = 0
         self.overflow = 0.0
         self.overflow_reported = False
         self.on_tap = _noop_tap
@@ -248,11 +283,17 @@ class RenderBox(RenderObject):
         else:
             self.is_relayout_boundary = False
         if self.needs_layout or changed:
+            previous_w: float = self.width
+            previous_h: float = self.height
             self.perform_layout()
             self.check_size()
             self.needs_layout = False
             self.layout_count = self.layout_count + 1
             self.mark_needs_paint()
+            if self.width != previous_w or self.height != previous_h:
+                grown: RenderBox | None = self.parent
+                if grown is not None:
+                    grown.mark_needs_layout()
 
     def perform_layout(self) -> None:
         self.width = constraints_width(self.constraints)
@@ -322,6 +363,8 @@ class RenderBox(RenderObject):
             i = i + 1
 
     def detach(self) -> None:
+        self.leave_hover()
+        self.hover_id = 0
         parent: RenderBox | None = self.parent
         if parent is not None:
             parent._forget(self)
@@ -445,6 +488,9 @@ class RenderBox(RenderObject):
     def set_paragraph(self, value: str, font_size: float, color: int, weight: int, family: str) -> None:
         raise FrameworkError("set_paragraph on a non-text render object")
 
+    def set_rich(self, texts: list[str], sizes: list[float], weights: list[int], italics: list[int], colors: list[int]) -> None:
+        raise FrameworkError("set_rich on a non-rich render object")
+
     def set_button(self, label: str, font_size: float, color: int, background: int, text_align: int) -> None:
         raise FrameworkError("set_button on a non-button render object")
 
@@ -459,6 +505,72 @@ class RenderBox(RenderObject):
 
     def set_color(self, argb: int) -> None:
         raise FrameworkError("set_color on a non-colored-box render object")
+
+    def set_place(self, has_left: int, left: float, has_top: int, top: float, has_right: int, right: float, has_bottom: int, bottom: float) -> None:
+        changed: bool = False
+        if self.placed != 1 or self.place_has_left != has_left or self.place_has_top != has_top or self.place_has_right != has_right or self.place_has_bottom != has_bottom:
+            changed = True
+        if self.place_left != left or self.place_top != top or self.place_right != right or self.place_bottom != bottom:
+            changed = True
+        self.placed = 1
+        self.place_has_left = has_left
+        self.place_has_top = has_top
+        self.place_has_right = has_right
+        self.place_has_bottom = has_bottom
+        self.place_left = left
+        self.place_top = top
+        self.place_right = right
+        self.place_bottom = bottom
+        if changed:
+            self.mark_needs_layout()
+
+    def clear_place(self) -> None:
+        if self.placed == 0:
+            return
+        self.placed = 0
+        self.place_has_left = 0
+        self.place_has_top = 0
+        self.place_has_right = 0
+        self.place_has_bottom = 0
+        self.place_left = 0.0
+        self.place_top = 0.0
+        self.place_right = 0.0
+        self.place_bottom = 0.0
+
+    def set_place_flags(self, flags: list[int]) -> None:
+        raise FrameworkError("set_place_flags on a non-stack render object")
+
+    def set_hover(self, hover_id: int, on_enter: () -> None, on_exit: () -> None, cursor: int) -> None:
+        self.hover_id = hover_id
+        self.on_enter = on_enter
+        self.on_exit = on_exit
+        self.cursor_kind = cursor
+
+    def enter_hover(self) -> None:
+        if self.hover_inside == 1:
+            return
+        self.hover_inside = 1
+        self.on_enter()
+
+    def leave_hover(self) -> None:
+        if self.hover_inside == 0:
+            return
+        self.hover_inside = 0
+        self.on_exit()
+
+    def set_decoration(self, color: int, radius: float, border: int, border_width: float, shadow: int = 0, shadow_dx: float = 0.0, shadow_dy: float = 0.0, shadow_blur: float = 0.0) -> None:
+        if shadow == 0 and shadow_dx == 0.0 and shadow_dy == 0.0 and shadow_blur == 0.0:
+            raise FrameworkError("set_decoration on a non-decorated render object")
+        raise FrameworkError("set_decoration on a non-decorated render object")
+
+    def set_align_xy(self, x: float, y: float) -> None:
+        raise FrameworkError("set_align_xy on a non-align render object")
+
+    def set_painter(self, painter: Painter) -> None:
+        raise FrameworkError("set_painter on a non-custom-paint render object")
+
+    def set_paint_size(self, has_w: int, w: float, has_h: int, h: float) -> None:
+        raise FrameworkError("set_paint_size on a non-custom-paint render object")
 
     def set_opacity(self, opacity: float) -> None:
         raise FrameworkError("set_opacity on a non-opacity render object")

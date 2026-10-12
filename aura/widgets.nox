@@ -1,4 +1,10 @@
+from aura.rendering.painter import Painter
+from aura.widgets.custom_paint import CustomPaint
 from aura.widgets.framework import BuildContext, BuildOwner, Element, ParentDataWidget, RenderObjectWidget, State, StatefulWidget, StatelessWidget, Widget, mount_tree
+from aura.widgets.gesture_detector import GestureDetector
+from aura.widgets.inherited import FloatScope, Inherited, IntScope, TextScope, inherit
+from aura.widgets.mouse_region import CURSOR_ARROW, CURSOR_HAND, CURSOR_TEXT, MouseRegion
+from aura.widgets.scope import ScopeAsk
 from aura.widgets.key import GlobalKey, IntValueKey, Key, ObjectKey, ValueKey
 from aura.widgets.signal import Computed, IntReader, Signal, TextSignal
 from aura.widgets.navigator import Navigator, NavigatorHandle, Route, navigator_handle, navigator_of

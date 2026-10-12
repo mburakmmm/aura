@@ -1,5 +1,7 @@
 from aura.core.diagnostics import FrameworkError
+from aura.widgets.scope import ScopeAsk
 from aura.input.focus import FocusManager, FocusNode
+from aura.rendering.painter import Painter
 from aura.rendering.render_object import PipelineOwner, RenderBox
 from aura.widgets.key import KEY_GLOBAL, Key
 from aura.widgets.scheduler import Scheduler
@@ -55,6 +57,17 @@ class Widget:
     def publish_inherited(self, element: Element) -> None:
         pass
 
+    def answer(self, ask: ScopeAsk) -> None:
+        mark: int = ask.scope_marker()
+        if mark == 1:
+            return
+
+    def same_scope(self, previous: Widget) -> int:
+        return previous.stack_placed() * 0
+
+    def stack_placed(self) -> int:
+        return 0
+
     def seed_navigator(self, element: Element) -> None:
         pass
 
@@ -62,6 +75,15 @@ class Widget:
         pass
 
     def _supplied_child(self) -> Widget | None:
+        return None
+
+    def _motion_x(self) -> float:
+        return 0.0
+
+    def _motion_y(self) -> float:
+        return 0.0
+
+    def _motion_child(self) -> Widget | None:
         return None
 
 
@@ -695,6 +717,19 @@ class Element:
         box.semantics_role = "text"
         box.semantics_label = value
 
+    def apply_rich(self, texts: list[str], sizes: list[float], weights: list[int], italics: list[int], colors: list[int]) -> None:
+        box: RenderBox | None = self.render
+        label: str = ""
+        i: int = 0
+        if box is None:
+            raise FrameworkError("rich text has no render object")
+        while i < len(texts):
+            label = label + texts[i]
+            i = i + 1
+        box.set_rich(texts, sizes, weights, italics, colors)
+        box.semantics_role = "text"
+        box.semantics_label = label
+
     def apply_toggle(self, checked: bool, label: str, text: int, track: int, thumb: int, handler: () -> None) -> None:
         box: RenderBox | None = self.render
         if box is None:
@@ -746,12 +781,13 @@ class Element:
             return
         box.clear_file_drag()
 
-    def apply_sized(self, has_w: int, w: float, has_h: int, h: float, tag: int) -> None:
+    def apply_sized(self, has_w: int, w: float, has_h: int, h: float, tag: int, clip: int) -> None:
         box: RenderBox | None = self.render
         if box is None:
             raise FrameworkError("sized box has no render object")
         box.set_sized(has_w, w, has_h, h)
         box.debug_tag = tag
+        box.clip_contents = clip
 
     def apply_padding(self, left: float, top: float, right: float, bottom: float) -> None:
         box: RenderBox | None = self.render
@@ -764,6 +800,30 @@ class Element:
         if box is None:
             raise FrameworkError("colored box has no render object")
         box.set_color(argb)
+
+    def apply_stack(self, flags: list[int]) -> None:
+        box: RenderBox | None = self.render
+        if box is None:
+            raise FrameworkError("stack has no render object")
+        box.set_place_flags(flags)
+
+    def apply_decoration(self, color: int, radius: float, border: int, border_width: float, shadow: int, shadow_dx: float, shadow_dy: float, shadow_blur: float) -> None:
+        box: RenderBox | None = self.render
+        if box is None:
+            raise FrameworkError("decorated box has no render object")
+        box.set_decoration(color, radius, border, border_width, shadow, shadow_dx, shadow_dy, shadow_blur)
+
+    def apply_align(self, x: float, y: float) -> None:
+        box: RenderBox | None = self.render
+        if box is None:
+            raise FrameworkError("align has no render object")
+        box.set_align_xy(x, y)
+
+    def apply_painter(self, painter: Painter) -> None:
+        box: RenderBox | None = self.render
+        if box is None:
+            raise FrameworkError("custom paint has no render object")
+        box.set_painter(painter)
 
     def apply_opacity(self, opacity: float) -> None:
         box: RenderBox | None = self.render
@@ -1018,9 +1078,14 @@ class InheritedElement(StatelessElement):
         super().rebuild()
 
     def update(self, widget: Widget) -> None:
+        previous: Widget | None = self.widget
         self.widget = widget
         widget.publish_inherited(self)
-        self.notify_dependents()
+        if previous is None:
+            self.notify_dependents()
+            return
+        if widget.same_scope(previous) == 0:
+            self.notify_dependents()
 
 
 class StatelessWidget(Widget):

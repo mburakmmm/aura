@@ -1,0 +1,98 @@
+import nox.test
+from aura.foundation.color import COLOR_ACCENT
+from aura.foundation.geometry import ALIGNMENT_TOP_LEFT, Alignment
+from aura.graphics.recording import KIND_OVAL, KIND_RRECT, KIND_RRECT_STROKE
+from aura.layout import Align, Column, DecoratedBox, Positioned, SizedBox, Stack
+from aura.rendering.layer import PaintingContext
+from aura.rendering.painter import Painter
+from aura.rendering.render_object import RenderBox
+from aura.testing.tester import WidgetTester
+from aura.widgets import CustomPaint, GestureDetector
+
+compose_taps: int = 0
+
+
+def compose_tap() -> None:
+    compose_taps = compose_taps + 1
+
+
+class DotPainter(Painter):
+    def paint(self, context: PaintingContext, width: float, height: float) -> None:
+        context.fill_oval(0.0, 0.0, width, height, COLOR_ACCENT)
+
+
+def find_label(box: RenderBox, label: str) -> RenderBox | None:
+    found: RenderBox | None = None
+    only: RenderBox | None = box.only_child
+    i: int = 0
+    if box.semantics_label == label:
+        return box
+    if only is not None:
+        found = find_label(only, label)
+        if found is not None:
+            return found
+    while i < len(box.children):
+        found = find_label(box.children[i], label)
+        if found is not None:
+            return found
+        i = i + 1
+    return None
+
+
+def require_box(box: RenderBox | None, name: str) -> RenderBox:
+    if box is None:
+        raise Exception(name)
+    return box
+
+
+def kind_count(tester: WidgetTester, kind: int) -> int:
+    count: int = 0
+    i: int = 0
+    while i < len(tester.canvas.kinds):
+        if tester.canvas.kinds[i] == kind:
+            count = count + 1
+        i = i + 1
+    return count
+
+
+stack_tester: WidgetTester = WidgetTester()
+page: Stack = Stack([
+    SizedBox(80.0, 40.0),
+    Positioned(SizedBox(10.0, 10.0), left=12.0, top=6.0),
+    Positioned(SizedBox(10.0, 10.0), right=4.0, bottom=2.0),
+])
+stack_tester.pump_widget(page, 200.0, 100.0)
+stack_box: RenderBox = require_box(stack_tester.view().only_child, "stack")
+nox.test.assert_eq_int(len(stack_box.children), 3, "stack children")
+nox.test.assert_eq_float(stack_box.children[1].offset_x, 12.0, "positioned left")
+nox.test.assert_eq_float(stack_box.children[1].offset_y, 6.0, "positioned top")
+nox.test.assert_eq_float(stack_box.children[2].offset_x, stack_box.width - 14.0, "positioned right")
+nox.test.assert_eq_float(stack_box.children[2].offset_y, stack_box.height - 12.0, "positioned bottom")
+
+align_tester: WidgetTester = WidgetTester()
+align_tester.pump_widget(Align(Alignment(1.0, 1.0), SizedBox(20.0, 10.0)), 100.0, 80.0)
+align_box: RenderBox = require_box(align_tester.view().only_child, "align")
+placed: RenderBox | None = align_box.only_child
+nox.test.assert_eq_float(require_box(placed, "aligned child").offset_x, 80.0, "align x")
+nox.test.assert_eq_float(require_box(placed, "aligned child").offset_y, 70.0, "align y")
+align_tester.pump_widget(Align(ALIGNMENT_TOP_LEFT, SizedBox(20.0, 10.0)), 100.0, 80.0)
+align_box = require_box(align_tester.view().only_child, "align top")
+placed = align_box.only_child
+nox.test.assert_eq_float(require_box(placed, "top child").offset_x, 0.0, "top left x")
+nox.test.assert_eq_float(require_box(placed, "top child").offset_y, 0.0, "top left y")
+
+paint_tester: WidgetTester = WidgetTester()
+paint_tester.pump_widget(DecoratedBox(COLOR_ACCENT, radius=8.0, border=1, border_width=2.0, child=SizedBox(40.0, 24.0)), 120.0, 80.0)
+nox.test.assert_true(kind_count(paint_tester, KIND_RRECT) >= 1, "rounded fill recorded")
+nox.test.assert_true(kind_count(paint_tester, KIND_RRECT_STROKE) >= 1, "rounded stroke recorded")
+paint_tester.pump_widget(CustomPaint(DotPainter(), width=30.0, height=30.0), 80.0, 80.0)
+nox.test.assert_true(kind_count(paint_tester, KIND_OVAL) >= 1, "custom oval recorded")
+
+tap_tester: WidgetTester = WidgetTester()
+tap_tester.pump_widget(Column([
+    GestureDetector(SizedBox(40.0, 20.0), compose_tap, label="tap me"),
+]), 200.0, 120.0)
+target: RenderBox = require_box(find_label(tap_tester.view(), "tap me"), "gesture")
+tap_tester.tap(target.absolute_x() + 4.0, target.absolute_y() + 4.0)
+nox.test.assert_eq_int(compose_taps, 1, "gesture tap")
+print("compose ok")

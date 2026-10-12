@@ -1,0 +1,114 @@
+from aura.foundation.constraints import Constraints
+from aura.rendering.layer import PaintingContext
+from aura.rendering.painter import Painter
+from aura.rendering.render_object import RenderBox
+from aura.widgets.framework import Element, RenderObjectWidget, Widget
+from aura.widgets.key import Key
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_CUSTOM_PAINT: int = alloc_type_id()
+
+
+class RenderCustomPaint(RenderBox):
+    painter: Painter
+    has_w: int
+    has_h: int
+    want_w: float
+    want_h: float
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.painter = Painter()
+        self.has_w = 0
+        self.has_h = 0
+        self.want_w = 0.0
+        self.want_h = 0.0
+
+    def set_painter(self, painter: Painter) -> None:
+        self.painter = painter
+        self.mark_needs_paint()
+
+    def set_paint_size(self, has_w: int, w: float, has_h: int, h: float) -> None:
+        if self.has_w == has_w and self.has_h == has_h and self.want_w == w and self.want_h == h:
+            return
+        self.has_w = has_w
+        self.has_h = has_h
+        self.want_w = w
+        self.want_h = h
+        self.mark_needs_layout()
+
+    def perform_layout(self) -> None:
+        child: RenderBox | None = self.only_child
+        limit: Constraints = self.constraints
+        if self.has_w != 0 and self.has_h != 0:
+            self.width = self.constraints.constrain_width(self.want_w)
+            self.height = self.constraints.constrain_height(self.want_h)
+            if child is not None:
+                child.layout(Constraints(0.0, self.width, 0.0, self.height))
+                child.offset_x = 0.0
+                child.offset_y = 0.0
+            return
+        if child is not None:
+            child.layout(limit)
+            child.offset_x = 0.0
+            child.offset_y = 0.0
+            self.width = self.constraints.constrain_width(child.width)
+            self.height = self.constraints.constrain_height(child.height)
+            return
+        if self.constraints.has_bounded_width():
+            self.width = self.constraints.max_width
+        else:
+            self.width = self.constraints.min_width
+        if self.constraints.has_bounded_height():
+            self.height = self.constraints.max_height
+        else:
+            self.height = self.constraints.min_height
+
+    def paint_self(self, context: PaintingContext) -> None:
+        self.painter.paint(context, self.width, self.height)
+
+    def hit_test_self(self, x: float, y: float) -> bool:
+        return True
+
+
+class CustomPaint(RenderObjectWidget):
+    painter: Painter
+    child: Widget | None
+    width: float | None
+    height: float | None
+
+    def __init__(self, painter: Painter, child: Widget | None = None, width: float | None = None, height: float | None = None, key: Key | None = None) -> None:
+        super().__init__(TYPE_CUSTOM_PAINT, key)
+        self.painter = painter
+        self.child = child
+        self.width = width
+        self.height = height
+
+    def create_render(self) -> RenderBox | None:
+        return RenderCustomPaint()
+
+    def child_widgets(self) -> list[Widget]:
+        child: Widget | None = self.child
+        if child is None:
+            empty: list[Widget] = []
+            return empty
+        return [child]
+
+    def sync_render(self, element: Element) -> None:
+        box: RenderBox | None = element.render
+        has_w: int = 0
+        has_h: int = 0
+        w: float = 0.0
+        h: float = 0.0
+        width: float | None = self.width
+        height: float | None = self.height
+        if box is None:
+            return
+        if width is not None:
+            has_w = 1
+            w = width
+        if height is not None:
+            has_h = 1
+            h = height
+        box.set_painter(self.painter)
+        box.set_paint_size(has_w, w, has_h, h)

@@ -1,0 +1,72 @@
+from aura.text.rich import TextRun
+
+
+def _close_at(line: str, start: int, mark: str) -> int:
+    n: int = len(mark)
+    i: int = start
+    while i + n <= len(line):
+        if line[i:i + n] == mark:
+            return i
+        i = i + 1
+    return -1
+
+
+def parse_markdown_line(line: str, color: int) -> list[TextRun]:
+    runs: list[TextRun] = []
+    body: str = line
+    plain: str = ""
+    size: float = 16.0
+    i: int = 0
+    close: int = -1
+    if len(line) >= 3 and line[0:3] == "## ":
+        size = 22.0
+        body = line[3:len(line)]
+    elif len(line) >= 2 and line[0:2] == "# ":
+        size = 28.0
+        body = line[2:len(line)]
+    while i < len(body):
+        close = -1
+        if i + 3 <= len(body) and body[i:i + 3] == "***":
+            close = _close_at(body, i + 3, "***")
+            if close >= 0:
+                if plain != "":
+                    runs.append(TextRun(plain, size, 400, 0, color))
+                    plain = ""
+                if close > i + 3:
+                    runs.append(TextRun(body[i + 3:close], size, 700, 1, color))
+                i = close + 3
+            else:
+                plain = plain + body[i:i + 1]
+                i = i + 1
+        elif i + 2 <= len(body) and body[i:i + 2] == "**":
+            close = _close_at(body, i + 2, "**")
+            if close >= 0:
+                if plain != "":
+                    runs.append(TextRun(plain, size, 400, 0, color))
+                    plain = ""
+                if close > i + 2:
+                    runs.append(TextRun(body[i + 2:close], size, 700, 0, color))
+                i = close + 2
+            else:
+                plain = plain + body[i:i + 1]
+                i = i + 1
+        elif i + 1 <= len(body) and body[i:i + 1] == "*":
+            close = _close_at(body, i + 1, "*")
+            if close >= 0:
+                if plain != "":
+                    runs.append(TextRun(plain, size, 400, 0, color))
+                    plain = ""
+                if close > i + 1:
+                    runs.append(TextRun(body[i + 1:close], size, 400, 1, color))
+                i = close + 1
+            else:
+                plain = plain + body[i:i + 1]
+                i = i + 1
+        else:
+            plain = plain + body[i:i + 1]
+            i = i + 1
+    if plain != "":
+        runs.append(TextRun(plain, size, 400, 0, color))
+    if len(runs) == 0:
+        runs.append(TextRun("", size, 400, 0, color))
+    return runs

@@ -13,10 +13,6 @@ TYPE_PROOF: int = alloc_type_id()
 TYPE_MODE: int = alloc_type_id()
 
 
-def make_badge() -> Widget:
-    return Text("badge")
-
-
 class ModeRead(StatelessWidget):
     source: TextSignal
 

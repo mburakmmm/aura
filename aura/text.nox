@@ -1,3 +1,4 @@
 from aura.text.editing import TextEditingController
 from aura.text.field import TextField
+from aura.text.rich import RichText, TextRun
 from aura.text.text import Paragraph, Text, TextStyle

@@ -1,0 +1,175 @@
+from aura.core.diagnostics import FrameworkError
+from aura.foundation.constraints import Constraints
+from aura.rendering.render_object import RenderBox
+from aura.widgets.framework import Element, ParentDataWidget, RenderObjectWidget, Widget
+from aura.widgets.key import Key
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_STACK: int = alloc_type_id()
+TYPE_POSITIONED: int = alloc_type_id()
+
+
+class RenderStack(RenderBox):
+    place_flags: list[int]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.multi_child = True
+        self.place_flags = []
+
+    def set_place_flags(self, flags: list[int]) -> None:
+        copied: list[int] = []
+        i: int = 0
+        same: bool = True
+        if len(flags) != len(self.place_flags):
+            same = False
+        while i < len(flags):
+            copied.append(flags[i])
+            if i < len(self.place_flags):
+                if self.place_flags[i] != flags[i]:
+                    same = False
+            i = i + 1
+        if same:
+            return
+        self.place_flags = copied
+        self.mark_needs_layout()
+
+    def perform_layout(self) -> None:
+        loose: Constraints = self.constraints.loosen()
+        count: int = len(self.children)
+        max_w: float = 0.0
+        max_h: float = 0.0
+        i: int = 0
+        child: RenderBox = RenderBox()
+        positioned: int = 0
+        while i < count:
+            child = self.children[i]
+            positioned = 0
+            if i < len(self.place_flags):
+                positioned = self.place_flags[i]
+            if positioned == 0:
+                child.clear_place()
+                child.layout(loose)
+                child.offset_x = 0.0
+                child.offset_y = 0.0
+                if child.width > max_w:
+                    max_w = child.width
+                if child.height > max_h:
+                    max_h = child.height
+            i = i + 1
+        self.width = self.constraints.constrain_width(max_w)
+        self.height = self.constraints.constrain_height(max_h)
+        i = 0
+        while i < count:
+            child = self.children[i]
+            positioned = 0
+            if i < len(self.place_flags):
+                positioned = self.place_flags[i]
+            if positioned == 1:
+                _layout_positioned(child, self.width, self.height)
+            i = i + 1
+
+
+def _layout_positioned(child: RenderBox, parent_w: float, parent_h: float) -> None:
+    min_w: float = 0.0
+    max_w: float = parent_w
+    min_h: float = 0.0
+    max_h: float = parent_h
+    span: float = 0.0
+    x: float = 0.0
+    y: float = 0.0
+    if child.place_has_left == 1 and child.place_has_right == 1:
+        span = parent_w - child.place_left - child.place_right
+        if span < 0.0:
+            span = 0.0
+        min_w = span
+        max_w = span
+    if child.place_has_top == 1 and child.place_has_bottom == 1:
+        span = parent_h - child.place_top - child.place_bottom
+        if span < 0.0:
+            span = 0.0
+        min_h = span
+        max_h = span
+    child.layout(Constraints(min_w, max_w, min_h, max_h))
+    if child.place_has_left == 1:
+        x = child.place_left
+    elif child.place_has_right == 1:
+        x = parent_w - child.width - child.place_right
+    if child.place_has_top == 1:
+        y = child.place_top
+    elif child.place_has_bottom == 1:
+        y = parent_h - child.height - child.place_bottom
+    child.offset_x = x
+    child.offset_y = y
+
+
+class Stack(RenderObjectWidget):
+    children: list[Widget]
+
+    def __init__(self, children: list[Widget], key: Key | None = None) -> None:
+        super().__init__(TYPE_STACK, key)
+        self.children = children
+
+    def create_render(self) -> RenderBox | None:
+        return RenderStack()
+
+    def child_widgets(self) -> list[Widget]:
+        return self.children
+
+    def sync_render(self, element: Element) -> None:
+        flags: list[int] = []
+        i: int = 0
+        while i < len(self.children):
+            flags.append(self.children[i].stack_placed())
+            i = i + 1
+        element.apply_stack(flags)
+
+
+class Positioned(ParentDataWidget):
+    child: Widget
+    left: float
+    top: float
+    right: float
+    bottom: float
+    has_left: int
+    has_top: int
+    has_right: int
+    has_bottom: int
+
+    def __init__(self, child: Widget, left: float | None = None, top: float | None = None, right: float | None = None, bottom: float | None = None, key: Key | None = None) -> None:
+        super().__init__(TYPE_POSITIONED, key)
+        self.child = child
+        self.left = 0.0
+        self.top = 0.0
+        self.right = 0.0
+        self.bottom = 0.0
+        self.has_left = 0
+        self.has_top = 0
+        self.has_right = 0
+        self.has_bottom = 0
+        if left is not None:
+            self.left = left
+            self.has_left = 1
+        if top is not None:
+            self.top = top
+            self.has_top = 1
+        if right is not None:
+            self.right = right
+            self.has_right = 1
+        if bottom is not None:
+            self.bottom = bottom
+            self.has_bottom = 1
+
+    def child_widgets(self) -> list[Widget]:
+        return [self.child]
+
+    def stack_placed(self) -> int:
+        return 1
+
+    def push_parent_data_element(self, element: Element) -> None:
+        if len(element.children) == 0:
+            raise FrameworkError("Positioned child has no render object")
+        box: RenderBox | None = element.children[0].outermost_render()
+        if box is None:
+            raise FrameworkError("Positioned child has no render object")
+        box.set_place(self.has_left, self.left, self.has_top, self.top, self.has_right, self.right, self.has_bottom, self.bottom)

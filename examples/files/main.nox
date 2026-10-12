@@ -7,6 +7,9 @@ from aura.platform.macos import image_dispose
 from aura.rendering.render_object import RenderBox
 from aura.runtime.binding import Binding
 from aura.runtime.host import AppHost, bind_host
+from aura.testing.tester import WidgetTester
+from aura.text.measure import measure_width
+from aura.text.rich import RichText, TextRun
 from aura.widgets.framework import Element
 from examples.files.page import FilesPage, files_drop_id, hide_preview, last_drag, release_preview
 from nox.fs import copy, create_dir, exists, is_dir, read_dir, remove_file, write_string
@@ -15,6 +18,17 @@ from nox.path import join
 
 def fail(reason: str) -> None:
     raise Exception(reason)
+
+
+def check_styled_text() -> None:
+    sample: WidgetTester = WidgetTester()
+    runs: list[TextRun] = []
+    if measure_width("kalın", 16.0, 700, "") <= measure_width("kalın", 16.0, 400, ""):
+        fail("bold is not wider")
+    runs.append(TextRun("eğik", 16.0, 400, 1, 1))
+    sample.pump_widget(RichText(runs), 240.0, 80.0)
+    if sample.canvas.text_style_count() < 1:
+        fail("italic command was not recorded")
 
 
 WORK: str = "examples/files/work"
@@ -66,6 +80,7 @@ def prepare() -> None:
     create_dir(folder)
     write_string(join(WORK, "anchor.txt"), "anchor")
     write_string(join(WORK, "note.md"), "Aura markdown")
+    write_string(join(WORK, "heading.md"), "# Başlık\ngövde **kalın** *eğik*")
     write_string(join(folder, "nested.txt"), "nested")
     copy(FIXTURE, join(WORK, "pixel.png"))
     while i < 200:
@@ -320,6 +335,16 @@ def self_check() -> None:
         if find_label(require_binding(reader, "dropped note").pump.view, "Aura markdown") is None:
             fail("dropped markdown text was not shown")
         host.close_window(host.ids[1])
+        click(host, binding, require_box(find_label(binding.pump.view, "heading.md"), "heading"))
+        if host.alive_count() != 2:
+            fail("styled note did not open")
+        reader = host.binding_for(host.ids[1])
+        heading: RenderBox = require_box(find_label(require_binding(reader, "heading").pump.view, "Başlık"), "heading line")
+        body: RenderBox = require_box(find_label(require_binding(reader, "heading").pump.view, "gövde kalın eğik"), "styled line")
+        if heading.height <= body.height:
+            fail("heading is not taller")
+        host.close_window(host.ids[1])
+        check_styled_text()
         click(host, binding, require_box(find_label(binding.pump.view, "pixel.png"), "pixel"))
         if host.alive_count() != 2:
             fail("preview window did not open")

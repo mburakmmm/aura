@@ -19,7 +19,7 @@ class CounterPage(StatelessWidget):
 
 Widget konfigürasyondur. Element kimliği, yaşam döngüsünü ve kirli durumu tutar. RenderObject yerleşir, boyar ve vuruş testi yapar. Bu üçü birbirinin yerine geçmez.
 
-**Şu anki sürüm 0.8.0’dır.** Dosya gezgini dizini UI iş parçacığının dışında okur. Liste sanaldır. Görüntü ikinci pencerede açılır. Kapı [roadmap.md](roadmap.md) bölüm 0.8’dir: `scripts/certify.sh` testleri ve dokuz gizli self-check’i koşturur. GitHub Actions bunu macOS, Win32, X11 ve Wayland üzerinde çalıştırır.
+**Şu anki sürüm 1.0.0’dır.** Genel API donmuştur. `Text` durur. `TextRun` ve `RichText` satır içi kalın, eğik ve başlık taşır. Özel arayüz `Stack`, `Align`, `Inherited`, `MouseRegion`, `GestureDetector`, `DecoratedBox` ve `CustomPaint` ile kurulur. Kapı [roadmap.md](roadmap.md) bölüm 1.0’dır: `scripts/certify.sh` testleri ve on gizli self-check’i koşturur. GitHub Actions bunu macOS, Win32, X11 ve Wayland üzerinde çalıştırır.
 
 ## Yol haritası
 
@@ -32,11 +32,11 @@ Bağlayıcı teslimat sözleşmesi [roadmap.md](roadmap.md) dosyasındadır. `AG
 | 0.6 | Tamam: Settings, tema kirletmesi ve pencere okuması |
 | 0.7 | Tamam: Chat, değişken satır yüksekliği ve IME |
 | 0.8 | Tamam: Dosya gezgini, UI iş parçacığı dışında okuma |
-| 0.9 | Dashboard: örtük animasyon, altın görüntü, kare bütçesi |
-| 1.0 | Genel API dondurma ve satır içi zengin metin |
+| 0.9 | Tamam: Dashboard, örtük animasyon, altın piksel, kare bütçesi |
+| 1.0 | Tamam: API dondurma, satır içi zengin metin, `packages/badge` |
 | 1.1–1.5 | iOS kabuğu, klavye, dokunuş, Android, GPU yüzeyi |
 
-Web, hot reload ve sliver bu sözleşmenin dışındadır. Zengin metin 1.0 kapısıdır: kalın, eğik ve başlık. Çift yön ve emoji yoktur.
+Web, hot reload ve sliver bu sözleşmenin dışındadır. Satır içi kalın, eğik ve başlık 1.0’dadır. Çift yön ve emoji yoktur.
 
 ## Gereksinimler
 
@@ -67,6 +67,7 @@ noxc run examples/notes/main.nox -- --self-check
 noxc run examples/settings/main.nox -- --self-check
 noxc run examples/chat/main.nox -- --self-check
 noxc run examples/files/main.nox -- --self-check
+noxc run examples/dashboard/main.nox -- --self-check
 ```
 
 `examples/proof` 0.3’ü tek ekranda gösterir: paketlenmiş font, PNG ve JPEG, opaklık, debug sınırı, kayıtlı `badge` görünümü ve yerli `PlatformView`.
@@ -79,7 +80,7 @@ noxc run examples/files/main.nox -- --self-check
 ./scripts/bench.sh
 ```
 
-`test.sh` kabuğu derler ve `noxc test` çalıştırır. `certify.sh` buna dokuz gizli self-check ekler ve pencereyi açık bırakmaz. Benchmark sekiz senaryonun faz sürelerini ve kurulum sayaçlarını yazar.
+`test.sh` kabuğu derler ve `noxc test` çalıştırır. `certify.sh` buna on gizli self-check ekler ve pencereyi açık bırakmaz. Benchmark sekiz senaryonun faz sürelerini ve kurulum sayaçlarını yazar.
 
 ## Düzen
 
@@ -88,15 +89,16 @@ Bağımlılık yukarıdan aşağı iner. Grafik ve platform katmanları widget i
 - `aura/foundation` geometri, renk, kısıt
 - `aura/widgets` Widget, Element, State, Signal, Key
 - `aura/rendering` RenderBox, PipelineOwner, sahne
-- `aura/layout` Padding, SizedBox, Center, Row, Column, sanal liste
-- `aura/text` metin, paragraf, metin alanı
+- `aura/layout` Padding, SizedBox, Center, Align, Row, Column, Stack, DecoratedBox, sanal liste
+- `aura/text` metin, `TextRun`, `RichText`, paragraf, metin alanı
 - `aura/input` işaretçi, tuş, gesture arena, odak, bırakma
 - `aura/controls` düğme ve anahtar
 - `aura/platform` kabuk köprüsü
 - `native/macos`, `native/windows`, `native/linux` kabuklar
 - `native/skia` Skia raster oynatıcı
 - `adr` mimari kararlar
-- `examples` sayaç, dikdörtgen, todo, hesap makinesi, kanıt, notes
+- `examples` sayaç, dikdörtgen, todo, hesap makinesi, kanıt, notes, settings, chat, dosya gezgini, dashboard
+- `packages/badge` ikinci paket. Uygulama `register_view` ile bağlar
 - `roadmap.md` 0.5’ten mobil temele kadar sözleşme
 
 Nox derleyicisi bu depodan değiştirilmez.

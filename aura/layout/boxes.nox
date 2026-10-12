@@ -1,4 +1,4 @@
-from aura.foundation.constraints import Constraints
+from aura.foundation.constraints import Constraints, infinity
 from aura.foundation.geometry import ALIGNMENT_CENTER
 from aura.foundation.insets import EdgeInsets
 from aura.rendering.layer import PaintingContext
@@ -43,7 +43,23 @@ class RenderSizedBox(RenderBox):
     def hit_test_self(self, x: float, y: float) -> bool:
         return True
 
+    def paint_children(self, context: PaintingContext) -> None:
+        if self.clip_contents == 1:
+            context.push_clip(0.0, 0.0, self.width, self.height)
+        super().paint_children(context)
+        if self.clip_contents == 1:
+            context.pop_clip()
+
     def perform_layout(self) -> None:
+        if self.clip_contents == 1 and self.has_w != 0 and self.has_h != 0:
+            self.width = self.constraints.constrain_width(self.want_w)
+            self.height = self.constraints.constrain_height(self.want_h)
+            clipped: RenderBox | None = self.only_child
+            if clipped is not None:
+                clipped.layout(Constraints(self.width, self.width, 0.0, infinity()))
+                clipped.offset_x = 0.0
+                clipped.offset_y = 0.0
+            return
         inner: Constraints = self.constraints
         if self.has_w != 0:
             inner = inner.tighten_width(self.want_w)
@@ -169,13 +185,15 @@ class SizedBox(RenderObjectWidget):
     height: float | None
     child: Widget | None
     tag: int
+    clip: int
 
-    def __init__(self, width: float | None, height: float | None, child: Widget | None = None, tag: int = 0, key: Key | None = None) -> None:
+    def __init__(self, width: float | None, height: float | None, child: Widget | None = None, tag: int = 0, key: Key | None = None, clip: int = 0) -> None:
         super().__init__(TYPE_SIZED, key)
         self.width = width
         self.height = height
         self.child = child
         self.tag = tag
+        self.clip = clip
 
     def create_render(self) -> RenderBox | None:
         return RenderSizedBox()
@@ -200,7 +218,7 @@ class SizedBox(RenderObjectWidget):
         if height is not None:
             has_h = 1
             h = height
-        element.apply_sized(has_w, w, has_h, h, self.tag)
+        element.apply_sized(has_w, w, has_h, h, self.tag, self.clip)
 
 
 class Padding(RenderObjectWidget):

@@ -1,0 +1,6 @@
+{
+  "name": "badge",
+  "version": "1.0.0",
+  "entry": "view.nox",
+  "requires": []
+}

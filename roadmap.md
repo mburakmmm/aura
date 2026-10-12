@@ -42,28 +42,27 @@ Liste sanaldır. Önizleme görüntüdür. Bırakılan dosya mevcut bırakma kuy
 
 ## 0.9 — Dashboard
 
-`AnimatedOpacity`, `AnimatedSize` ve `AnimatedPosition`, mevcut `AnimationController` ve kare damgası üzerine oturur. Animasyon işletim sistemi saatini okumaz.
+Tamamlandı. `AnimatedOpacity`, `AnimatedSize` ve `AnimatedPosition`, mevcut `AnimationController` ve kare damgası üzerine oturur. Animasyon işletim sistemi saatini okumaz.
 
-Sabit paneller, veri değişince yeniden boyanmaz. Altın görüntü paketlenmiş Noto Sans ile alınır. Profil sayaçları 60 Hz ve 120 Hz bütçesini yazar. Ölçüm en pahalı fazı gösterirse tek iyileştirme yapılır.
+`examples/dashboard` iki sabit kartı `RepaintBoundary` içinde tutar. Sayı değişince kartın içi yeniden boyanmaz. Çubuk ve rozet kare damgasıyla hareket eder. Altın görüntü tam ekran PNG değildir: kart dolgusu birebirdir, paketlenmiş Noto Sans harfi zeminden ayrıdır. Profil satırı 60 Hz ve 120 Hz bütçesini ve en yavaş fazı yazar. Ölçülen kare bütçenin altında kaldı.
 
 ## 1.0 — Dondurma
 
-Genel API bu sürümde donar. Kırılması ana sürüm ister.
+Tamamlandı. Genel API donar. Kırılması ana sürüm ister. `Text(value, font_size, weight, color)` durur. Yeni genel adlar `TextRun` ve `RichText`’tir.
 
-Kapılar:
+`packages/badge` kendi `nox.json` dosyasıyla durur. Kanıt uygulaması onu import eder ve `register_view` çağırır. Çekirdek dizin taramaz. Kayıt yoksa `FrameworkError("plugin view is not registered")` durur.
 
-- README ve çerçeve dokümanı günceldir.
-- Sayaç, todo, hesap makinesi, Notes, Settings, Chat, dosya gezgini ve Dashboard self-check’leri geçer.
-- Altın görüntü ve sekiz benchmark geçer.
-- macOS, Windows ve Linux aynı kapıdan geçer.
-- İkinci bir Nox paketi yalnız `register_view` ile bağlanır. Çekirdek dizin taramaz.
-- Metin, düz paragrafın yanında satır içi stil taşır: kalın, eğik ve başlık. Dosya gezginindeki markdown düz satır duvarı olarak kalmaz. Çift yön ve emoji bu sürümde yoktur.
+Dosya gezginindeki markdown satır satır ayrışır. `# ` ve `## ` başlıktır. `**` kalın, `*` eğik, `***` ikisidir. `extent_at` yalnız o satırı ölçer. `Aura markdown` etiketi durur. Eğik, `aura_cmd_text_style` ile üç kabukta aynı semboldür. `fill_text` ve `measure_width` imzası değişmez.
+
+Özel widget, yeni bir kontrol listesi değildir. `Stack` ve `Positioned` üst üste koyar. `Align` hizalar. `GestureDetector` herhangi bir çocuğu tıklanır yapar. `DecoratedBox` yuvarlak dolgu, kontur ve gölge verir. `MouseRegion` giriş, çıkış ve imleç bildirir. `Inherited` bir yuvayı alt ağaca yayınlar; değişmeyen değer bağımlıyı yeniden kurmaz. `CustomPaint` bir `Painter` ile elips, çizgi, yuvarlak dikdörtgen ve kübik eğri basar. Üç kabuk aynı çizim sembollerini çalar.
+
+Kapılar geçti: README ve çerçeve dokümanı, on self-check, altın görüntü, sekiz benchmark, macOS, Windows ve Linux aynı `scripts/certify.sh` kapısı. Çift yön ve emoji bu sürümde yoktur.
 
 1.0 bitmeden mobil kabuk yazılmaz.
 
 ## 1.0 dışında bırakılanlar
 
-Bu yol haritası şunları planlamaz: web, hot reload, GUI DevTools, sliver, çift yön, emoji ve derin bağlantılı yönlendirici. Sıraya alınmaları ayrı bir sözleşme ister. Zengin metin 1.0 kapısındadır.
+Bu yol haritası şunları planlamaz: web, hot reload, GUI DevTools, sliver, çift yön, emoji ve derin bağlantılı yönlendirici. Sıraya alınmaları ayrı bir sözleşme ister. Satır içi kalın, eğik ve başlık 1.0’dadır.
 
 ## Mobil
 

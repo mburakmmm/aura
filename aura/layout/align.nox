@@ -1,0 +1,66 @@
+from aura.foundation.constraints import Constraints
+from aura.foundation.geometry import Alignment
+from aura.rendering.render_object import RenderBox
+from aura.widgets.framework import Element, RenderObjectWidget, Widget
+from aura.widgets.key import Key
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_ALIGN: int = alloc_type_id()
+
+
+class RenderAlign(RenderBox):
+    ax: float
+    ay: float
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.ax = 0.0
+        self.ay = 0.0
+
+    def set_align_xy(self, x: float, y: float) -> None:
+        if self.ax == x and self.ay == y:
+            return
+        self.ax = x
+        self.ay = y
+        self.mark_needs_layout()
+
+    def perform_layout(self) -> None:
+        loose: Constraints = self.constraints.loosen()
+        child_w: float = 0.0
+        child_h: float = 0.0
+        align: Alignment = Alignment(self.ax, self.ay)
+        child: RenderBox | None = self.only_child
+        if child is not None:
+            child.layout(loose)
+            child_w = child.width
+            child_h = child.height
+        if self.constraints.has_bounded_width():
+            self.width = self.constraints.max_width
+        else:
+            self.width = self.constraints.constrain_width(child_w)
+        if self.constraints.has_bounded_height():
+            self.height = self.constraints.max_height
+        else:
+            self.height = self.constraints.constrain_height(child_h)
+        if child is not None:
+            child.offset_x = align.offset_x(self.width, child_w)
+            child.offset_y = align.offset_y(self.height, child_h)
+
+
+class Align(RenderObjectWidget):
+    alignment: Alignment
+    child: Widget
+
+    def __init__(self, alignment: Alignment, child: Widget, key: Key | None = None) -> None:
+        super().__init__(TYPE_ALIGN, key)
+        self.alignment = alignment
+        self.child = child
+
+    def create_render(self) -> RenderBox | None:
+        return RenderAlign()
+
+    def child_widgets(self) -> list[Widget]:
+        return [self.child]
+
+    def sync_render(self, element: Element) -> None:
+        element.apply_align(self.alignment.x, self.alignment.y)

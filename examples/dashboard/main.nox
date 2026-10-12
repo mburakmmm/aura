@@ -1,0 +1,170 @@
+from aura.app import run_app
+from aura.core.mode import MODE_PROFILE, MODE_RELEASE, set_mode
+from aura.devtools.performance import format_frame
+from aura.foundation.color import COLOR_ACCENT, COLOR_BACKGROUND, COLOR_BUTTON
+from aura.platform.macos import sample_pixel
+from aura.rendering.render_object import RenderBox
+from aura.runtime.binding import Binding
+from examples.dashboard.page import BAR_GROWN, BAR_REST, DashboardPage
+from nox.os import arg, arg_count
+
+
+def require_box(box: RenderBox | None, name: str) -> RenderBox:
+    if box is None:
+        raise Exception(name)
+    return box
+
+
+def find_label(box: RenderBox, label: str) -> RenderBox | None:
+    if box.semantics_label == label:
+        return box
+    only: RenderBox | None = box.only_child
+    found: RenderBox | None = None
+    i: int = 0
+    if only is not None:
+        found = find_label(only, label)
+        if found is not None:
+            return found
+    while i < len(box.children):
+        found = find_label(box.children[i], label)
+        if found is not None:
+            return found
+        i = i + 1
+    return None
+
+
+def contains(text: str, needle: str) -> int:
+    width: int = len(needle)
+    limit: int = len(text) - width
+    i: int = 0
+    if width == 0:
+        return 1
+    while i <= limit:
+        if text[i:i + width] == needle:
+            return 1
+        i = i + 1
+    return 0
+
+
+def ink(handle: int, box: RenderBox) -> int:
+    y: float = box.absolute_y() + box.height / 2.0
+    x: float = box.absolute_x() + 1.0
+    limit: float = box.absolute_x() + box.width
+    while x < limit:
+        pixel: int = sample_pixel(handle, x, y)
+        if pixel != COLOR_BACKGROUND and pixel != COLOR_ACCENT:
+            return pixel
+        x = x + 1.0
+    return 0
+
+
+def stop(binding: Binding, reason: str) -> None:
+    print(reason)
+    set_mode(MODE_RELEASE)
+    binding.close()
+    raise Exception(reason)
+
+
+def frame_total(binding: Binding) -> float:
+    return binding.pump.build_ms + binding.pump.layout_ms + binding.pump.paint_ms + binding.pump.composite_ms
+
+
+def self_check() -> None:
+    set_mode(MODE_PROFILE)
+    binding: Binding = Binding(800, 600, "Dashboard", 0)
+    binding.mount(DashboardPage())
+    binding.frame()
+    binding.frame()
+    card: RenderBox = require_box(binding.pump.view.find_tag(4), "static card")
+    bar: RenderBox = require_box(binding.pump.view.find_tag(9), "bar")
+    card_paints: int = card.paint_visit_count
+    bar_paints: int = bar.paint_visit_count
+    if bar.height != BAR_REST:
+        stop(binding, "bar does not start at its target")
+        return
+    button: RenderBox | None = find_label(binding.pump.view, "Refresh")
+    if button is None:
+        stop(binding, "missing refresh")
+        return
+    binding.post_click(button.absolute_x() + button.width / 2.0, button.absolute_y() + button.height / 2.0)
+    binding.frame()
+    bar = require_box(binding.pump.view.find_tag(9), "bar")
+    if bar.height != BAR_REST:
+        stop(binding, "bar moved before the frame stamp")
+        return
+    stamp: float = binding.pump.frame_time
+    binding.pump.frame_time = stamp + 10.0
+    binding.pump.pump(binding.surface.canvas)
+    bar = require_box(binding.pump.view.find_tag(9), "bar")
+    card = require_box(binding.pump.view.find_tag(4), "static card")
+    if bar.height != BAR_GROWN:
+        stop(binding, "bar did not follow the frame stamp")
+        return
+    if card.paint_visit_count != card_paints:
+        stop(binding, "static card repainted")
+        return
+    if bar.paint_visit_count <= bar_paints:
+        stop(binding, "animated bar did not paint")
+        return
+    fill_x: float = card.absolute_x() + card.width - 8.0
+    fill_y: float = card.absolute_y() + card.height - 8.0
+    fill: int = sample_pixel(binding.surface.handle, fill_x, fill_y)
+    if fill != COLOR_ACCENT:
+        stop(binding, "card fill")
+        return
+    letter: RenderBox | None = find_label(binding.pump.view, "Open")
+    if letter is None:
+        stop(binding, "missing card text")
+        return
+    drawn: int = ink(binding.surface.handle, letter)
+    if drawn == 0 or drawn == COLOR_BACKGROUND or drawn == COLOR_ACCENT:
+        stop(binding, "noto ink")
+        return
+    report: str = format_frame(binding.pump)
+    print(report)
+    if contains(report, "budget_60_ms=16.67") != 1 or contains(report, "budget_120_ms=8.33") != 1 or contains(report, "slowest=") != 1:
+        stop(binding, "budget line")
+        return
+    if frame_total(binding) > 16.67:
+        stop(binding, "frame over 60 Hz budget")
+        return
+    if find_label(binding.pump.view, "Counter is moving.") is None:
+        stop(binding, "refresh detail is not readable")
+        return
+    open_card: RenderBox = require_box(binding.pump.view.find_tag(4), "open card")
+    idle_card: RenderBox = require_box(binding.pump.view.find_tag(5), "idle card")
+    binding.post_click(open_card.absolute_x() + open_card.width / 2.0, open_card.absolute_y() + open_card.height / 2.0)
+    binding.frame()
+    if find_label(binding.pump.view, "Queue is receiving work.") is None:
+        stop(binding, "open detail is not readable")
+        return
+    open_card = require_box(binding.pump.view.find_tag(4), "open card")
+    idle_card = require_box(binding.pump.view.find_tag(5), "idle card")
+    open_fill: int = sample_pixel(binding.surface.handle, open_card.absolute_x() + open_card.width - 8.0, open_card.absolute_y() + open_card.height - 8.0)
+    idle_fill: int = sample_pixel(binding.surface.handle, idle_card.absolute_x() + idle_card.width - 8.0, idle_card.absolute_y() + idle_card.height - 8.0)
+    if open_fill != COLOR_BUTTON or idle_fill != COLOR_ACCENT:
+        stop(binding, "open selection")
+        return
+    binding.post_click(idle_card.absolute_x() + idle_card.width / 2.0, idle_card.absolute_y() + idle_card.height / 2.0)
+    binding.frame()
+    if find_label(binding.pump.view, "Queue is waiting.") is None:
+        stop(binding, "idle detail is not readable")
+        return
+    set_mode(MODE_RELEASE)
+    binding.close()
+    print("dashboard self-check ok")
+
+
+def wants_self_check() -> bool:
+    i: int = 0
+    while i < arg_count():
+        if arg(i) == "--self-check":
+            return True
+        i = i + 1
+    return False
+
+
+if wants_self_check():
+    self_check()
+else:
+    run_app(DashboardPage(), "Dashboard")

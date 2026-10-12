@@ -14,6 +14,8 @@ from aura.platform.macos import open_image_file
 from aura.runtime.host import WindowController
 from aura.text import Text
 from aura.text.measure import measure_height
+from aura.text.rich import RichText, rich_height
+from examples.files.markdown import parse_markdown_line
 from aura.widgets import BuildContext, Element, State, StatefulWidget, StatelessWidget, Widget
 from aura.widgets.overlay import MenuItem, Overlay, show_menu
 from aura.widgets.key import IntValueKey
@@ -199,12 +201,15 @@ class NoteSource(ItemSource):
         return len(self.lines)
 
     def widget_at(self, index: int) -> Widget:
-        return Padding(insets_symmetric(16.0, 0.0), Text(self.lines[index], font_size=16.0, color=COLOR_TEXT))
+        return Padding(insets_symmetric(16.0, 0.0), RichText(parse_markdown_line(self.lines[index], COLOR_TEXT)))
 
     def extent_at(self, index: int, width: float) -> float:
-        if index < 0 or width < 0.0:
+        inner: float = width
+        if index < 0 or index >= len(self.lines):
             return 0.0
-        return 0.0
+        if width > 32.0:
+            inner = width - 32.0
+        return rich_height(parse_markdown_line(self.lines[index], COLOR_TEXT), inner) + 6.0
 
 
 class NoteState(State):
