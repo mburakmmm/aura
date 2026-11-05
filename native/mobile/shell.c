@@ -469,6 +469,22 @@ int aura_shell_surface(int slot, int kind, int64_t surface_id, int64_t physical_
     return accepted ? 0 : -1;
 }
 
+void aura_shell_request_close(int slot) {
+    AuraWindow *window = NULL;
+    ensure_table();
+    if (slot < 0 || slot >= AURA_MAX_WINDOWS) {
+        return;
+    }
+    window = &g_windows[slot];
+    pthread_mutex_lock(&window->mu);
+    if (window->alive) {
+        window->close_requested = 1;
+        window->frame_ready = 1;
+        pthread_cond_signal(&window->cv);
+    }
+    pthread_mutex_unlock(&window->mu);
+}
+
 void aura_shell_request_close_all(void) {
     int i = 0;
     ensure_table();

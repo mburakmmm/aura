@@ -1,0 +1,72 @@
+from cli.command import VERSION, find_checkout, usage, write_project
+from nox.os import arg, arg_count, current_dir, exit
+from nox.path import join
+from nox.process import Command, Output, ProcessError
+
+
+def argument(index: int) -> str:
+    if index >= arg_count():
+        return ""
+    return arg(index)
+
+
+def python_doctor(program: str, root: str) -> int:
+    script: str = join(root, "scripts/mobile_package.py")
+    out: Output = Output(0, "", "")
+    try:
+        out = Command(program).arg(script).arg("doctor").arg("--root").arg(root).run()
+    except ProcessError:
+        return -1
+    if out.stdout != "":
+        print(out.stdout)
+    if out.stderr != "":
+        print(out.stderr)
+    return out.status
+
+
+def run_doctor(root: str) -> int:
+    status: int = python_doctor("python3", root)
+    if status == -1:
+        status = python_doctor("python", root)
+    if status == -1:
+        print("python3 is required for aura doctor")
+        return 1
+    return status
+
+
+def dispatch() -> None:
+    command: str = argument(1)
+    if command == "" or command == "help" or command == "--help":
+        print(usage())
+        exit(0)
+    if command == "version" or command == "--version":
+        print(VERSION)
+        exit(0)
+    if command == "new":
+        name: str = argument(2)
+        if name == "" or argument(3) != "":
+            print(usage())
+            exit(2)
+        error: str = write_project(join(current_dir(), name), name)
+        if error != "":
+            print(error)
+            exit(2)
+        print("created " + name)
+        print("nox.json depends on github.com/mburakmmm/aura at v" + VERSION)
+        print("Build the desktop host in an Aura checkout before opening a window:")
+        print("  ./scripts/build_host.sh")
+        exit(0)
+    if command == "doctor":
+        if argument(2) != "":
+            print(usage())
+            exit(2)
+        checkout: str = find_checkout(current_dir())
+        if checkout == "":
+            print("aura doctor needs an Aura checkout. Run it inside the repository.")
+            exit(2)
+        exit(run_doctor(checkout))
+    print(usage())
+    exit(2)
+
+
+dispatch()

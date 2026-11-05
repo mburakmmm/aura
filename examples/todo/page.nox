@@ -26,9 +26,6 @@ TYPE_PICTURE: int = alloc_type_id()
 ROW_EXTENT: float = 56.0
 PICTURE_EDGE: float = 160.0
 SURFACE: int = rgb(46, 44, 41)
-PAGE_INK: int = rgb(28, 27, 25)
-
-
 def close_picture() -> None:
     WindowController().close_front()
 
@@ -154,10 +151,10 @@ class DetailState(State):
 
     def build(self, context: BuildContext) -> Widget:
         return SafeArea(Column([
-            Text("Detail", font_size=32.0, color=PAGE_INK),
-            Text("Title", color=PAGE_INK),
+            Text("Detail", font_size=32.0),
+            Text("Title"),
             TextField(self.title),
-            Text("Body", color=PAGE_INK),
+            Text("Body"),
             TextField(self.body, multiline=1),
             Button("Save", self.save),
         ], spacing=12.0, cross_align=CROSS_STRETCH), minimum=insets_all(24.0))
@@ -203,7 +200,7 @@ class NotePicture(StatelessWidget):
 
     def build(self, context: BuildContext) -> Widget:
         return SafeArea(Column([
-            Text("Picture", font_size=32.0, color=PAGE_INK),
+            Text("Picture", font_size=32.0),
             Expanded(Center(SizedBox(PICTURE_EDGE, PICTURE_EDGE, Image(self.handle)))),
             Button("Close", close_picture),
         ], spacing=16.0, cross_align=CROSS_STRETCH), minimum=insets_all(24.0))
@@ -231,7 +228,7 @@ class HomeState(State):
                 Scrollbar(self.scroll),
             ])
         return SafeArea(Column([
-            Text("Todo", font_size=32.0, color=PAGE_INK),
+            Text("Todo", font_size=32.0),
             Button("Add", self.add),
             Expanded(ColoredBox(SURFACE, body)),
         ], spacing=16.0, cross_align=0), minimum=insets_all(24.0))

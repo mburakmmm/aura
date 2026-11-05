@@ -2,15 +2,17 @@
 
 Bu dosya yayımlanan sürümleri tutar. Sürüm numarası `nox.json` ile, git etiketi `v` önekiyle aynıdır. Sonraki teslimatların sırası [roadmap.md](roadmap.md) dosyasındadır.
 
-## Yayınlanmamış
+## 1.1.0
 
-Mobil kabuk `main` üzerinde izlenir. Sürüm numarası `1.0.0` kalır. Etiket, TestFlight ve Play bu kayda girmez.
+Mobil kabuk ve `aura` komutu. `nox.json` içindeki `bin` alanı `bin/aura.nox` dosyasına bakar. `noxc install` bu dosyayı derleyip `aura` komutunu kurar. Çizim Skia raster tamponudur. GPU seçilmedi. TestFlight yüklenmedi. Play yayını bu sürümün parçası değildir.
 
-- iOS ve Android aynı C sembol kümesini kullanır. Olaylar sürümlü kuyruğa yazılır. Widget katmanı UIKit, JNI ve `extern def` görmez. Çizim Skia raster tamponudur. GPU seçilmedi.
+- `aura version` sürümü yazar. `aura new <ad>` sayaç uygulaması kurar ve bağımlılığı `github.com/mburakmmm/aura` etiketine bağlar. `aura doctor` bir Aura çalışma kopyasının içinde mevcut paket denetimini çalıştırır.
+- iOS ve Android aynı C sembol kümesini kullanır. Olaylar sürümlü kuyruğa yazılır. Widget katmanı UIKit, JNI ve `extern def` görmez.
 - Güvenli alan, klavye payı, yaşam döngüsü, metin düzenleme, anlam ağacı ve Documents kökü kabuktan çerçeveye iner. Kararlar `adr/015`–`adr/033` arasındadır.
 - `examples/mobile/app.json` paket kimliğini taşır. Üretilen IPA, APK, uygulama paketi ve imza dosyası depoya girmez.
 - 5 Kasım 2026’da iPhone 17 Pro’da Notes, Counter, Chat, Settings, Todo, Calculator, Files ve Dashboard development imzasıyla açıldı. Entitlements ve kurulum elle yapıldı. VoiceOver yalnız Notes’ta kısmi görüldü. Düzenlenen metin süreç ölünce durmuyor.
-- Açık kalan kapı: Xcode hedefi, ikon, açılış ekranı, gizlilik bildirimi, dSYM, `.xcarchive` ve imzalı IPA. Android cihaz turu bundan sonra planlanır.
+- Aynı gün Android 12 telefonunda sekiz örneğin debug paketi açıldı. Todo’da ikinci pencere ve metin klavyesi, Files’ta markdown okuması görüldü. TalkBack bu turda yok. Native kütüphanelerin ELF hizası 16 KiB’dir. Telefonun sayfa boyutu 4 KiB olduğu için 16 KiB çalışma zamanı kanıtı yoktur.
+- Notes için Xcode hedefi, ikon, açılış ekranı, gizlilik bildirimi, dSYM, `.xcarchive` ve development IPA üretildi. Android paketi Gradle projesinden çıkar.
 
 ## 1.0.0
 

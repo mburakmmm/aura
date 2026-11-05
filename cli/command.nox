@@ -1,0 +1,165 @@
+from nox.fs import create_dir_all, exists, is_dir, is_file, read_dir, read_to_string, write_string
+from nox.json import JsonValue, as_string, is_object, is_string, object_key, object_len, object_value, parse
+from nox.path import dirname, join
+from nox.strings import byte_at, byte_len, contains, join as join_lines
+
+VERSION: str = "1.1.0"
+PACKAGE_REPO: str = "github.com/mburakmmm/aura"
+
+
+def usage() -> str:
+    return join_lines([
+        "usage: aura <command>",
+        "  version",
+        "  new <name>",
+        "  doctor",
+        "  help",
+    ], "\n")
+
+
+def valid_name(name: str) -> bool:
+    count: int = byte_len(name)
+    if count == 0:
+        return False
+    i: int = 0
+    while i < count:
+        byte: int = byte_at(name, i)
+        letter: bool = (byte >= 65 and byte <= 90) or (byte >= 97 and byte <= 122)
+        digit: bool = byte >= 48 and byte <= 57
+        if i == 0:
+            if not letter:
+                return False
+        elif not letter and not digit and byte != 95:
+            return False
+        i = i + 1
+    return True
+
+
+def project_manifest(name: str) -> str:
+    return join_lines([
+        "{",
+        "  \"name\": \"" + name + "\",",
+        "  \"version\": \"0.1.0\",",
+        "  \"entry\": \"main.nox\",",
+        "  \"requires\": [",
+        "    {",
+        "      \"alias\": \"aura\",",
+        "      \"repo\": \"" + PACKAGE_REPO + "\",",
+        "      \"ref\": \"v" + VERSION + "\"",
+        "    }",
+        "  ]",
+        "}",
+        "",
+    ], "\n")
+
+
+def project_main() -> str:
+    return join_lines([
+        "from aura.app import run_app",
+        "from aura.controls import Button",
+        "from aura.layout import Center, Column",
+        "from aura.layout.flex import MAIN_MIN",
+        "from aura.text import Text",
+        "from aura.widgets import BuildContext, Signal, State, StatefulWidget, StatelessWidget, Widget",
+        "from aura.widgets.type_ids import alloc_type_id",
+        "",
+        "TYPE_COUNTER: int = alloc_type_id()",
+        "TYPE_COUNT_READ: int = alloc_type_id()",
+        "",
+        "",
+        "class CountRead(StatelessWidget):",
+        "    source: Signal",
+        "",
+        "    def __init__(self, source: Signal) -> None:",
+        "        super().__init__(TYPE_COUNT_READ, None)",
+        "        self.source = source",
+        "",
+        "    def build(self, context: BuildContext) -> Widget:",
+        "        return Text(str(self.source.get()), font_size=48.0)",
+        "",
+        "",
+        "class CounterState(State):",
+        "    count: Signal",
+        "",
+        "    def __init__(self) -> None:",
+        "        super().__init__()",
+        "        self.count = Signal(0)",
+        "",
+        "    def increment(self) -> None:",
+        "        self.count.set(self.count.get() + 1)",
+        "",
+        "    def build(self, context: BuildContext) -> Widget:",
+        "        return Center(Column([",
+        "            Text(\"Aura\", font_size=32.0),",
+        "            CountRead(self.count),",
+        "            Button(\"Continue\", self.increment),",
+        "        ], main_size=MAIN_MIN, spacing=16.0))",
+        "",
+        "",
+        "class CounterPage(StatefulWidget):",
+        "    def __init__(self) -> None:",
+        "        super().__init__(TYPE_COUNTER, None)",
+        "",
+        "    def create_state(self) -> State:",
+        "        return CounterState()",
+        "",
+        "",
+        "run_app(CounterPage())",
+        "",
+    ], "\n")
+
+
+def destination_ready(path: str) -> bool:
+    if not exists(path):
+        return True
+    if not is_dir(path):
+        return False
+    return len(read_dir(path)) == 0
+
+
+def write_project(directory: str, name: str) -> str:
+    if not valid_name(name):
+        return "project name must start with a letter and use only letters, digits, and underscores"
+    if not destination_ready(directory):
+        return "destination already exists: " + directory
+    create_dir_all(directory)
+    write_string(join(directory, "nox.json"), project_manifest(name))
+    write_string(join(directory, "main.nox"), project_main())
+    return ""
+
+
+def find_checkout(start: str) -> str:
+    current: str = start
+    while True:
+        if is_file(join(current, "bin/aura.nox")) and is_file(join(current, "scripts/mobile_package.py")):
+            return current
+        parent: str = dirname(current)
+        if parent == current:
+            return ""
+        current = parent
+    return ""
+
+
+def manifest_string(document: str, key: str) -> str:
+    root: JsonValue = parse(document)
+    if not is_object(root):
+        return ""
+    i: int = 0
+    count: int = object_len(root)
+    while i < count:
+        if object_key(root, i) == key and is_string(object_value(root, i)):
+            return as_string(object_value(root, i))
+        i = i + 1
+    return ""
+
+
+def package_version(document: str) -> str:
+    return manifest_string(document, "version")
+
+
+def package_has_command(document: str) -> bool:
+    return contains(document, "\"name\": \"aura\"") and contains(document, "\"path\": \"bin/aura.nox\"")
+
+
+def pinned_version(checkout: str) -> str:
+    return package_version(read_to_string(join(checkout, "nox.json")))

@@ -1,6 +1,6 @@
 from aura.controls.button import BUTTON_ALIGN_START, Button
 from aura.controls.drop_target import DropSurface, DropTarget
-from aura.foundation.color import COLOR_ACCENT, COLOR_FIELD, COLOR_TEXT, rgb
+from aura.foundation.color import COLOR_ACCENT, COLOR_FIELD, COLOR_TEXT
 from aura.foundation.insets import insets_all, insets_symmetric
 from aura.image.image import Image, open_image_file
 from aura.input.clipboard import clipboard_set
@@ -20,17 +20,18 @@ from aura.widgets import BuildContext, Element, State, StatefulWidget, Stateless
 from aura.widgets.framework import dirty_element_id
 from aura.widgets.overlay import MenuItem, Overlay, show_menu
 from aura.widgets.key import IntValueKey
+from aura.widgets.theme import theme_of
 from aura.widgets.type_ids import alloc_type_id
-from nox.fs import is_dir, is_file, read_to_string
+from nox.fs import FsError, is_dir, is_file, read_to_string
 from nox.path import dirname, join
 
 TYPE_FILES: int = alloc_type_id()
 TYPE_ROW: int = alloc_type_id()
 TYPE_PREVIEW: int = alloc_type_id()
 TYPE_NOTE: int = alloc_type_id()
+TYPE_NOTE_LINE: int = alloc_type_id()
 ROW_EXTENT: float = 56.0
 PICTURE_EDGE: float = 160.0
-PAGE_INK: int = rgb(28, 27, 25)
 last_drag: str = ""
 
 preview_visible: int = 1
@@ -147,8 +148,13 @@ def open_text(path: str) -> None:
     if path == "":
         return
     if not is_file(path):
+        block_open(_leaf(path))
         return
-    body = read_to_string(path)
+    try:
+        body = read_to_string(path)
+    except FsError:
+        block_open(_leaf(path))
+        return
     WindowController().open(NotePage(body), 720, 640, _leaf(path), preview_visible)
 
 
@@ -205,7 +211,7 @@ class FilePreview(StatelessWidget):
 
     def build(self, context: BuildContext) -> Widget:
         return SafeArea(Column([
-            Text("Preview", font_size=28.0, color=PAGE_INK),
+            Text("Preview", font_size=28.0),
             Expanded(Center(SizedBox(PICTURE_EDGE, PICTURE_EDGE, Image(self.handle)))),
             Button("Close", close_reader),
         ], spacing=16.0, cross_align=CROSS_STRETCH), minimum=insets_all(24.0))
@@ -232,7 +238,7 @@ class NoteSource(ItemSource):
         return len(self.lines)
 
     def widget_at(self, index: int) -> Widget:
-        return Padding(insets_symmetric(16.0, 0.0), RichText(parse_markdown_line(self.lines[index], PAGE_INK)))
+        return NoteLine(self.lines[index])
 
     def extent_at(self, index: int, width: float) -> float:
         inner: float = width
@@ -240,7 +246,18 @@ class NoteSource(ItemSource):
             return 0.0
         if width > 32.0:
             inner = width - 32.0
-        return rich_height(parse_markdown_line(self.lines[index], PAGE_INK), inner) + 6.0
+        return rich_height(parse_markdown_line(self.lines[index], 0), inner) + 6.0
+
+
+class NoteLine(StatelessWidget):
+    line: str
+
+    def __init__(self, line: str) -> None:
+        super().__init__(TYPE_NOTE_LINE, None)
+        self.line = line
+
+    def build(self, context: BuildContext) -> Widget:
+        return Padding(insets_symmetric(16.0, 0.0), RichText(parse_markdown_line(self.line, theme_of(context).scheme.text)))
 
 
 class NoteState(State):
@@ -254,7 +271,7 @@ class NoteState(State):
 
     def build(self, context: BuildContext) -> Widget:
         return SafeArea(Column([
-            Text("Note", font_size=28.0, color=PAGE_INK),
+            Text("Note", font_size=28.0),
             Expanded(Row([
                 Expanded(self.listing),
                 Scrollbar(self.scroll),
@@ -410,7 +427,7 @@ class FilesState(State):
             label = self.notice
         elif blocked_name != "":
             label = "Could not open " + blocked_name
-        rows.append(Text("Files", font_size=28.0, color=PAGE_INK))
+        rows.append(Text("Files", font_size=28.0))
         rows.append(SizedBox(None, 10.0))
         rows.append(ColoredBox(COLOR_FIELD, Padding(insets_symmetric(14.0, 10.0), Text(listing_current(), color=COLOR_TEXT))))
         rows.append(SizedBox(None, 12.0))

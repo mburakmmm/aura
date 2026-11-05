@@ -1,6 +1,10 @@
 {
   "name": "aura",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "entry": "examples/counter/main.nox",
+  "bin": {
+    "name": "aura",
+    "path": "bin/aura.nox"
+  },
   "requires": []
 }

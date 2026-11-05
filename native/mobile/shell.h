@@ -34,6 +34,7 @@ int aura_shell_environment(int slot, const AuraEnvironmentPayload *environment, 
 void aura_shell_memory_pressure(int slot, int level, uint64_t timestamp_ns);
 void aura_shell_lifecycle(int slot, int state, int reason, uint64_t timestamp_ns);
 int aura_shell_surface(int slot, int kind, int64_t surface_id, int64_t physical_width, int64_t physical_height, int format, int generation, uint64_t timestamp_ns);
+void aura_shell_request_close(int slot);
 void aura_shell_request_close_all(void);
 void aura_shell_vsync(int slot);
 void aura_shell_post(int slot, int kind, double x, double y, int64_t key, int64_t button, const char *text);

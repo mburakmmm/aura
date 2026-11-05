@@ -1,6 +1,7 @@
 #include <android/bitmap.h>
 #include <android/log.h>
 #include <jni.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <pthread.h>
 #include <stdlib.h>
@@ -23,16 +24,29 @@ static jmethodID g_text_geometry = NULL;
 static jmethodID g_text_configuration = NULL;
 static jmethodID g_text_boundaries = NULL;
 static jmethodID g_back_result = NULL;
+static jmethodID g_open_overlay = NULL;
+static jmethodID g_close_overlay = NULL;
 static pthread_mutex_t g_activity_mu = PTHREAD_MUTEX_INITIALIZER;
 static char *g_clip = NULL;
 static size_t g_clip_length = 0;
-static AuraAndroidSurfaceMachine g_android_surface;
+#define AURA_ANDROID_SLOTS 4
+static AuraAndroidSurfaceMachine g_android_surface[AURA_ANDROID_SLOTS];
 
-static void post_android_surface(const AuraAndroidSurfacePlan *plan, jlong timestamp_ns) {
+static int android_slot(int slot) {
+    if (slot < 0 || slot >= AURA_ANDROID_SLOTS) {
+        return -1;
+    }
+    return slot;
+}
+
+static void post_android_surface(int slot, const AuraAndroidSurfacePlan *plan, jlong timestamp_ns) {
     int index = 0;
+    if (android_slot(slot) < 0) {
+        return;
+    }
     for (index = 0; index < plan->count; index += 1) {
         const AuraAndroidSurfaceEvent *event = &plan->events[index];
-        aura_shell_surface(0, event->kind, event->generation, event->width, event->height, AURA_SURFACE_FORMAT_RGBA8888, event->generation, (uint64_t)timestamp_ns);
+        aura_shell_surface(slot, event->kind, event->generation, event->width, event->height, AURA_SURFACE_FORMAT_RGBA8888, event->generation, (uint64_t)timestamp_ns);
     }
 }
 
@@ -196,27 +210,60 @@ static jobject activity_local(JNIEnv *env) {
     return local;
 }
 
+static void overlay_call(JNIEnv *env, void *ctx, jmethodID method) {
+    jobject activity = activity_local(env);
+    int slot = (int)(intptr_t)ctx;
+    if (activity != NULL && method != NULL && android_slot(slot) > 0) {
+        (*env)->CallVoidMethod(env, activity, method, (jint)slot);
+    }
+    if (activity != NULL) {
+        (*env)->DeleteLocalRef(env, activity);
+    }
+}
+
+static void open_overlay_call(JNIEnv *env, void *ctx) {
+    jmethodID method = NULL;
+    pthread_mutex_lock(&g_activity_mu);
+    method = g_open_overlay;
+    pthread_mutex_unlock(&g_activity_mu);
+    overlay_call(env, ctx, method);
+}
+
+static void close_overlay_call(JNIEnv *env, void *ctx) {
+    jmethodID method = NULL;
+    pthread_mutex_lock(&g_activity_mu);
+    method = g_close_overlay;
+    pthread_mutex_unlock(&g_activity_mu);
+    overlay_call(env, ctx, method);
+}
+
 void aura_host_open(int slot, double width, double height, const char *title, int visible) {
-    (void)slot;
     (void)width;
     (void)height;
     (void)title;
     (void)visible;
+    if (slot <= 0) {
+        return;
+    }
+    on_ui(open_overlay_call, (void *)(intptr_t)slot);
 }
 
 void aura_host_close(int slot) {
-    (void)slot;
+    if (slot <= 0) {
+        return;
+    }
+    on_ui(close_overlay_call, (void *)(intptr_t)slot);
 }
 
 static void present_call(JNIEnv *env, void *ctx) {
     jobject activity = activity_local(env);
     jmethodID invalidate = NULL;
-    (void)ctx;
+    int slot = (int)(intptr_t)ctx;
     pthread_mutex_lock(&g_activity_mu);
     invalidate = g_invalidate;
     pthread_mutex_unlock(&g_activity_mu);
-    if (activity != NULL && invalidate != NULL) {
-        (*env)->CallVoidMethod(env, activity, invalidate);
+    if (activity != NULL && invalidate != NULL && android_slot(slot) >= 0) {
+        (*env)->CallVoidMethod(env, activity, invalidate, (jint)slot);
     }
     if (activity != NULL) {
         (*env)->DeleteLocalRef(env, activity);
@@ -224,14 +271,12 @@ static void present_call(JNIEnv *env, void *ctx) {
 }
 
 void aura_host_present(int slot) {
-    (void)slot;
-    on_ui(present_call, NULL);
+    on_ui(present_call, (void *)(intptr_t)slot);
 }
 
 void aura_host_accessibility(int slot) {
     __android_log_print(ANDROID_LOG_INFO, "aura", "aura-ax %d", aura_shell_ax_count(slot));
-    (void)slot;
-    on_ui(present_call, NULL);
+    on_ui(present_call, (void *)(intptr_t)slot);
 }
 
 void aura_host_accessibility_update(int slot, int change) {
@@ -239,15 +284,20 @@ void aura_host_accessibility_update(int slot, int change) {
     aura_host_accessibility(slot);
 }
 
+typedef struct AuraAndroidFocus {
+    int slot;
+    int enabled;
+} AuraAndroidFocus;
+
 static void focus_call(JNIEnv *env, void *ctx) {
+    AuraAndroidFocus *request = (AuraAndroidFocus *)ctx;
     jobject activity = activity_local(env);
     jmethodID focus = NULL;
-    int enabled = ctx != NULL;
     pthread_mutex_lock(&g_activity_mu);
     focus = g_focus;
     pthread_mutex_unlock(&g_activity_mu);
-    if (activity != NULL && focus != NULL) {
-        (*env)->CallVoidMethod(env, activity, focus, enabled ? JNI_TRUE : JNI_FALSE);
+    if (activity != NULL && focus != NULL && request != NULL) {
+        (*env)->CallVoidMethod(env, activity, focus, (jint)request->slot, request->enabled ? JNI_TRUE : JNI_FALSE);
     }
     if (activity != NULL) {
         (*env)->DeleteLocalRef(env, activity);
@@ -255,11 +305,14 @@ static void focus_call(JNIEnv *env, void *ctx) {
 }
 
 void aura_host_text_focus(int slot, int enabled) {
-    (void)slot;
-    on_ui(focus_call, enabled ? (void *)1 : NULL);
+    AuraAndroidFocus request;
+    request.slot = slot;
+    request.enabled = enabled;
+    on_ui(focus_call, &request);
 }
 
 typedef struct AuraAndroidTextState {
+    int slot;
     const char *text;
     int64_t generation;
     int64_t revision;
@@ -280,7 +333,7 @@ static void text_state_call(JNIEnv *env, void *ctx) {
     if (activity != NULL && method != NULL && state != NULL) {
         text = java_string_from_utf8(env, state->text);
         if (text != NULL) {
-            (*env)->CallVoidMethod(env, activity, method, text, (jlong)state->generation, (jlong)state->revision, (jint)state->selection_start, (jint)state->selection_end, (jint)state->composing_start, (jint)state->composing_end);
+            (*env)->CallVoidMethod(env, activity, method, (jint)state->slot, text, (jlong)state->generation, (jlong)state->revision, (jint)state->selection_start, (jint)state->selection_end, (jint)state->composing_start, (jint)state->composing_end);
             (*env)->DeleteLocalRef(env, text);
         }
     }
@@ -291,7 +344,7 @@ static void text_state_call(JNIEnv *env, void *ctx) {
 
 void aura_host_text_state(int slot, const char *text, int64_t generation, int64_t revision, int64_t selection_start, int64_t selection_end, int64_t composing_start, int64_t composing_end) {
     AuraAndroidTextState state;
-    (void)slot;
+    state.slot = slot;
     state.text = text;
     state.generation = generation;
     state.revision = revision;
@@ -303,6 +356,7 @@ void aura_host_text_state(int slot, const char *text, int64_t generation, int64_
 }
 
 typedef struct AuraAndroidTextGeometry {
+    int slot;
     double caret_x;
     double caret_y;
     double caret_width;
@@ -321,7 +375,7 @@ static void text_geometry_call(JNIEnv *env, void *ctx) {
     method = g_text_geometry;
     pthread_mutex_unlock(&g_activity_mu);
     if (activity != NULL && method != NULL && geometry != NULL) {
-        (*env)->CallVoidMethod(env, activity, method, (jfloat)geometry->caret_x, (jfloat)geometry->caret_y, (jfloat)geometry->caret_width, (jfloat)geometry->caret_height, (jfloat)geometry->editable_x, (jfloat)geometry->editable_y, (jfloat)geometry->editable_width, (jfloat)geometry->editable_height);
+        (*env)->CallVoidMethod(env, activity, method, (jint)geometry->slot, (jfloat)geometry->caret_x, (jfloat)geometry->caret_y, (jfloat)geometry->caret_width, (jfloat)geometry->caret_height, (jfloat)geometry->editable_x, (jfloat)geometry->editable_y, (jfloat)geometry->editable_width, (jfloat)geometry->editable_height);
     }
     if (activity != NULL) {
         (*env)->DeleteLocalRef(env, activity);
@@ -330,7 +384,7 @@ static void text_geometry_call(JNIEnv *env, void *ctx) {
 
 void aura_host_text_geometry(int slot, double caret_x, double caret_y, double caret_width, double caret_height, double editable_x, double editable_y, double editable_width, double editable_height) {
     AuraAndroidTextGeometry geometry;
-    (void)slot;
+    geometry.slot = slot;
     geometry.caret_x = caret_x;
     geometry.caret_y = caret_y;
     geometry.caret_width = caret_width;
@@ -343,6 +397,7 @@ void aura_host_text_geometry(int slot, double caret_x, double caret_y, double ca
 }
 
 typedef struct AuraBoundaryUpload {
+    int slot;
     int64_t revision;
     int count;
     jint *offsets;
@@ -379,7 +434,7 @@ static void text_boundary_call(JNIEnv *env, void *ctx) {
             (*env)->SetFloatArrayRegion(env, ys, 0, upload->count, upload->ys);
             (*env)->SetFloatArrayRegion(env, heights, 0, upload->count, upload->heights);
         }
-        (*env)->CallVoidMethod(env, activity, method, (jlong)upload->revision, offsets, xs, ys, heights);
+        (*env)->CallVoidMethod(env, activity, method, (jint)upload->slot, (jlong)upload->revision, offsets, xs, ys, heights);
     }
     if (offsets != NULL) (*env)->DeleteLocalRef(env, offsets);
     if (xs != NULL) (*env)->DeleteLocalRef(env, xs);
@@ -393,6 +448,7 @@ void aura_host_text_geometry_snapshot(int slot, int64_t target, int64_t revision
     int i = 0;
     (void)target;
     memset(&upload, 0, sizeof(upload));
+    upload.slot = slot;
     if (count < 0) {
         return;
     }
@@ -437,6 +493,7 @@ void aura_host_text_geometry_snapshot(int slot, int64_t target, int64_t revision
 }
 
 typedef struct AuraAndroidTextConfiguration {
+    int slot;
     int input_type;
     int action;
     int multiline;
@@ -457,7 +514,7 @@ static void text_configuration_call(JNIEnv *env, void *ctx) {
     if (activity != NULL && method != NULL && config != NULL) {
         hints = java_string_from_utf8(env, config->autofill_hints);
         if (hints != NULL) {
-            (*env)->CallVoidMethod(env, activity, method, (jint)config->input_type, (jint)config->action, config->multiline ? JNI_TRUE : JNI_FALSE, config->secure ? JNI_TRUE : JNI_FALSE, config->autocorrect ? JNI_TRUE : JNI_FALSE, (jint)config->capitalization, hints);
+            (*env)->CallVoidMethod(env, activity, method, (jint)config->slot, (jint)config->input_type, (jint)config->action, config->multiline ? JNI_TRUE : JNI_FALSE, config->secure ? JNI_TRUE : JNI_FALSE, config->autocorrect ? JNI_TRUE : JNI_FALSE, (jint)config->capitalization, hints);
             (*env)->DeleteLocalRef(env, hints);
         }
     }
@@ -468,7 +525,7 @@ static void text_configuration_call(JNIEnv *env, void *ctx) {
 
 void aura_host_text_configuration(int slot, int input_type, int action, int multiline, int secure, int autocorrect, int capitalization, const char *autofill_hints) {
     AuraAndroidTextConfiguration config;
-    (void)slot;
+    config.slot = slot;
     config.input_type = input_type;
     config.action = action;
     config.multiline = multiline;
@@ -606,13 +663,15 @@ JNIEXPORT void JNICALL Java_com_noxlang_aura_AuraHost_nativeBind(JNIEnv *env, jo
         (*env)->DeleteGlobalRef(env, g_activity);
     }
     g_activity = (*env)->NewGlobalRef(env, activity);
-    g_invalidate = (*env)->GetMethodID(env, cls, "requestDraw", "()V");
-    g_focus = (*env)->GetMethodID(env, cls, "setTextFocus", "(Z)V");
-    g_text_state = (*env)->GetMethodID(env, cls, "setTextState", "(Ljava/lang/String;JJIIII)V");
-    g_text_geometry = (*env)->GetMethodID(env, cls, "setTextGeometry", "(FFFFFFFF)V");
-    g_text_configuration = (*env)->GetMethodID(env, cls, "setTextConfiguration", "(IIZZZILjava/lang/String;)V");
-    g_text_boundaries = (*env)->GetMethodID(env, cls, "setTextBoundaries", "(J[I[F[F[F)V");
+    g_invalidate = (*env)->GetMethodID(env, cls, "requestDraw", "(I)V");
+    g_focus = (*env)->GetMethodID(env, cls, "setTextFocus", "(IZ)V");
+    g_text_state = (*env)->GetMethodID(env, cls, "setTextState", "(ILjava/lang/String;JJIIII)V");
+    g_text_geometry = (*env)->GetMethodID(env, cls, "setTextGeometry", "(IFFFFFFFF)V");
+    g_text_configuration = (*env)->GetMethodID(env, cls, "setTextConfiguration", "(IIIZZZILjava/lang/String;)V");
+    g_text_boundaries = (*env)->GetMethodID(env, cls, "setTextBoundaries", "(IJ[I[F[F[F)V");
     g_back_result = (*env)->GetMethodID(env, cls, "resolveSystemBack", "(Z)V");
+    g_open_overlay = (*env)->GetMethodID(env, cls, "openOverlay", "(I)V");
+    g_close_overlay = (*env)->GetMethodID(env, cls, "closeOverlay", "(I)V");
     if (jni_failed(env)) {
         __android_log_print(ANDROID_LOG_ERROR, "aura", "jni method lookup failed");
     }
@@ -620,30 +679,36 @@ JNIEXPORT void JNICALL Java_com_noxlang_aura_AuraHost_nativeBind(JNIEnv *env, jo
     (*env)->DeleteLocalRef(env, cls);
 }
 
-JNIEXPORT void JNICALL Java_com_noxlang_aura_AuraHost_nativePointer(JNIEnv *env, jobject activity, jint phase, jfloat x, jfloat y, jfloat scale, jlong timestamp_ns, jint device_id, jint pointer_id, jint pointer_kind, jint buttons, jfloat pressure, jfloat tilt_x, jfloat tilt_y) {
+JNIEXPORT void JNICALL Java_com_noxlang_aura_AuraHost_nativePointer(JNIEnv *env, jobject activity, jint slot, jint phase, jfloat x, jfloat y, jfloat scale, jlong timestamp_ns, jint device_id, jint pointer_id, jint pointer_kind, jint buttons, jfloat pressure, jfloat tilt_x, jfloat tilt_y) {
     AuraMobileEvent event;
     (void)env;
     (void)activity;
+    if (android_slot(slot) < 0) {
+        return;
+    }
     if (!aura_mobile_pointer_v1(&event, phase, x, y, scale, 0, (uint64_t)timestamp_ns, device_id, pointer_id, (uint32_t)pointer_kind, (uint32_t)buttons, 0, pressure, tilt_x, tilt_y)) {
         return;
     }
-    aura_shell_post_event(0, &event);
+    aura_shell_post_event(slot, &event);
 }
 
-JNIEXPORT void JNICALL Java_com_noxlang_aura_AuraHost_nativeKey(JNIEnv *env, jobject activity, jboolean down, jint logical_key, jint modifiers, jlong timestamp_ns, jint device_id) {
+JNIEXPORT void JNICALL Java_com_noxlang_aura_AuraHost_nativeKey(JNIEnv *env, jobject activity, jint slot, jboolean down, jint logical_key, jint modifiers, jlong timestamp_ns, jint device_id) {
     AuraPlatformEvent event;
     (void)env;
     (void)activity;
+    if (android_slot(slot) < 0) {
+        return;
+    }
     if (!aura_mobile_key_v1(&event, down ? 1 : 0, logical_key, (uint32_t)modifiers, 0, (uint64_t)timestamp_ns, device_id)) {
         return;
     }
-    aura_shell_post_event(0, &event);
+    aura_shell_post_event(slot, &event);
 }
 
-JNIEXPORT void JNICALL Java_com_noxlang_aura_AuraHost_nativeResize(JNIEnv *env, jobject activity, jfloat width, jfloat height, jfloat scale, jfloat safe_left, jfloat safe_top, jfloat safe_right, jfloat safe_bottom, jfloat keyboard, jfloat gesture_left, jfloat gesture_top, jfloat gesture_right, jfloat gesture_bottom, jfloat refresh_rate, jfloat font_scale, jint rotation, jfloat keyboard_duration, jint keyboard_curve, jfloatArray cutouts, jlong timestamp_ns) {
+JNIEXPORT void JNICALL Java_com_noxlang_aura_AuraHost_nativeResize(JNIEnv *env, jobject activity, jint slot, jfloat width, jfloat height, jfloat scale, jfloat safe_left, jfloat safe_top, jfloat safe_right, jfloat safe_bottom, jfloat keyboard, jfloat gesture_left, jfloat gesture_top, jfloat gesture_right, jfloat gesture_bottom, jfloat refresh_rate, jfloat font_scale, jint rotation, jfloat keyboard_duration, jint keyboard_curve, jfloatArray cutouts, jlong timestamp_ns) {
     AuraMetricsPayload metrics;
     (void)activity;
-    if (width < 1.0f || height < 1.0f || !(scale > 0.0f)) {
+    if (android_slot(slot) < 0 || width < 1.0f || height < 1.0f || !(scale > 0.0f)) {
         return;
     }
     memset(&metrics, 0, sizeof(metrics));
@@ -695,15 +760,18 @@ JNIEXPORT void JNICALL Java_com_noxlang_aura_AuraHost_nativeResize(JNIEnv *env, 
         }
         jni_failed(env);
     }
-    aura_shell_metrics_v1(0, &metrics, (uint64_t)timestamp_ns);
+    aura_shell_metrics_v1(slot, &metrics, (uint64_t)timestamp_ns);
 }
 
-JNIEXPORT jboolean JNICALL Java_com_noxlang_aura_AuraHost_nativeEnvironment(JNIEnv *env, jobject activity, jint brightness, jint high_contrast, jint reduce_motion, jint accessible_navigation, jint text_direction, jint bold_text, jfloat font_scale, jstring locales, jlong timestamp_ns) {
+JNIEXPORT jboolean JNICALL Java_com_noxlang_aura_AuraHost_nativeEnvironment(JNIEnv *env, jobject activity, jint slot, jint brightness, jint high_contrast, jint reduce_motion, jint accessible_navigation, jint text_direction, jint bold_text, jfloat font_scale, jstring locales, jlong timestamp_ns) {
     AuraEnvironmentPayload payload;
     char *utf = NULL;
     size_t length = 0;
     int accepted = 0;
     (void)activity;
+    if (android_slot(slot) < 0) {
+        return JNI_FALSE;
+    }
     memset(&payload, 0, sizeof(payload));
     payload.brightness = brightness;
     payload.high_contrast = high_contrast;
@@ -715,15 +783,18 @@ JNIEXPORT jboolean JNICALL Java_com_noxlang_aura_AuraHost_nativeEnvironment(JNIE
     if (locales != NULL) {
         utf = utf8_from_java_string(env, locales, &length);
     }
-    accepted = aura_shell_environment(0, &payload, utf != NULL ? utf : "", (uint64_t)timestamp_ns);
+    accepted = aura_shell_environment(slot, &payload, utf != NULL ? utf : "", (uint64_t)timestamp_ns);
     free(utf);
     return accepted != 0 ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL Java_com_noxlang_aura_AuraHost_nativeMemoryPressure(JNIEnv *env, jobject activity, jint level, jlong timestamp_ns) {
+    int slot = 0;
     (void)env;
     (void)activity;
-    aura_shell_memory_pressure(0, level, (uint64_t)timestamp_ns);
+    for (slot = 0; slot < AURA_ANDROID_SLOTS; slot += 1) {
+        aura_shell_memory_pressure(slot, level, (uint64_t)timestamp_ns);
+    }
     if (level >= AURA_MEMORY_PRESSURE_CRITICAL) {
         aura_storage_purge_cache();
     }
@@ -735,20 +806,32 @@ JNIEXPORT void JNICALL Java_com_noxlang_aura_AuraHost_nativeVsync(JNIEnv *env, j
     aura_shell_vsync(0);
 }
 
-JNIEXPORT void JNICALL Java_com_noxlang_aura_AuraHost_nativeLifecycle(JNIEnv *env, jobject activity, jint state, jint reason, jlong timestamp_ns) {
+JNIEXPORT void JNICALL Java_com_noxlang_aura_AuraHost_nativeLifecycle(JNIEnv *env, jobject activity, jint slot, jint state, jint reason, jlong timestamp_ns) {
     (void)env;
     (void)activity;
-    aura_shell_lifecycle(0, state, reason, (uint64_t)timestamp_ns);
+    if (android_slot(slot) < 0) {
+        return;
+    }
+    aura_shell_lifecycle(slot, state, reason, (uint64_t)timestamp_ns);
 }
 
-JNIEXPORT void JNICALL Java_com_noxlang_aura_AuraHost_nativeSystemBack(JNIEnv *env, jobject activity, jint phase, jfloat progress, jlong timestamp_ns) {
+JNIEXPORT void JNICALL Java_com_noxlang_aura_AuraHost_nativeSystemBack(JNIEnv *env, jobject activity, jint slot, jint phase, jfloat progress, jlong timestamp_ns) {
     AuraPlatformEvent event;
     (void)env;
     (void)activity;
+    if (android_slot(slot) < 0) {
+        return;
+    }
     aura_platform_event_init(&event, AURA_SYSTEM_BACK, 0, (uint64_t)timestamp_ns);
     event.key_code = phase;
     event.x = progress;
-    aura_shell_post_event(0, &event);
+    aura_shell_post_event(slot, &event);
+}
+
+JNIEXPORT void JNICALL Java_com_noxlang_aura_AuraHost_nativeRequestClose(JNIEnv *env, jobject activity, jint slot) {
+    (void)env;
+    (void)activity;
+    aura_shell_request_close(slot);
 }
 
 JNIEXPORT void JNICALL Java_com_noxlang_aura_AuraHost_nativePlatformRoute(JNIEnv *env, jobject activity, jint source, jstring location, jlong timestamp_ns) {
@@ -764,47 +847,59 @@ JNIEXPORT void JNICALL Java_com_noxlang_aura_AuraHost_nativePlatformRoute(JNIEnv
     }
 }
 
-JNIEXPORT jboolean JNICALL Java_com_noxlang_aura_AuraHost_nativeSurfaceAttach(JNIEnv *env, jobject activity, jint width, jint height, jlong timestamp_ns) {
+JNIEXPORT jboolean JNICALL Java_com_noxlang_aura_AuraHost_nativeSurfaceAttach(JNIEnv *env, jobject activity, jint slot, jint width, jint height, jlong timestamp_ns) {
     AuraAndroidSurfacePlan plan;
     (void)env;
     (void)activity;
-    aura_android_surface_attach(&g_android_surface, width, height, &plan);
-    post_android_surface(&plan, timestamp_ns);
+    if (android_slot(slot) < 0) {
+        return JNI_FALSE;
+    }
+    aura_android_surface_attach(&g_android_surface[slot], width, height, &plan);
+    post_android_surface(slot, &plan, timestamp_ns);
     return plan.attached ? JNI_TRUE : JNI_FALSE;
 }
 
-JNIEXPORT jboolean JNICALL Java_com_noxlang_aura_AuraHost_nativeSurfaceResize(JNIEnv *env, jobject activity, jint width, jint height, jlong timestamp_ns) {
+JNIEXPORT jboolean JNICALL Java_com_noxlang_aura_AuraHost_nativeSurfaceResize(JNIEnv *env, jobject activity, jint slot, jint width, jint height, jlong timestamp_ns) {
     AuraAndroidSurfacePlan plan;
     (void)env;
     (void)activity;
-    aura_android_surface_resize(&g_android_surface, width, height, &plan);
-    post_android_surface(&plan, timestamp_ns);
+    if (android_slot(slot) < 0) {
+        return JNI_FALSE;
+    }
+    aura_android_surface_resize(&g_android_surface[slot], width, height, &plan);
+    post_android_surface(slot, &plan, timestamp_ns);
     return plan.attached ? JNI_TRUE : JNI_FALSE;
 }
 
-JNIEXPORT jboolean JNICALL Java_com_noxlang_aura_AuraHost_nativeSurfaceDetach(JNIEnv *env, jobject activity, jlong timestamp_ns) {
+JNIEXPORT jboolean JNICALL Java_com_noxlang_aura_AuraHost_nativeSurfaceDetach(JNIEnv *env, jobject activity, jint slot, jlong timestamp_ns) {
     AuraAndroidSurfacePlan plan;
     (void)env;
     (void)activity;
-    aura_android_surface_detach(&g_android_surface, &plan);
-    post_android_surface(&plan, timestamp_ns);
+    if (android_slot(slot) < 0) {
+        return JNI_FALSE;
+    }
+    aura_android_surface_detach(&g_android_surface[slot], &plan);
+    post_android_surface(slot, &plan, timestamp_ns);
     return plan.attached ? JNI_TRUE : JNI_FALSE;
 }
 
-JNIEXPORT void JNICALL Java_com_noxlang_aura_AuraHost_nativeTextEdit(JNIEnv *env, jobject activity, jint operation, jstring text, jint first, jint second, jlong timestamp_ns) {
+JNIEXPORT void JNICALL Java_com_noxlang_aura_AuraHost_nativeTextEdit(JNIEnv *env, jobject activity, jint slot, jint operation, jstring text, jint first, jint second, jlong timestamp_ns) {
     char *utf = NULL;
     size_t length = 0;
     (void)activity;
+    if (android_slot(slot) < 0) {
+        return;
+    }
     if (text != NULL) {
         utf = utf8_from_java_string(env, text, &length);
     }
-    aura_shell_text_edit_n(0, operation, utf != NULL ? utf : "", utf != NULL ? length : 0, first, second, (uint64_t)timestamp_ns);
+    aura_shell_text_edit_n(slot, operation, utf != NULL ? utf : "", utf != NULL ? length : 0, first, second, (uint64_t)timestamp_ns);
     if (utf != NULL) {
         free(utf);
     }
 }
 
-JNIEXPORT void JNICALL Java_com_noxlang_aura_AuraHost_nativeBlit(JNIEnv *env, jobject activity, jobject bitmap) {
+JNIEXPORT void JNICALL Java_com_noxlang_aura_AuraHost_nativeBlit(JNIEnv *env, jobject activity, jint slot, jobject bitmap) {
     AndroidBitmapInfo info;
     void *pixels = NULL;
     uint8_t *copy = NULL;
@@ -812,10 +907,10 @@ JNIEXPORT void JNICALL Java_com_noxlang_aura_AuraHost_nativeBlit(JNIEnv *env, jo
     int height = 0;
     int stride = 0;
     (void)activity;
-    if (bitmap == NULL || AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS) {
+    if (android_slot(slot) < 0 || bitmap == NULL || AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS) {
         return;
     }
-    if (aura_shell_copy_pixels(0, &copy, &width, &height, &stride) != 0) {
+    if (aura_shell_copy_pixels(slot, &copy, &width, &height, &stride) != 0) {
         return;
     }
     if (AndroidBitmap_lockPixels(env, bitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS) {
@@ -850,55 +945,67 @@ JNIEXPORT void JNICALL Java_com_noxlang_aura_AuraHost_nativeBlit(JNIEnv *env, jo
     free(copy);
 }
 
-JNIEXPORT jint JNICALL Java_com_noxlang_aura_AuraHost_nativeAxCount(JNIEnv *env, jobject activity) {
+JNIEXPORT jint JNICALL Java_com_noxlang_aura_AuraHost_nativeAxCount(JNIEnv *env, jobject activity, jint slot) {
     (void)env;
     (void)activity;
-    return aura_shell_ax_count(0);
+    if (android_slot(slot) < 0) {
+        return 0;
+    }
+    return aura_shell_ax_count(slot);
 }
 
-JNIEXPORT jstring JNICALL Java_com_noxlang_aura_AuraHost_nativeAxLabel(JNIEnv *env, jobject activity, jint index) {
-    const char *label = aura_shell_ax_label(0, index);
+JNIEXPORT jstring JNICALL Java_com_noxlang_aura_AuraHost_nativeAxLabel(JNIEnv *env, jobject activity, jint slot, jint index) {
+    const char *label = android_slot(slot) < 0 ? "" : aura_shell_ax_label(slot, index);
     (void)activity;
     return (*env)->NewStringUTF(env, label != NULL ? label : "");
 }
 
-JNIEXPORT jstring JNICALL Java_com_noxlang_aura_AuraHost_nativeAxValue(JNIEnv *env, jobject activity, jint index) {
-    const char *value = aura_shell_ax_value(0, index);
+JNIEXPORT jstring JNICALL Java_com_noxlang_aura_AuraHost_nativeAxValue(JNIEnv *env, jobject activity, jint slot, jint index) {
+    const char *value = android_slot(slot) < 0 ? "" : aura_shell_ax_value(slot, index);
     (void)activity;
     return (*env)->NewStringUTF(env, value != NULL ? value : "");
 }
 
-JNIEXPORT jstring JNICALL Java_com_noxlang_aura_AuraHost_nativeAxRole(JNIEnv *env, jobject activity, jint index) {
-    const char *role = aura_shell_ax_role(0, index);
+JNIEXPORT jstring JNICALL Java_com_noxlang_aura_AuraHost_nativeAxRole(JNIEnv *env, jobject activity, jint slot, jint index) {
+    const char *role = android_slot(slot) < 0 ? "" : aura_shell_ax_role(slot, index);
     (void)activity;
     return (*env)->NewStringUTF(env, role != NULL ? role : "");
 }
 
-JNIEXPORT jstring JNICALL Java_com_noxlang_aura_AuraHost_nativeAxClassName(JNIEnv *env, jobject activity, jint index) {
-    const char *role = aura_shell_ax_role(0, index);
+JNIEXPORT jstring JNICALL Java_com_noxlang_aura_AuraHost_nativeAxClassName(JNIEnv *env, jobject activity, jint slot, jint index) {
+    const char *role = android_slot(slot) < 0 ? "" : aura_shell_ax_role(slot, index);
     (void)activity;
     return (*env)->NewStringUTF(env, aura_ax_android_class(role));
 }
 
-JNIEXPORT jint JNICALL Java_com_noxlang_aura_AuraHost_nativeAxChecked(JNIEnv *env, jobject activity, jint index) {
+JNIEXPORT jint JNICALL Java_com_noxlang_aura_AuraHost_nativeAxChecked(JNIEnv *env, jobject activity, jint slot, jint index) {
     (void)env;
     (void)activity;
-    return aura_shell_ax_checked(0, index);
+    if (android_slot(slot) < 0) {
+        return 0;
+    }
+    return aura_shell_ax_checked(slot, index);
 }
 
-JNIEXPORT jlong JNICALL Java_com_noxlang_aura_AuraHost_nativeAxPress(JNIEnv *env, jobject activity, jint index) {
+JNIEXPORT jlong JNICALL Java_com_noxlang_aura_AuraHost_nativeAxPress(JNIEnv *env, jobject activity, jint slot, jint index) {
     (void)env;
     (void)activity;
-    return (jlong)aura_shell_ax_press(0, index);
+    if (android_slot(slot) < 0) {
+        return 0;
+    }
+    return (jlong)aura_shell_ax_press(slot, index);
 }
 
-JNIEXPORT jint JNICALL Java_com_noxlang_aura_AuraHost_nativeAxActivate(JNIEnv *env, jobject activity, jint index) {
+JNIEXPORT jint JNICALL Java_com_noxlang_aura_AuraHost_nativeAxActivate(JNIEnv *env, jobject activity, jint slot, jint index) {
     (void)env;
     (void)activity;
-    return aura_shell_activate_ax(0, index);
+    if (android_slot(slot) < 0) {
+        return 0;
+    }
+    return aura_shell_activate_ax(slot, index);
 }
 
-JNIEXPORT jfloatArray JNICALL Java_com_noxlang_aura_AuraHost_nativeAxFrame(JNIEnv *env, jobject activity, jint index) {
+JNIEXPORT jfloatArray JNICALL Java_com_noxlang_aura_AuraHost_nativeAxFrame(JNIEnv *env, jobject activity, jint slot, jint index) {
     double x = 0.0;
     double y = 0.0;
     double w = 0.0;
@@ -906,7 +1013,9 @@ JNIEXPORT jfloatArray JNICALL Java_com_noxlang_aura_AuraHost_nativeAxFrame(JNIEn
     jfloat raw[4];
     jfloatArray out = NULL;
     (void)activity;
-    aura_shell_ax_frame(0, index, &x, &y, &w, &h);
+    if (android_slot(slot) >= 0) {
+        aura_shell_ax_frame(slot, index, &x, &y, &w, &h);
+    }
     raw[0] = (jfloat)x;
     raw[1] = (jfloat)y;
     raw[2] = (jfloat)w;
@@ -973,6 +1082,13 @@ JNIEXPORT void JNICALL Java_com_noxlang_aura_AuraHost_nativeShutdown(JNIEnv *env
         g_activity = NULL;
         g_invalidate = NULL;
         g_focus = NULL;
+        g_text_state = NULL;
+        g_text_geometry = NULL;
+        g_text_configuration = NULL;
+        g_text_boundaries = NULL;
+        g_back_result = NULL;
+        g_open_overlay = NULL;
+        g_close_overlay = NULL;
     }
     pthread_mutex_unlock(&g_activity_mu);
 }

@@ -221,6 +221,16 @@ def toolchain_errors(root: Path) -> list[str]:
         return [f"package manifest cannot be read: {exc}"]
     if package.get("version") != toolchain.get("aura"):
         errors.append("nox.json version and the Aura pin differ")
+    command = package.get("bin")
+    if not isinstance(command, dict) or command.get("name") != "aura" or command.get("path") != "bin/aura.nox":
+        errors.append("nox.json must publish the aura command at bin/aura.nox")
+    command_source = root / "cli" / "command.nox"
+    if not command_source.is_file():
+        errors.append("aura command source is missing")
+    elif f'VERSION: str = "{toolchain["aura"]}"' not in command_source.read_text(encoding="utf-8"):
+        errors.append("aura command version drifted from the Aura pin")
+    if not (root / "bin" / "aura.nox").is_file():
+        errors.append("aura command entry is missing")
     nox = toolchain.get("nox", {})
     if nox.get("minimum") != "2.0.0" or nox.get("maximum") != "2.0.0" or nox.get("ci") != "v2.0.0":
         errors.append("Nox pin must stay on the tested 2.0.0 range")

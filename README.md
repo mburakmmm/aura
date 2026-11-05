@@ -19,7 +19,7 @@ class CounterPage(StatelessWidget):
 
 Widget konfigürasyondur. Element kimliği, yaşam döngüsünü ve kirli durumu tutar. RenderObject yerleşir, boyar ve vuruş testi yapar. Bu üçü birbirinin yerine geçmez.
 
-**Şu anki sürüm 1.0.0’dır.** Genel API donmuştur. `Text` durur. `TextRun` ve `RichText` satır içi kalın, eğik ve başlık taşır. Özel arayüz `Stack`, `Align`, `Inherited`, `MouseRegion`, `GestureDetector`, `DecoratedBox` ve `CustomPaint` ile kurulur. Kapı [roadmap.md](roadmap.md) bölüm 1.0’dır: `scripts/certify.sh` testleri ve on gizli self-check’i koşturur. GitHub Actions bunu macOS, Win32, X11 ve Wayland üzerinde çalıştırır.
+**Şu anki sürüm 1.1.0’dır.** Genel API donmuştur. `Text` durur. `TextRun` ve `RichText` satır içi kalın, eğik ve başlık taşır. Özel arayüz `Stack`, `Align`, `Inherited`, `MouseRegion`, `GestureDetector`, `DecoratedBox` ve `CustomPaint` ile kurulur. Kapı [roadmap.md](roadmap.md) bölüm 1.0’dır: `scripts/certify.sh` testleri ve on gizli self-check’i koşturur. GitHub Actions bunu macOS, Win32, X11 ve Wayland üzerinde çalıştırır.
 
 ## Yol haritası
 
@@ -34,11 +34,11 @@ Bağlayıcı teslimat sözleşmesi [roadmap.md](roadmap.md) dosyasındadır. `AG
 | 0.8 | Tamam: Dosya gezgini, UI iş parçacığı dışında okuma |
 | 0.9 | Tamam: Dashboard, örtük animasyon, altın piksel, kare bütçesi |
 | 1.0 | Tamam: API dondurma, satır içi zengin metin, `packages/badge` |
-| 1.1–1.5 | Sürüyor: iOS kabuğu cihazda açıldı. Xcode paketi, Android cihaz ve GPU açık |
+| 1.1–1.5 | Sürüyor: 1.1.0 mobil kabuğu ve `aura` komutunu yayınlar. TestFlight, Play, GPU, TalkBack ve 16 KiB çalışma zamanı açık |
 
 Web, hot reload ve sliver bu sözleşmenin dışındadır. Satır içi kalın, eğik ve başlık 1.0’dadır. Çift yön ve emoji yoktur.
 
-Mobil kaynak `main` üzerindedir. Görev ve cihaz kanıtı [MOBILE_TODO.md](MOBILE_TODO.md) dosyasındadır. iPhone 17 Pro’da sekiz örnek development imzasıyla açıldı. Xcode projesi ve imzalı IPA henüz yoktur.
+Mobil kaynak `main` üzerindedir. Görev ve cihaz kanıtı [MOBILE_TODO.md](MOBILE_TODO.md) dosyasındadır. iPhone 17 Pro’da ve bir Android 12 telefonunda sekiz örnek açıldı. Notes için Xcode archive ve development IPA üretildi. TestFlight, Play, GPU ve TalkBack açıktır.
 
 ## Gereksinimler
 
@@ -104,6 +104,18 @@ Bağımlılık yukarıdan aşağı iner. Grafik ve platform katmanları widget i
 - `roadmap.md` 0.5’ten mobil temele kadar sözleşme
 
 Nox derleyicisi bu depodan değiştirilmez.
+
+## Komut
+
+`nox.json` bir `bin` girişi yayınlar. Global kurulumdan sonra komut `aura` olur.
+
+```sh
+noxc install github.com/mburakmmm/aura --ref v1.1.0
+aura version
+aura new hello
+```
+
+`aura new` sayaç kaynaklarını ve `github.com/mburakmmm/aura` bağımlılığını yazar. Pencereyi açmak için kabuk kütüphanesi gerekir. O kütüphane paketle gelmez; Aura çalışma kopyasında `./scripts/build_host.sh` üretir. `aura doctor` araç zincirini ancak bir Aura çalışma kopyasının içinde raporlar. Depodaki `scripts/aura doctor` aynı denetimi `noxc install` olmadan çalıştırır.
 
 ## Yayın
 

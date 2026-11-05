@@ -74,7 +74,7 @@ uygulama ve kanıt durumunu tanımlar.
 
 İlk telefon iOS’tur. Geliştirme makinesi ve mevcut Cocoa kabuğu oradadır. Android aynı sembolleri ikinci kabuk olarak uygular.
 
-Durum, 5 Kasım 2026: kabuk kaynakları `main` üzerindedir. Ayrıntı `MOBILE_TODO.md` dosyasındadır. iPhone 17 Pro’da Notes, Counter, Chat, Settings, Todo, Calculator, Files ve Dashboard development imzasıyla açıldı. Xcode projesi, imzalı IPA, TestFlight, Android cihaz, GPU, emoji ve çift yön kapalıdır. Sıradaki iş iOS paketinin Xcode hedefinden üretilmesidir. Android cihaz turu ondan sonra planlanır.
+Durum, 5 Kasım 2026: kabuk kaynakları `main` üzerindedir ve 1.1.0 olarak yayınlanır. Ayrıntı `MOBILE_TODO.md` dosyasındadır. iPhone 17 Pro’da ve bir Android 12 telefonunda sekiz örnek açıldı. Notes için Xcode archive, dSYM ve development IPA üretildi. TestFlight, Play, GPU, TalkBack, emoji ve çift yön açıktır. 16 KiB çalışma zamanı bu telefonda kanıtlanmadı.
 
 Çizim komutları değişmez. 1.1–1.4 pixmap’i Skia raster üretir ve kabuk bunu yüzeye basar. GPU yüzeyi 1.5’tir ve ADR’siz seçilmez. Masaüstü blit yolu durur.
 

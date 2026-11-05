@@ -2,7 +2,7 @@
   "schema": 1,
   "bundle_id": "com.noxlang.aura",
   "display_name": "Aura",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "build_number": 1,
   "ios": {
     "minimum": "17.0",
@@ -17,7 +17,7 @@
   "permissions": [],
   "purpose_strings": [],
   "entitlements": [],
-  "icons": [],
+  "icons": ["native/ios/AppIcon.png"],
   "deep_links": [],
   "network": {
     "cleartext": false
@@ -26,6 +26,10 @@
     {
       "path": "native/fonts/NotoSans-Regular.ttf",
       "sha256": "bfb7bb691513f12e734dc346c03a03f784912432d7e3fa8e56efcf906fe86b3d"
+    },
+    {
+      "path": "native/ios/AppIcon.png",
+      "sha256": "fbcacc21a1f16ce7fc87d47126548dfe89dd6b70d59c9dc084f0024db9d6abc2"
     },
     {
       "path": "tests/fixtures/pixel.jpg",

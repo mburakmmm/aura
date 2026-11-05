@@ -116,6 +116,10 @@ if [ "$LINK_STATUS" -ne 0 ]; then
       "$SKIA_OUT/libfreetype2.a" \
       "$SKIA_OUT/libskcms.a" \
       "$SKIA_OUT/libcpu-features.a" \
+      "$SKIA_OUT/liballocator_base.a" \
+      "$SKIA_OUT/liballocator_core.a" \
+      "$SKIA_OUT/liballocator_shim.a" \
+      "$SKIA_OUT/libraw_ptr.a" \
       -Wl,--end-group \
       -lm -ldl -llog -ljnigraphics -landroid -lc++_shared
   else

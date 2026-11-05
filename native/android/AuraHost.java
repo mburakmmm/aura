@@ -11,6 +11,7 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.os.Bundle;
 import android.os.Build;
+import android.os.Looper;
 import android.util.Log;
 import android.text.InputType;
 import android.text.Editable;
@@ -21,6 +22,9 @@ import android.view.Choreographer;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
+import android.view.WindowInsetsController;
+import android.widget.FrameLayout;
 import android.content.res.Configuration;
 import android.graphics.Insets;
 import android.provider.Settings;
@@ -48,7 +52,9 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.text.BreakIterator;
 import java.util.ArrayList;
+import java.util.concurrent.CountDownLatch;
 
 public final class AuraHost extends Activity implements Choreographer.FrameCallback {
     private static final class PendingTextEdit {
@@ -68,7 +74,24 @@ public final class AuraHost extends Activity implements Choreographer.FrameCallb
     }
 
     private static long monotonicNowNs() {
-        return android.os.SystemClock.uptimeNanos();
+        // uptimeNanos arrived in API 35. System.nanoTime is the monotonic
+        // clock on every release this host supports and ignores wall-clock steps.
+        if (Build.VERSION.SDK_INT >= 35) {
+            return android.os.SystemClock.uptimeNanos();
+        }
+        return System.nanoTime();
+    }
+
+    private static long eventTimeNs(android.view.MotionEvent event, int historyIndex) {
+        // Nanosecond event time arrived in API 34. Older releases report milliseconds.
+        if (Build.VERSION.SDK_INT >= 34) {
+            if (historyIndex >= 0) {
+                return event.getHistoricalEventTimeNanos(historyIndex);
+            }
+            return event.getEventTimeNanos();
+        }
+        long millis = historyIndex >= 0 ? event.getHistoricalEventTime(historyIndex) : event.getEventTime();
+        return millis * 1000000L;
     }
 
     private static final int LIFECYCLE_DETACHED = 0;
@@ -82,7 +105,12 @@ public final class AuraHost extends Activity implements Choreographer.FrameCallb
         System.loadLibrary("noxapp");
     }
 
+    private static final int WINDOW_SLOTS = 4;
+
+    private final AuraView[] windows = new AuraView[WINDOW_SLOTS];
+    private FrameLayout stack;
     private AuraView view;
+    private int lifecycleState = LIFECYCLE_DETACHED;
     private float safeLeft;
     private float safeTop;
     private float safeRight;
@@ -104,30 +132,31 @@ public final class AuraHost extends Activity implements Choreographer.FrameCallb
     private String environmentSignature = "";
 
     public native void nativeBind(AuraHost host);
-    public native void nativePointer(int phase, float x, float y, float scale, long timestampNs, int deviceId, int pointerId, int pointerKind, int buttons, float pressure, float tiltX, float tiltY);
-    public native void nativeKey(boolean down, int logicalKey, int modifiers, long timestampNs, int deviceId);
-    public native void nativeResize(float width, float height, float scale, float safeLeft, float safeTop, float safeRight, float safeBottom, float keyboard, float gestureLeft, float gestureTop, float gestureRight, float gestureBottom, float refreshRate, float fontScale, int rotationDegrees, float keyboardDuration, int keyboardCurve, float[] cutouts, long timestampNs);
-    public native boolean nativeEnvironment(int brightness, int highContrast, int reduceMotion, int accessibleNavigation, int textDirection, int boldText, float fontScale, String locales, long timestampNs);
+    public native void nativePointer(int slot, int phase, float x, float y, float scale, long timestampNs, int deviceId, int pointerId, int pointerKind, int buttons, float pressure, float tiltX, float tiltY);
+    public native void nativeKey(int slot, boolean down, int logicalKey, int modifiers, long timestampNs, int deviceId);
+    public native void nativeResize(int slot, float width, float height, float scale, float safeLeft, float safeTop, float safeRight, float safeBottom, float keyboard, float gestureLeft, float gestureTop, float gestureRight, float gestureBottom, float refreshRate, float fontScale, int rotationDegrees, float keyboardDuration, int keyboardCurve, float[] cutouts, long timestampNs);
+    public native boolean nativeEnvironment(int slot, int brightness, int highContrast, int reduceMotion, int accessibleNavigation, int textDirection, int boldText, float fontScale, String locales, long timestampNs);
     public native void nativeMemoryPressure(int level, long timestampNs);
     public native void nativeVsync();
-    public native void nativeLifecycle(int state, int reason, long timestampNs);
-    public native void nativeSystemBack(int phase, float progress, long timestampNs);
+    public native void nativeLifecycle(int slot, int state, int reason, long timestampNs);
+    public native void nativeSystemBack(int slot, int phase, float progress, long timestampNs);
+    public native void nativeRequestClose(int slot);
     public native void nativePlatformRoute(int source, String location, long timestampNs);
-    public native boolean nativeSurfaceAttach(int width, int height, long timestampNs);
-    public native boolean nativeSurfaceResize(int width, int height, long timestampNs);
-    public native boolean nativeSurfaceDetach(long timestampNs);
+    public native boolean nativeSurfaceAttach(int slot, int width, int height, long timestampNs);
+    public native boolean nativeSurfaceResize(int slot, int width, int height, long timestampNs);
+    public native boolean nativeSurfaceDetach(int slot, long timestampNs);
     public native void nativeShutdown(boolean stopRuntime);
-    public native void nativeTextEdit(int operation, String text, int first, int second, long timestampNs);
-    public native void nativeBlit(Bitmap bitmap);
-    public native int nativeAxCount();
-    public native String nativeAxLabel(int index);
-    public native String nativeAxValue(int index);
-    public native String nativeAxRole(int index);
-    public native String nativeAxClassName(int index);
-    public native int nativeAxChecked(int index);
-    public native long nativeAxPress(int index);
-    public native int nativeAxActivate(int index);
-    public native float[] nativeAxFrame(int index);
+    public native void nativeTextEdit(int slot, int operation, String text, int first, int second, long timestampNs);
+    public native void nativeBlit(int slot, Bitmap bitmap);
+    public native int nativeAxCount(int slot);
+    public native String nativeAxLabel(int slot, int index);
+    public native String nativeAxValue(int slot, int index);
+    public native String nativeAxRole(int slot, int index);
+    public native String nativeAxClassName(int slot, int index);
+    public native int nativeAxChecked(int slot, int index);
+    public native long nativeAxPress(int slot, int index);
+    public native int nativeAxActivate(int slot, int index);
+    public native float[] nativeAxFrame(int slot, int index);
     public native boolean nativeAssetStampCurrent(String path);
     public native String nativeAssetVersion();
     public native void nativeStart(String documents, String support, String cache, String tempDir, String assets);
@@ -153,8 +182,13 @@ public final class AuraHost extends Activity implements Choreographer.FrameCallb
                 throw new RuntimeException("asset extract rename failed");
             }
         }
-        view = new AuraView(this);
-        setContentView(view);
+        stack = new FrameLayout(this);
+        stack.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
+        view = new AuraView(0);
+        windows[0] = view;
+        stack.addView(view, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        setContentView(stack);
+        view.requestFocus();
         nativeBind(this);
         nativeStart(documents.getAbsolutePath(), support.getAbsolutePath(), cache.getAbsolutePath(), temp.getAbsolutePath(), assets.getAbsolutePath());
         if (Build.VERSION.SDK_INT >= 30) {
@@ -213,7 +247,7 @@ public final class AuraHost extends Activity implements Choreographer.FrameCallb
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         publishEnvironment();
-        publishSize();
+        publishAllSizes();
     }
 
     private static int memoryLevel(int level) {
@@ -226,29 +260,126 @@ public final class AuraHost extends Activity implements Choreographer.FrameCallb
         return 1;
     }
 
+    private void publishLifecycle(int state) {
+        int slot = 0;
+        long timestampNs = monotonicNowNs();
+        lifecycleState = state;
+        while (slot < windows.length) {
+            if (windows[slot] != null) {
+                nativeLifecycle(slot, state, LIFECYCLE_REASON_SYSTEM, timestampNs);
+            }
+            slot += 1;
+        }
+    }
+
+    private AuraView viewFor(int slot) {
+        if (slot < 0 || slot >= windows.length) {
+            return null;
+        }
+        return windows[slot];
+    }
+
+    private int frontSlot() {
+        int slot = windows.length - 1;
+        while (slot >= 0) {
+            if (windows[slot] != null) {
+                return slot;
+            }
+            slot -= 1;
+        }
+        return 0;
+    }
+
+    private void awaitUi(Runnable work) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            work.run();
+            return;
+        }
+        CountDownLatch latch = new CountDownLatch(1);
+        runOnUiThread(() -> {
+            try {
+                work.run();
+            } finally {
+                latch.countDown();
+            }
+        });
+        try {
+            latch.await();
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    public void openOverlay(final int slot) {
+        awaitUi(() -> attachOverlay(slot));
+    }
+
+    public void closeOverlay(final int slot) {
+        awaitUi(() -> detachOverlay(slot));
+    }
+
+    private void attachOverlay(int slot) {
+        AuraView created;
+        if (slot <= 0 || slot >= windows.length || stack == null) {
+            return;
+        }
+        if (windows[slot] != null) {
+            windows[slot].bringToFront();
+            return;
+        }
+        created = new AuraView(slot);
+        created.setClickable(true);
+        windows[slot] = created;
+        stack.addView(created, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        if (stack.getWidth() > 0 && stack.getHeight() > 0) {
+            int widthSpec = View.MeasureSpec.makeMeasureSpec(stack.getWidth(), View.MeasureSpec.EXACTLY);
+            int heightSpec = View.MeasureSpec.makeMeasureSpec(stack.getHeight(), View.MeasureSpec.EXACTLY);
+            created.measure(widthSpec, heightSpec);
+            created.layout(0, 0, stack.getWidth(), stack.getHeight());
+        }
+        nativeLifecycle(slot, lifecycleState, LIFECYCLE_REASON_SYSTEM, monotonicNowNs());
+        publishEnvironment(true);
+    }
+
+    private void detachOverlay(int slot) {
+        AuraView closing;
+        if (slot <= 0 || slot >= windows.length) {
+            return;
+        }
+        closing = windows[slot];
+        if (closing == null) {
+            return;
+        }
+        windows[slot] = null;
+        InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+        if (imm != null) {
+            imm.hideSoftInputFromWindow(closing.getWindowToken(), 0);
+        }
+        if (stack != null) {
+            stack.removeView(closing);
+        }
+    }
+
     @Override
     protected void onStart() {
-        long timestampNs = monotonicNowNs();
         super.onStart();
-        nativeLifecycle(LIFECYCLE_INACTIVE, LIFECYCLE_REASON_SYSTEM, timestampNs);
+        publishLifecycle(LIFECYCLE_INACTIVE);
     }
 
     @Override
     protected void onPause() {
-        long timestampNs = monotonicNowNs();
         frameCallbacksActive = false;
         Choreographer.getInstance().removeFrameCallback(this);
-        nativeLifecycle(LIFECYCLE_PAUSED, LIFECYCLE_REASON_SYSTEM, timestampNs);
+        publishLifecycle(LIFECYCLE_PAUSED);
         Log.i("aura", "aura-background");
         super.onPause();
     }
 
     @Override
     protected void onResume() {
-        long timestampNs = monotonicNowNs();
         super.onResume();
-        publishEnvironment();
-        nativeLifecycle(LIFECYCLE_RESUMED, LIFECYCLE_REASON_SYSTEM, timestampNs);
+        publishEnvironment(false);
+        publishLifecycle(LIFECYCLE_RESUMED);
         if (!frameCallbacksActive) {
             frameCallbacksActive = true;
             Choreographer.getInstance().postFrameCallback(this);
@@ -259,17 +390,15 @@ public final class AuraHost extends Activity implements Choreographer.FrameCallb
 
     @Override
     protected void onStop() {
-        long timestampNs = monotonicNowNs();
-        nativeLifecycle(LIFECYCLE_HIDDEN, LIFECYCLE_REASON_SYSTEM, timestampNs);
+        publishLifecycle(LIFECYCLE_HIDDEN);
         super.onStop();
     }
 
     @Override
     protected void onDestroy() {
-        long timestampNs = monotonicNowNs();
         frameCallbacksActive = false;
         Choreographer.getInstance().removeFrameCallback(this);
-        nativeLifecycle(LIFECYCLE_DETACHED, LIFECYCLE_REASON_SYSTEM, timestampNs);
+        publishLifecycle(LIFECYCLE_DETACHED);
         if (Build.VERSION.SDK_INT >= 33 && backCallback != null) {
             BackApi33.unregister(this, backCallback);
             backCallback = null;
@@ -297,7 +426,7 @@ public final class AuraHost extends Activity implements Choreographer.FrameCallb
         } else if (backPending) {
             return;
         }
-        nativeSystemBack(phase, progress, System.nanoTime());
+        nativeSystemBack(frontSlot(), phase, progress, System.nanoTime());
     }
 
     private void requestBackCommit() {
@@ -309,7 +438,15 @@ public final class AuraHost extends Activity implements Choreographer.FrameCallb
             @Override
             public void run() {
                 backPending = false;
-                if (!handled && !isFinishing()) {
+                if (handled) {
+                    return;
+                }
+                int front = frontSlot();
+                if (front > 0) {
+                    nativeRequestClose(front);
+                    return;
+                }
+                if (!isFinishing()) {
                     finish();
                 }
             }
@@ -373,97 +510,143 @@ public final class AuraHost extends Activity implements Choreographer.FrameCallb
         Choreographer.getInstance().postFrameCallback(this);
     }
 
-    public void requestDraw() {
-        if (view != null) {
-            view.post(view::invalidate);
+    public void requestDraw(final int slot) {
+        final AuraView target = viewFor(slot);
+        if (target != null) {
+            target.post(target::invalidate);
         }
     }
 
-    public void setTextFocus(final boolean enabled) {
-        if (view == null) {
+    private void showIme(AuraView target) {
+        InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+        target.requestFocusFromTouch();
+        if (imm != null) {
+            imm.showSoftInput(target, InputMethodManager.SHOW_IMPLICIT);
+        }
+        if (Build.VERSION.SDK_INT >= 30) {
+            WindowInsetsController controller = target.getWindowInsetsController();
+            if (controller != null) {
+                controller.show(WindowInsets.Type.ime());
+            }
+        }
+    }
+
+    private void hideIme(AuraView target) {
+        InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+        if (Build.VERSION.SDK_INT >= 30) {
+            WindowInsetsController controller = target.getWindowInsetsController();
+            if (controller != null) {
+                controller.hide(WindowInsets.Type.ime());
+            }
+        }
+        if (imm != null) {
+            imm.hideSoftInputFromWindow(target.getWindowToken(), 0);
+        }
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (!hasFocus) {
             return;
         }
-        view.post(new Runnable() {
+        int slot = 0;
+        while (slot < windows.length) {
+            AuraView candidate = windows[slot];
+            if (candidate != null && candidate.imeRequested) {
+                showIme(candidate);
+            }
+            slot += 1;
+        }
+    }
+
+    public void setTextFocus(final int slot, final boolean enabled) {
+        final AuraView target = viewFor(slot);
+        if (target == null) {
+            return;
+        }
+        target.post(new Runnable() {
             @Override
             public void run() {
+                target.imeRequested = enabled;
                 if (enabled) {
-                    view.requestFocus();
-                    InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
-                    if (imm != null) {
-                        imm.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT);
-                    }
+                    showIme(target);
                 } else {
-                    InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
-                    if (imm != null) {
-                        imm.hideSoftInputFromWindow(view.getWindowToken(), 0);
-                    }
+                    hideIme(target);
                 }
             }
         });
     }
 
-    public void setTextState(final String text, final long generation, final long revision, final int selectionStart, final int selectionEnd, final int composingStart, final int composingEnd) {
-        if (view == null) {
+    public void setTextState(final int slot, final String text, final long generation, final long revision, final int selectionStart, final int selectionEnd, final int composingStart, final int composingEnd) {
+        final AuraView target = viewFor(slot);
+        if (target == null) {
             return;
         }
-        view.post(new Runnable() {
+        target.post(new Runnable() {
             @Override
             public void run() {
-                view.setTextState(text, generation, revision, selectionStart, selectionEnd, composingStart, composingEnd);
+                target.setTextState(text, generation, revision, selectionStart, selectionEnd, composingStart, composingEnd);
             }
         });
     }
 
-    public void setTextGeometry(final float caretX, final float caretY, final float caretWidth, final float caretHeight, final float editableX, final float editableY, final float editableWidth, final float editableHeight) {
-        if (view == null) {
+    public void setTextGeometry(final int slot, final float caretX, final float caretY, final float caretWidth, final float caretHeight, final float editableX, final float editableY, final float editableWidth, final float editableHeight) {
+        final AuraView target = viewFor(slot);
+        if (target == null) {
             return;
         }
-        view.post(new Runnable() {
+        target.post(new Runnable() {
             @Override
             public void run() {
-                view.caretRect.set(caretX, caretY, caretX + caretWidth, caretY + caretHeight);
-                view.editableRect.set(editableX, editableY, editableX + editableWidth, editableY + editableHeight);
-                view.publishCursorAnchorInfo();
+                target.caretRect.set(caretX, caretY, caretX + caretWidth, caretY + caretHeight);
+                target.editableRect.set(editableX, editableY, editableX + editableWidth, editableY + editableHeight);
+                target.publishCursorAnchorInfo();
             }
         });
     }
 
-    public void setTextBoundaries(final long revision, final int[] offsets, final float[] xs, final float[] ys, final float[] heights) {
-        if (view == null) {
+    public void setTextBoundaries(final int slot, final long revision, final int[] offsets, final float[] xs, final float[] ys, final float[] heights) {
+        final AuraView target = viewFor(slot);
+        if (target == null) {
             return;
         }
-        view.post(new Runnable() {
+        target.post(new Runnable() {
             @Override
             public void run() {
-                view.boundaryRevision = revision;
-                view.boundaryOffsets = offsets != null ? offsets : new int[0];
-                view.boundaryXs = xs != null ? xs : new float[0];
-                view.boundaryYs = ys != null ? ys : new float[0];
-                view.boundaryHeights = heights != null ? heights : new float[0];
-                view.publishCursorAnchorInfo();
+                target.boundaryRevision = revision;
+                target.boundaryOffsets = offsets != null ? offsets : new int[0];
+                target.boundaryXs = xs != null ? xs : new float[0];
+                target.boundaryYs = ys != null ? ys : new float[0];
+                target.boundaryHeights = heights != null ? heights : new float[0];
+                target.publishCursorAnchorInfo();
             }
         });
     }
 
-    public void setTextConfiguration(final int inputType, final int action, final boolean multiline, final boolean secure, final boolean autocorrect, final int capitalization, final String autofillHints) {
-        if (view == null) {
+    public void setTextConfiguration(final int slot, final int inputType, final int action, final boolean multiline, final boolean secure, final boolean autocorrect, final int capitalization, final String autofillHints) {
+        final AuraView target = viewFor(slot);
+        if (target == null) {
             return;
         }
-        view.post(new Runnable() {
+        target.post(new Runnable() {
             @Override
             public void run() {
-                view.inputTypeConfig = inputType;
-                view.actionConfig = action;
-                view.multilineConfig = multiline;
-                view.secureConfig = secure;
-                view.autocorrectConfig = autocorrect;
-                view.capitalizationConfig = capitalization;
+                target.inputTypeConfig = inputType;
+                target.actionConfig = action;
+                target.multilineConfig = multiline;
+                target.secureConfig = secure;
+                target.autocorrectConfig = autocorrect;
+                target.capitalizationConfig = capitalization;
                 if (Build.VERSION.SDK_INT >= 26) {
-                    view.setAutofillHints(autofillHints == null || autofillHints.isEmpty() ? null : autofillHints.split("\\n"));
+                    target.setAutofillHints(autofillHints == null || autofillHints.isEmpty() ? null : autofillHints.split("\\n"));
                 }
                 InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
-                if (imm != null && view.hasFocus()) {
-                    imm.restartInput(view);
+                if (imm != null && target.hasFocus()) {
+                    imm.restartInput(target);
+                }
+                if (target.imeRequested) {
+                    showIme(target);
                 }
             }
         });
@@ -496,10 +679,14 @@ public final class AuraHost extends Activity implements Choreographer.FrameCallb
         gestureRight = systemRight;
         gestureBottom = systemBottom;
         cutouts = nextCutouts != null ? nextCutouts : new float[0];
-        publishSize();
+        publishAllSizes();
     }
 
     private void publishEnvironment() {
+        publishEnvironment(false);
+    }
+
+    private void publishEnvironment(boolean force) {
         long timestampNs = monotonicNowNs();
         Configuration config = getResources().getConfiguration();
         int night = config.uiMode & Configuration.UI_MODE_NIGHT_MASK;
@@ -536,22 +723,41 @@ public final class AuraHost extends Activity implements Choreographer.FrameCallb
             i += 1;
         }
         String signature = brightness + "|" + contrast + "|" + reduce + "|" + navigation + "|" + direction + "|" + bold + "|" + config.fontScale + "|" + locales;
-        if (signature.equals(environmentSignature)) {
+        if (!force && signature.equals(environmentSignature)) {
             return;
         }
-        if (nativeEnvironment(brightness, contrast, reduce, navigation, direction, bold, config.fontScale, locales.toString(), timestampNs)) {
+        int slot = 0;
+        boolean accepted = false;
+        String localeText = locales.toString();
+        while (slot < windows.length) {
+            if (windows[slot] != null && nativeEnvironment(slot, brightness, contrast, reduce, navigation, direction, bold, config.fontScale, localeText, timestampNs)) {
+                accepted = true;
+            }
+            slot += 1;
+        }
+        if (accepted) {
             environmentSignature = signature;
         }
     }
 
-    void publishSize() {
+    private void publishAllSizes() {
+        int slot = 0;
+        while (slot < windows.length) {
+            if (windows[slot] != null) {
+                publishSize(windows[slot]);
+            }
+            slot += 1;
+        }
+    }
+
+    void publishSize(AuraView target) {
         long timestampNs = monotonicNowNs();
-        if (view == null) {
+        if (target == null) {
             return;
         }
         float scale = getResources().getDisplayMetrics().density;
-        float width = view.getWidth() / scale;
-        float height = view.getHeight() / scale;
+        float width = target.getWidth() / scale;
+        float height = target.getHeight() / scale;
         if (width < 1.0f || height < 1.0f) {
             return;
         }
@@ -560,14 +766,14 @@ public final class AuraHost extends Activity implements Choreographer.FrameCallb
             loggedH = height;
             Log.i("aura", "aura-resize " + width + " " + height);
         }
-        float refreshRate = view.getDisplay() != null ? view.getDisplay().getRefreshRate() : 60.0f;
+        float refreshRate = target.getDisplay() != null ? target.getDisplay().getRefreshRate() : 60.0f;
         float fontScale = getResources().getConfiguration().fontScale;
         int rotation = Surface.ROTATION_0;
-        Display display = view.getDisplay();
+        Display display = target.getDisplay();
         if (display != null) {
             rotation = display.getRotation();
         }
-        nativeResize(width, height, scale, safeLeft, safeTop, safeRight, safeBottom, keyboard, gestureLeft, gestureTop, gestureRight, gestureBottom, refreshRate, fontScale, rotation * 90, keyboardDuration, keyboardCurve, cutouts, timestampNs);
+        nativeResize(target.slot, width, height, scale, safeLeft, safeTop, safeRight, safeBottom, keyboard, gestureLeft, gestureTop, gestureRight, gestureBottom, refreshRate, fontScale, rotation * 90, keyboardDuration, keyboardCurve, cutouts, timestampNs);
     }
 
     private void deleteTree(File file) {
@@ -651,9 +857,12 @@ public final class AuraHost extends Activity implements Choreographer.FrameCallb
         private boolean cursorAnchorMonitor;
         private boolean extractedTextMonitor;
         private int extractedTextToken;
+        final int slot;
+        boolean imeRequested;
 
-        AuraView(Activity activity) {
-            super(activity);
+        AuraView(int slot) {
+            super(AuraHost.this);
+            this.slot = slot;
             setFocusable(true);
             setFocusableInTouchMode(true);
             setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
@@ -721,15 +930,20 @@ public final class AuraHost extends Activity implements Choreographer.FrameCallb
                 CursorAnchorInfo.FLAG_HAS_VISIBLE_REGION
             );
             int boundary = 0;
+            int lastUtf16 = -1;
+            int textLength = editable.length();
             while (boundary < boundaryOffsets.length && boundary < boundaryXs.length && boundary < boundaryYs.length && boundary < boundaryHeights.length) {
                 int utf16 = utf16OffsetForCodePoint(editable.toString(), boundaryOffsets[boundary]);
-                float width = Math.max(1.0f, caretRect.width()) * scale;
-                float left = (editableRect.left + boundaryXs[boundary]) * scale;
-                float top = (editableRect.top + boundaryYs[boundary]) * scale;
-                if (boundary + 1 < boundaryYs.length && Math.abs(boundaryYs[boundary + 1] - boundaryYs[boundary]) < 0.5f) {
-                    width = Math.max(1.0f, boundaryXs[boundary + 1] - boundaryXs[boundary]) * scale;
+                if (utf16 > lastUtf16 && utf16 < textLength) {
+                    float width = Math.max(1.0f, caretRect.width()) * scale;
+                    float left = (editableRect.left + boundaryXs[boundary]) * scale;
+                    float top = (editableRect.top + boundaryYs[boundary]) * scale;
+                    if (boundary + 1 < boundaryYs.length && Math.abs(boundaryYs[boundary + 1] - boundaryYs[boundary]) < 0.5f) {
+                        width = Math.max(1.0f, boundaryXs[boundary + 1] - boundaryXs[boundary]) * scale;
+                    }
+                    builder.addCharacterBounds(utf16, left, top, left + width, top + boundaryHeights[boundary] * scale, CursorAnchorInfo.FLAG_HAS_VISIBLE_REGION);
+                    lastUtf16 = utf16;
                 }
-                builder.addCharacterBounds(utf16, left, top, left + width, top + boundaryHeights[boundary] * scale, CursorAnchorInfo.FLAG_HAS_VISIBLE_REGION);
                 boundary += 1;
             }
             int[] screen = new int[2];
@@ -822,7 +1036,7 @@ public final class AuraHost extends Activity implements Choreographer.FrameCallb
             if (logical == 0) {
                 return super.onKeyDown(keyCode, event);
             }
-            nativeKey(true, logical, keyModifiers(event), event.getEventTime() * 1000000L, event.getDeviceId());
+            nativeKey(slot, true, logical, keyModifiers(event), event.getEventTime() * 1000000L, event.getDeviceId());
             return true;
         }
 
@@ -832,7 +1046,7 @@ public final class AuraHost extends Activity implements Choreographer.FrameCallb
             if (logical == 0) {
                 return super.onKeyUp(keyCode, event);
             }
-            nativeKey(false, logical, keyModifiers(event), event.getEventTime() * 1000000L, event.getDeviceId());
+            nativeKey(slot, false, logical, keyModifiers(event), event.getEventTime() * 1000000L, event.getDeviceId());
             return true;
         }
 
@@ -840,13 +1054,13 @@ public final class AuraHost extends Activity implements Choreographer.FrameCallb
         protected void onAttachedToWindow() {
             long timestampNs = monotonicNowNs();
             super.onAttachedToWindow();
-            surfaceAttached = nativeSurfaceAttach(getWidth(), getHeight(), timestampNs);
+            surfaceAttached = nativeSurfaceAttach(slot, getWidth(), getHeight(), timestampNs);
         }
 
         @Override
         protected void onDetachedFromWindow() {
             long timestampNs = monotonicNowNs();
-            surfaceAttached = nativeSurfaceDetach(timestampNs);
+            surfaceAttached = nativeSurfaceDetach(slot, timestampNs);
             if (bitmap != null) {
                 bitmap.recycle();
                 bitmap = null;
@@ -893,8 +1107,8 @@ public final class AuraHost extends Activity implements Choreographer.FrameCallb
         protected void onSizeChanged(int w, int h, int oldw, int oldh) {
             long timestampNs = monotonicNowNs();
             super.onSizeChanged(w, h, oldw, oldh);
-            nativeSurfaceResize(w, h, timestampNs);
-            publishSize();
+            nativeSurfaceResize(slot, w, h, timestampNs);
+            publishSize(this);
         }
 
         @Override
@@ -964,19 +1178,19 @@ public final class AuraHost extends Activity implements Choreographer.FrameCallb
                 y = event.getHistoricalY(index, historyIndex);
                 pressure = event.getHistoricalPressure(index, historyIndex);
                 tilt = event.getHistoricalAxisValue(MotionEvent.AXIS_TILT, index, historyIndex);
-                timestampNs = event.getHistoricalEventTimeNanos(historyIndex);
+                timestampNs = eventTimeNs(event, historyIndex);
             } else {
                 x = event.getX(index);
                 y = event.getY(index);
                 pressure = event.getPressure(index);
                 tilt = event.getAxisValue(MotionEvent.AXIS_TILT, index);
-                timestampNs = event.getEventTimeNanos();
+                timestampNs = eventTimeNs(event, -1);
             }
             int buttons = event.getButtonState();
             if (buttons == 0 && event.getToolType(index) == MotionEvent.TOOL_TYPE_FINGER) {
                 buttons = 1;
             }
-            nativePointer(phase, x, y, getResources().getDisplayMetrics().density, timestampNs, event.getDeviceId(), event.getPointerId(index), pointerKind(event.getToolType(index)), buttons, pressure, tilt, 0.0f);
+            nativePointer(slot, phase, x, y, getResources().getDisplayMetrics().density, timestampNs, event.getDeviceId(), event.getPointerId(index), pointerKind(event.getToolType(index)), buttons, pressure, tilt, 0.0f);
         }
 
         @Override
@@ -990,7 +1204,7 @@ public final class AuraHost extends Activity implements Choreographer.FrameCallb
                 }
                 bitmap = Bitmap.createBitmap(getWidth(), getHeight(), Bitmap.Config.ARGB_8888);
             }
-            nativeBlit(bitmap);
+            nativeBlit(slot, bitmap);
             canvas.drawBitmap(bitmap, 0, 0, null);
             if (logFrame) {
                 Log.i("aura", "aura-frame");
@@ -1055,7 +1269,10 @@ public final class AuraHost extends Activity implements Choreographer.FrameCallb
         public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
             outAttrs.inputType = configuredInputType();
             outAttrs.imeOptions = configuredImeOptions();
-            return new BaseInputConnection(this, false) {
+            if (Selection.getSelectionStart(editable) < 0) {
+                Selection.setSelection(editable, editable.length());
+            }
+            return new BaseInputConnection(this, true) {
                 private int batchDepth;
                 private final ArrayList<PendingTextEdit> pendingEdits = new ArrayList<>();
 
@@ -1064,13 +1281,13 @@ public final class AuraHost extends Activity implements Choreographer.FrameCallb
                     if (batchDepth > 0) {
                         pendingEdits.add(edit);
                     } else {
-                        nativeTextEdit(edit.operation, edit.text, edit.first, edit.second, edit.timestampNs);
+                        nativeTextEdit(slot, edit.operation, edit.text, edit.first, edit.second, edit.timestampNs);
                     }
                 }
 
                 private void flushPendingEdits() {
                     for (PendingTextEdit edit : pendingEdits) {
-                        nativeTextEdit(edit.operation, edit.text, edit.first, edit.second, edit.timestampNs);
+                        nativeTextEdit(slot, edit.operation, edit.text, edit.first, edit.second, edit.timestampNs);
                     }
                     pendingEdits.clear();
                     publishExtractedText();
@@ -1154,6 +1371,55 @@ public final class AuraHost extends Activity implements Choreographer.FrameCallb
                     return true;
                 }
 
+                private int graphemeBoundary(int origin, boolean forward) {
+                    if (origin < 0) origin = 0;
+                    if (origin > editable.length()) origin = editable.length();
+                    BreakIterator breaks = BreakIterator.getCharacterInstance();
+                    breaks.setText(editable.toString());
+                    int next = forward ? breaks.following(origin) : breaks.preceding(origin);
+                    if (next == BreakIterator.DONE) {
+                        return forward ? editable.length() : 0;
+                    }
+                    return next;
+                }
+
+                private void deleteKeyedText(boolean forward) {
+                    int start = Selection.getSelectionStart(editable);
+                    int end = Selection.getSelectionEnd(editable);
+                    if (start < 0) start = editable.length();
+                    if (end < 0) end = start;
+                    int left = Math.min(start, end);
+                    int right = Math.max(start, end);
+                    if (left != right) {
+                        int codeStart = codePointOffsetForUtf16(left);
+                        int codeEnd = codePointOffsetForUtf16(right);
+                        editable.delete(left, right);
+                        Selection.setSelection(editable, left);
+                        dispatchTextEdit(7, "", codeStart, codeEnd);
+                        return;
+                    }
+                    if (forward) {
+                        if (left >= editable.length()) return;
+                        deleteSurroundingText(0, graphemeBoundary(left, true) - left);
+                        return;
+                    }
+                    if (left <= 0) return;
+                    deleteSurroundingText(left - graphemeBoundary(left, false), 0);
+                }
+
+                @Override
+                public boolean sendKeyEvent(KeyEvent event) {
+                    int keyCode = event.getKeyCode();
+                    boolean deletion = keyCode == KeyEvent.KEYCODE_DEL || keyCode == KeyEvent.KEYCODE_FORWARD_DEL;
+                    if (!deletion) {
+                        return super.sendKeyEvent(event);
+                    }
+                    if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                        deleteKeyedText(keyCode == KeyEvent.KEYCODE_FORWARD_DEL);
+                    }
+                    return true;
+                }
+
                 @Override
                 public boolean deleteSurroundingText(int beforeLength, int afterLength) {
                     int selectionStart = Selection.getSelectionStart(editable);
@@ -1212,7 +1478,7 @@ public final class AuraHost extends Activity implements Choreographer.FrameCallb
                         host.setVisibleToUser(true);
                         host.setEnabled(true);
                         host.setBoundsInScreen(screenBounds(0, 0, getWidth() / getResources().getDisplayMetrics().density, getHeight() / getResources().getDisplayMetrics().density));
-                        int count = nativeAxCount();
+                        int count = nativeAxCount(slot);
                         int i = 0;
                         while (i < count) {
                             host.addChild(AuraView.this, i);
@@ -1220,15 +1486,15 @@ public final class AuraHost extends Activity implements Choreographer.FrameCallb
                         }
                         return host;
                     }
-                    float[] frame = nativeAxFrame(virtualViewId);
+                    float[] frame = nativeAxFrame(slot, virtualViewId);
                     if (frame == null || frame.length < 4) {
                         return null;
                     }
-                    String label = nativeAxLabel(virtualViewId);
-                    String value = nativeAxValue(virtualViewId);
-                    String role = nativeAxRole(virtualViewId);
-                    String className = nativeAxClassName(virtualViewId);
-                    long press = nativeAxPress(virtualViewId);
+                    String label = nativeAxLabel(slot, virtualViewId);
+                    String value = nativeAxValue(slot, virtualViewId);
+                    String role = nativeAxRole(slot, virtualViewId);
+                    String className = nativeAxClassName(slot, virtualViewId);
+                    long press = nativeAxPress(slot, virtualViewId);
                     AccessibilityNodeInfo info = AccessibilityNodeInfo.obtain();
                     info.setSource(AuraView.this, virtualViewId);
                     info.setParent(AuraView.this);
@@ -1244,7 +1510,7 @@ public final class AuraHost extends Activity implements Choreographer.FrameCallb
                     info.setFocusable(true);
                     if ("toggle".equals(role)) {
                         info.setCheckable(true);
-                        info.setChecked(nativeAxChecked(virtualViewId) == 1);
+                        info.setChecked(nativeAxChecked(slot, virtualViewId) == 1);
                     }
                     info.setClickable(press >= 0);
                     if (press >= 0) {
@@ -1258,7 +1524,7 @@ public final class AuraHost extends Activity implements Choreographer.FrameCallb
                     if (virtualViewId == HOST_VIEW_ID || action != AccessibilityNodeInfo.ACTION_CLICK) {
                         return false;
                     }
-                    return nativeAxActivate(virtualViewId) == 1;
+                    return nativeAxActivate(slot, virtualViewId) == 1;
                 }
             };
         }

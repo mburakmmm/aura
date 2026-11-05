@@ -4,7 +4,7 @@ from aura.input.focus import FocusManager, FocusNode
 from aura.platform.macos import clipboard_get, clipboard_set, set_cursor
 from aura.rendering.render_object import RenderBox
 from aura.runtime.binding import Binding
-from aura.input.keyboard import KEY_A, KEY_ENTER
+from aura.input.keyboard import KEY_A, KEY_BACKSPACE, KEY_DELETE, KEY_ENTER
 from aura.text.editing import KEY_C, KEY_DOWN_ARROW, KEY_LEFT, KEY_RIGHT, KEY_UP_ARROW, KEY_V, KEY_X, MOD_COMMAND, MOD_SHIFT, TEXT_EDIT_COMMIT, TEXT_EDIT_DELETE_SURROUNDING, TEXT_EDIT_FINISH_COMPOSING, TEXT_EDIT_PERFORM_ACTION, TEXT_EDIT_SET_COMPOSING, TEXT_EDIT_SET_SELECTION, TextEditingController, TextEditingValue, deliver_key, deliver_text_edit
 from aura.text.measure import measure_height, measure_width
 from aura.text.input_configuration import CAPITALIZATION_WORDS, TEXT_ACTION_NEWLINE, TEXT_ACTION_SEND, TEXT_INPUT_EMAIL, TextInputConfiguration
@@ -40,6 +40,19 @@ plain.backspace()
 plain.backspace()
 plain.backspace()
 nox.test.assert_eq_str(plain.text, "", "backspace stops at the start")
+
+keyed: TextEditingController = TextEditingController("ça")
+keyed.begin_session()
+keyed_focus: FocusManager = FocusManager()
+keyed_node: FocusNode = FocusNode()
+keyed_node.insert_target = keyed.target_id
+keyed_focus.attach(keyed_node)
+keyed_focus.focus(keyed_node)
+deliver_key(keyed_focus, KEY_BACKSPACE, 0)
+nox.test.assert_eq_str(keyed.text, "ç", "backspace key removes one grapheme")
+keyed.collapse(0)
+deliver_key(keyed_focus, KEY_DELETE, 0)
+nox.test.assert_eq_str(keyed.text, "", "forward delete key removes the next grapheme")
 
 session: TextEditingController = TextEditingController("abcd")
 session.begin_session()

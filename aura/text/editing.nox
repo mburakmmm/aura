@@ -3,7 +3,7 @@ from aura.platform.bridge import clipboard_get, clipboard_set
 from aura.text.measure import TextLine, layout_lines, line_for_offset, measure_height, measure_width
 from aura.text.grapheme import ceil_grapheme_boundary, floor_grapheme_boundary, nearest_grapheme_boundary, next_grapheme_boundary, previous_grapheme_boundary
 from aura.widgets.framework import dirty_element_id
-from aura.input.keyboard import KEY_A, KEY_C, KEY_DOWN, KEY_ENTER, KEY_LEFT, KEY_RIGHT, KEY_UP, KEY_V, KEY_X, MOD_META, MOD_SHIFT
+from aura.input.keyboard import KEY_A, KEY_BACKSPACE, KEY_C, KEY_DELETE, KEY_DOWN, KEY_ENTER, KEY_LEFT, KEY_RIGHT, KEY_UP, KEY_V, KEY_X, MOD_META, MOD_SHIFT
 
 # Compatibility exports for existing applications. New code should import the
 # platform-independent names from aura.input.keyboard.
@@ -667,6 +667,10 @@ def deliver_key(manager: FocusManager, code: int, mods: int) -> None:
         controller.move_line(-1, extend)
     elif code == KEY_DOWN or code == 125:
         controller.move_line(1, extend)
+    elif code == KEY_BACKSPACE:
+        controller.backspace()
+    elif code == KEY_DELETE:
+        controller.delete_surrounding(0, 1)
     elif code == KEY_ENTER:
         controller.perform_action(controller.input_action)
 

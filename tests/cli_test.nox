@@ -1,0 +1,34 @@
+import nox.test
+from cli.command import VERSION, find_checkout, package_has_command, pinned_version, project_main, project_manifest, usage, valid_name, write_project
+from nox.fs import exists, read_to_string, remove_dir_all
+from nox.os import current_dir
+from nox.path import join
+from nox.strings import contains
+
+nox.test.assert_eq_str(VERSION, pinned_version(current_dir()), "cli version matches nox.json")
+nox.test.assert_true(package_has_command(read_to_string(join(current_dir(), "nox.json"))), "nox.json publishes the aura command")
+nox.test.assert_eq_str(find_checkout(current_dir()), current_dir(), "the repository is an Aura checkout")
+nox.test.assert_eq_str(find_checkout("/tmp/aura-not-a-checkout"), "", "a tree outside the repository is not a checkout")
+nox.test.assert_true(contains(usage(), "new <name>"), "usage lists new")
+nox.test.assert_true(contains(usage(), "doctor"), "usage lists doctor")
+nox.test.assert_true(valid_name("hello"), "a letter name is valid")
+nox.test.assert_true(not valid_name(""), "an empty name is rejected")
+nox.test.assert_true(not valid_name("1app"), "a name cannot start with a digit")
+nox.test.assert_true(not valid_name("../hello"), "a name cannot be a path")
+
+manifest: str = project_manifest("hello")
+nox.test.assert_true(contains(manifest, "\"name\": \"hello\""), "manifest carries the project name")
+nox.test.assert_true(contains(manifest, "\"repo\": \"github.com/mburakmmm/aura\""), "manifest depends on Aura")
+nox.test.assert_true(contains(manifest, "\"ref\": \"v" + VERSION + "\""), "manifest pins the published tag")
+nox.test.assert_true(contains(project_main(), "run_app(CounterPage())"), "starter runs the counter")
+
+destination: str = join(current_dir(), "build/cli-test-hello")
+if exists(destination):
+    remove_dir_all(destination)
+nox.test.assert_eq_str(write_project(destination, "hello"), "", "new project is written")
+nox.test.assert_eq_str(read_to_string(join(destination, "nox.json")), project_manifest("hello"), "written manifest matches")
+nox.test.assert_eq_str(read_to_string(join(destination, "main.nox")), project_main(), "written program matches")
+nox.test.assert_true(write_project(destination, "hello") != "", "an existing project is not overwritten")
+nox.test.assert_true(write_project(join(current_dir(), "build/cli-test-bad"), "../x") != "", "a path name is not created")
+remove_dir_all(destination)
+print("cli ok")

@@ -50,11 +50,12 @@ bildirilir.
 
 Pointer, tuş, lifecycle, metrics, environment, memory pressure, surface,
 metin düzenleme ve platform route olayları platform callback'inin monoton
-saatini taşır. iOS `CACurrentMediaTime`, Android `SystemClock.uptimeNanos`
-kullanır. Host bu değeri callback girişinde alır; kuyruk, pencere açılışında
-yeniden yayınlanan surface ve bekleyen route aynı değeri korur. Sıfır gelen
-değer shell girişinde `CLOCK_MONOTONIC` ile doldurulur, pencere açılışında
-yeniden damgalanmaz.
+saatini taşır. iOS `CACurrentMediaTime` kullanır. Android API 35 ve sonrasında
+`SystemClock.uptimeNanos`, API 24–34'te `System.nanoTime` kullanır; ikisi de
+duvar saatini izlemez. Host bu değeri callback girişinde alır; kuyruk, pencere
+açılışında yeniden yayınlanan surface ve bekleyen route aynı değeri korur.
+Sıfır gelen değer shell girişinde `CLOCK_MONOTONIC` ile doldurulur, pencere
+açılışında yeniden damgalanmaz.
 
 Frame sırası değişmez:
 

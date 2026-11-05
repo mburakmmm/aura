@@ -1,4 +1,5 @@
 #include "app_runtime.h"
+#include "build_identity.h"
 #include "nox_embed.h"
 
 #include <limits.h>
@@ -157,7 +158,9 @@ int main(void) {
     creates = atomic_load(&g_create_count);
     if (!run_mode(6, AURA_RUNTIME_FAILED)) return 18;
     if (atomic_load(&g_create_count) != creates) return 19;
-    if (strcmp(g_last_error, "aura 1.0.0 embed-abi 1: Nox embed ABI mismatch") != 0) return 20;
+    char expected_error[128];
+    snprintf(expected_error, sizeof(expected_error), "aura %s embed-abi %d: Nox embed ABI mismatch", AURA_VERSION, AURA_EMBED_ABI);
+    if (strcmp(g_last_error, expected_error) != 0) return 20;
     {
         char before[PATH_MAX];
         char after[PATH_MAX];

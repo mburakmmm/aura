@@ -552,24 +552,35 @@ M0 kaynak ve ADR
 
 ### M5.4 iOS packaging
 
-- [ ] Xcode project/target üretimi ekle.
-- [ ] Bundle ID, display name, version/build manifestten gelsin.
-- [ ] Deployment target manifestten gelsin.
-- [ ] App icons ve launch screen üret.
-- [ ] Supported orientations üret.
-- [ ] Entitlements ve capabilities manifestten üret.
-- [ ] Privacy purpose strings üret ve doğrula.
-- [ ] Privacy manifest/third-party SDK signature gereksinimlerini doğrula.
-- [ ] Runtime-loaded imzasız plugin dylib modelini kaldır.
-- [ ] Static plugin veya signed embedded framework politikasını uygula.
-- [ ] dSYM ve symbol map üret.
-- [~] Development signed device app: Proof, Notes, Counter, Chat, Settings,
-  Todo, Calculator, Files ve Dashboard development kimliğiyle iPhone 17 Pro'ya
-  kuruldu. Betik eklenti dylib'ini `AURA_IOS_SIGN_IDENTITY` varsa imzalar.
-  Uygulama entitlements, Xcode projesi ve kurulum hâlâ elle.
-- [ ] `.xcarchive` üret.
-- [ ] Signed IPA export et.
-- [ ] TestFlight validation/upload akışını ekle.
+- [x] Xcode project/target üretimi. `scripts/build_ios_xcode.sh` Notes için
+  `Notes.xcodeproj`, archive ve development IPA üretti.
+- [x] Bundle ID, display name, version ve build `examples/mobile/app.json`
+  içinden gelir. Notes: `com.noxlang.aura.Notes`, görünen ad Notes, `1.0.0`,
+  build `1`.
+- [x] Deployment target manifestteki iOS minimumudur. `17.0`.
+- [x] App ikonu ve LaunchScreen üretilir. IPA içinde `Assets.car` ve
+  derlenmiş launch storyboard var.
+- [x] Desteklenen yönler manifestten yazılır. Tek sahne
+  `UIRequiresFullScreen` kullanır.
+- [x] Entitlements manifestteki ek anahtarlardan ve development imzasından
+  gelir. Liste boş. İmzalı uygulama `application-identifier` ve
+  `get-task-allow` taşır.
+- [x] Purpose string `Key=metin` olarak Info.plist'e yazılır. Güncel manifestte
+  purpose string yok. Self-test bir usage description doğrular.
+- [x] `PrivacyInfo.xcprivacy` IPA içindedir. İzleme kapalı, toplanan veri yok.
+  Skia uygulama ikilisine statik bağlanır; ayrı imzalı üçüncü taraf SDK yok.
+- [x] Cihaz eklentisi kimlik yoksa üretilmez. İmzasız dylib cihaz paketine
+  girmez.
+- [x] Probe, `native/plugins/libaura_probe.dylib` olarak gömülür ve takım
+  kimliğiyle imzalanır.
+- [x] dSYM archive içindedir: `Notes.app.dSYM` ve `libaura_probe.dylib.dSYM`.
+- [x] Development imzası Xcode automatic signing ile yerel wildcard profilden
+  çözülür. Elle entitlements dosyası yazılmaz. Profil ve takım depoya girmez.
+- [x] `.xcarchive` üretildi: `build/ios/xcode/Notes/Notes.xcarchive`.
+- [x] Development IPA üretildi: `build/ios/xcode/Notes/ipa/Notes.ipa`.
+- [~] TestFlight akışı `scripts/upload_testflight.sh` içindedir. API anahtarı
+  repoda yoktur. `com.noxlang.aura.Notes` için App Store profili yoktur.
+  Yükleme yapılmadı.
 
 ### M5.5 iOS acceptance
 
@@ -846,7 +857,8 @@ M0 kaynak ve ADR
 ### M10.2 Proje üretimi
 
 - [ ] `aura create --platforms ios,android` ekle.
-- [ ] Reproducible Xcode project üret.
+- [x] Reproducible Xcode project üret. `scripts/ios_project.py` kişisel yol
+  yazmaz. Notes projesi Xcode 27 ile archive oldu.
 - [ ] Reproducible Gradle project üret.
 - [ ] Üretilen dosyaları template version ile işaretle.
 - [ ] Template upgrade/migration politikasını tanımla.
@@ -1057,8 +1069,8 @@ maddeler yerinde kalır; bu sıra onların yürütme sırasıdır.
    Grapheme satır kırma, satır kırılım matrisi, paragraph cache ve logical
    image boyutu testli. Bidi, renkli emoji, font zinciri, raster ve GPU açık.
 8. [x] M10 paketleme ve M0 CI kapıları. Manifest, doctor, hash, SBOM, kaynak
-   taraması ve embed ABI ayrımı testli. Kaynak `main`'de. `aura create`/`run`,
-   imzalı IPA/AAB ve dSYM açık.
+   taraması ve embed ABI ayrımı testli. Kaynak `main`'de. Notes development
+   IPA ve dSYM üretildi. `aura create`/`run`, TestFlight ve AAB açık.
 9. [x] Process-death route snapshot'ı Navigator resolver'ı ile geri yükleniyor.
    Cihaz process-death kanıtı açık.
 10. [x] iOS trait ve Android class/click bağları headless sözleşmede. Increment
@@ -1075,7 +1087,19 @@ Bu hedef şu sırayla başlar:
 4. [x] ADR-MOB-AURA-005 WindowMetrics/safe-area kararını yaz.
 5. [x] M1 event ve metrics headless acceptance fixture'larını ekle.
 
-İlk paketin kaynak kapısı kapandı. Sıradaki uygulama M5.4 Xcode hedefi,
-entitlements, ikon, açılış ekranı, gizlilik bildirimi, dSYM ve imzalı IPA'dır.
-Android cihaz turu bu kapıdan sonra planlanır. TestFlight yüklemesi hesap
-bekler.
+İlk paketin kaynak kapısı kapandı. M5.4 development IPA ve dSYM Notes için
+üretildi. TestFlight, App Store profili ve API anahtarı bekler.
+
+## Android ve sonrası
+
+iOS development paketi duruyor. Sıradaki cihaz Android telefonudur.
+
+1. Aynı sekiz örneğin debug APK'sı ARM64 telefonda açılır. Geri tuşu, klavye
+   payı ve Documents kökü bakılır. TalkBack bu turun parçası değildir.
+2. Ham `aapt2` betiği Gradle projesine döner. Sürüm ve SDK manifestten gelir.
+3. Native kütüphaneler 16 KiB hizasında denetlenir ve telefonda açılış kanıtlanır.
+4. İmzalı AAB ve Play internal, imza sırrı repoya girmeden eklenir.
+
+Bunların dışında kalanlar: TestFlight, iPad yerleşimi, süreç ölümü sonrası
+düzenlenmiş metin, dört örnekte VoiceOver, GPU, emoji ve çift yön. GPU ayrı
+ADR ister.
