@@ -1,0 +1,41 @@
+from aura.platform.bridge import route_snapshot_clear, route_snapshot_load, route_snapshot_save
+from aura.runtime.lifecycle import LIFECYCLE_HIDDEN, LIFECYCLE_PAUSED, LIFECYCLE_TERMINATED
+
+
+def _ignore_route_save() -> None:
+    return
+
+
+class _RouteSaveHook:
+    call: () -> None
+
+    def __init__(self) -> None:
+        self.call = _ignore_route_save
+
+
+_route_save_hook: _RouteSaveHook = _RouteSaveHook()
+
+
+def set_route_save_hook(hook: () -> None) -> None:
+    _route_save_hook.call = hook
+
+
+def request_route_save() -> None:
+    _route_save_hook.call()
+
+
+def note_lifecycle_state(state: int) -> None:
+    if state == LIFECYCLE_PAUSED or state == LIFECYCLE_HIDDEN or state == LIFECYCLE_TERMINATED:
+        request_route_save()
+
+
+def persist_route_snapshot(encoded: str) -> int:
+    return route_snapshot_save(encoded)
+
+
+def clear_route_snapshot() -> None:
+    route_snapshot_clear()
+
+
+def persisted_route_snapshot() -> str:
+    return route_snapshot_load()

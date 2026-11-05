@@ -34,9 +34,11 @@ Bağlayıcı teslimat sözleşmesi [roadmap.md](roadmap.md) dosyasındadır. `AG
 | 0.8 | Tamam: Dosya gezgini, UI iş parçacığı dışında okuma |
 | 0.9 | Tamam: Dashboard, örtük animasyon, altın piksel, kare bütçesi |
 | 1.0 | Tamam: API dondurma, satır içi zengin metin, `packages/badge` |
-| 1.1–1.5 | iOS kabuğu, klavye, dokunuş, Android, GPU yüzeyi |
+| 1.1–1.5 | Sürüyor: iOS kabuğu cihazda açıldı. Xcode paketi, Android cihaz ve GPU açık |
 
 Web, hot reload ve sliver bu sözleşmenin dışındadır. Satır içi kalın, eğik ve başlık 1.0’dadır. Çift yön ve emoji yoktur.
+
+Mobil kaynak `main` üzerindedir. Görev ve cihaz kanıtı [MOBILE_TODO.md](MOBILE_TODO.md) dosyasındadır. iPhone 17 Pro’da sekiz örnek development imzasıyla açıldı. Xcode projesi ve imzalı IPA henüz yoktur.
 
 ## Gereksinimler
 

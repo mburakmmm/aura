@@ -1,29 +1,74 @@
+LIVE_NONE: int = 0
+LIVE_POLITE: int = 1
+LIVE_ASSERTIVE: int = 2
+
+ACTION_TAP: str = "tap"
+ACTION_LONG_PRESS: str = "long-press"
+ACTION_INCREMENT: str = "increment"
+ACTION_DECREMENT: str = "decrement"
+ACTION_SCROLL_FORWARD: str = "scroll-forward"
+ACTION_SCROLL_BACKWARD: str = "scroll-backward"
+ACTION_SET_TEXT: str = "set-text"
+
+SEMANTICS_ADDED: int = 1
+SEMANTICS_UPDATED: int = 2
+SEMANTICS_REMOVED: int = 3
+
+
 class SemanticsNode:
+    node_id: int
     role: str
     label: str
     value: str
+    hint: str
     enabled: bool
+    selected: bool
     checked: bool
+    toggled: bool
+    expanded: bool
+    obscured: bool
+    heading: bool
+    hidden: bool
+    focusable: bool
+    live: int
     actions: list[str]
     x: float
     y: float
     width: float
     height: float
     press_id: int
+    selection_base: int
+    selection_extent: int
+    focus_order: int
+    group_id: int
     children: list[SemanticsNode]
 
     def __init__(self) -> None:
+        self.node_id = 0
         self.role = ""
         self.label = ""
         self.value = ""
+        self.hint = ""
         self.enabled = True
+        self.selected = False
         self.checked = False
+        self.toggled = False
+        self.expanded = False
+        self.obscured = False
+        self.heading = False
+        self.hidden = False
+        self.focusable = False
+        self.live = LIVE_NONE
         self.actions = []
         self.x = 0.0
         self.y = 0.0
         self.width = 0.0
         self.height = 0.0
         self.press_id = -1
+        self.selection_base = -1
+        self.selection_extent = -1
+        self.focus_order = -1
+        self.group_id = 0
         self.children = []
 
     def add_action(self, action: str) -> None:
@@ -32,15 +77,39 @@ class SemanticsNode:
     def add_child(self, child: SemanticsNode) -> None:
         self.children.append(child)
 
+    def has_action(self, action: str) -> bool:
+        i: int = 0
+        while i < len(self.actions):
+            if self.actions[i] == action:
+                return True
+            i = i + 1
+        return False
+
+
+class SemanticsUpdate:
+    kind: int
+    node_id: int
+
+    def __init__(self, kind: int, node_id: int) -> None:
+        self.kind = kind
+        self.node_id = node_id
+
 
 class SemanticsOwner:
     root: SemanticsNode
+    updates: list[SemanticsUpdate]
 
     def __init__(self) -> None:
         self.root = SemanticsNode()
+        self.updates = []
 
     def reset(self) -> None:
         self.root = SemanticsNode()
+        self.updates = []
+
+    def commit(self, incoming: SemanticsNode) -> None:
+        self.updates = diff_semantics(self.root, incoming)
+        self.root = incoming
 
     def find_role(self, role: str) -> SemanticsNode | None:
         return _find_role(self.root, role)
@@ -56,3 +125,100 @@ def _find_role(node: SemanticsNode, role: str) -> SemanticsNode | None:
             return found
         i = i + 1
     return None
+
+
+def _flag(value: bool) -> str:
+    if value:
+        return "1"
+    return "0"
+
+
+def _join_actions(node: SemanticsNode) -> str:
+    text: str = ""
+    i: int = 0
+    while i < len(node.actions):
+        if i > 0:
+            text = text + ","
+        text = text + node.actions[i]
+        i = i + 1
+    return text
+
+
+def semantics_signature(node: SemanticsNode) -> str:
+    text: str = str(node.node_id)
+    text = text + "|" + node.role
+    text = text + "|" + node.label
+    text = text + "|" + node.value
+    text = text + "|" + node.hint
+    text = text + "|" + _flag(node.enabled)
+    text = text + _flag(node.selected)
+    text = text + _flag(node.checked)
+    text = text + _flag(node.toggled)
+    text = text + _flag(node.expanded)
+    text = text + _flag(node.obscured)
+    text = text + _flag(node.heading)
+    text = text + _flag(node.focusable)
+    text = text + "|" + str(node.live)
+    text = text + "|" + _join_actions(node)
+    text = text + "|" + str(node.x)
+    text = text + "|" + str(node.y)
+    text = text + "|" + str(node.width)
+    text = text + "|" + str(node.height)
+    text = text + "|" + str(node.press_id)
+    text = text + "|" + str(node.selection_base)
+    text = text + "|" + str(node.selection_extent)
+    text = text + "|" + str(node.focus_order)
+    text = text + "|" + str(node.group_id)
+    return text
+
+
+def _flatten(node: SemanticsNode) -> list[SemanticsNode]:
+    out: list[SemanticsNode] = []
+    if node.role != "":
+        if node.hidden == False:
+            out.append(node)
+    i: int = 0
+    while i < len(node.children):
+        nested: list[SemanticsNode] = _flatten(node.children[i])
+        j: int = 0
+        while j < len(nested):
+            out.append(nested[j])
+            j = j + 1
+        i = i + 1
+    return out
+
+
+def diff_semantics(previous: SemanticsNode, incoming: SemanticsNode) -> list[SemanticsUpdate]:
+    before: list[SemanticsNode] = _flatten(previous)
+    after: list[SemanticsNode] = _flatten(incoming)
+    updates: list[SemanticsUpdate] = []
+    i: int = 0
+    while i < len(after):
+        current: SemanticsNode = after[i]
+        match_at: int = -1
+        j: int = 0
+        while j < len(before):
+            if before[j].node_id == current.node_id:
+                match_at = j
+            j = j + 1
+        if match_at < 0:
+            updates.append(SemanticsUpdate(SEMANTICS_ADDED, current.node_id))
+        else:
+            if semantics_signature(before[match_at]) != semantics_signature(current):
+                updates.append(SemanticsUpdate(SEMANTICS_UPDATED, current.node_id))
+        i = i + 1
+    i = 0
+    while i < len(before):
+        old: SemanticsNode = before[i]
+        found: int = 0
+        k: int = 0
+        while k < len(after):
+            if after[k].node_id == old.node_id:
+                found = 1
+            k = k + 1
+        if found == 0:
+            updates.append(SemanticsUpdate(SEMANTICS_REMOVED, old.node_id))
+        i = i + 1
+    return updates
+
+

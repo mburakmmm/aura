@@ -4,10 +4,12 @@ from aura.core.mode import MODE_DEBUG, MODE_PROFILE, MODE_RELEASE, set_mode
 from aura.devtools.inspector import dump_tree
 from aura.foundation.color import COLOR_ACCENT, COLOR_BACKGROUND
 from aura.graphics.recording import KIND_IMAGE
-from aura.platform.macos import image_dispose, image_size_height, image_size_width, open_image_file, plugin_close, plugin_frame, plugin_load, sample_pixel
+from aura.image.image import image_dispose, image_size_height, image_size_width, open_image_file
 from aura.rendering.render_object import RenderBox
 from aura.runtime.binding import Binding
+from aura.runtime.plugin import plugin_close, plugin_frame, plugin_load
 from aura.semantics.bridge import publish_total
+from aura.testing.host import sample_pixel
 from aura.testing.tester import WidgetTester
 from aura.widgets import build_view, register_view
 from aura.widgets.framework import Element, Widget
@@ -185,7 +187,7 @@ def self_check() -> None:
         raise Exception("badge label")
     if contains(dumped, "role=platform-view") != 1:
         raise Exception("platform view")
-    column: Element = child_at(child_at(root, 0), 0)
+    column: Element = child_at(child_at(child_at(root, 0), 0), 0)
     header: Element = child_at(column, 0)
     reader: Element = child_at(column, 6)
     button: RenderBox = require_box(find_label(root_box, "Debug"), "debug button")

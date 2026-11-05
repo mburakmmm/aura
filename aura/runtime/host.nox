@@ -96,6 +96,17 @@ class WindowController:
         binding.frame()
         return window_id
 
+    def close_front(self) -> None:
+        host: AppHost = current_host()
+        count: int = host.alive_count()
+        front: Binding | None = None
+        if count < 2:
+            return
+        front = host.binding_for(host.ids[count - 1])
+        if front is None:
+            return
+        front.request_close()
+
 
 def run_app(root: Widget, title: str = "Aura") -> None:
     host: AppHost = AppHost()

@@ -1,8 +1,10 @@
 import nox.test
 from aura.core.diagnostics import FrameworkError
+from aura.foundation.window_metrics import default_window_metrics
 from aura.graphics.recording import KIND_IMAGE
 from aura.image.image import Image
 from aura.layout.boxes import Center
+from aura.widgets import WindowMetricsScope
 from aura.platform.macos import image_dispose, image_size_height, image_size_width, open_image_bytes, open_image_file
 from aura.rendering.render_object import RenderBox
 from aura.runtime.binding import Binding, canvas_of
@@ -20,6 +22,13 @@ def require_box(box: RenderBox | None, name: str) -> RenderBox:
 decoded: int = open_image_bytes(PIXEL)
 nox.test.assert_eq_int(image_size_width(decoded), 1, "decoded width")
 nox.test.assert_eq_int(image_size_height(decoded), 1, "decoded height")
+bad_decode: int = 0
+try:
+    open_image_bytes([1, 2, 3])
+except FrameworkError as error:
+    bad_decode = 1
+    nox.test.assert_true(error.message == "failed to decode image", "bad bytes")
+nox.test.assert_eq_int(bad_decode, 1, "truncated bytes fail decode")
 opened: int = open_image_file("tests/fixtures/pixel.png")
 nox.test.assert_eq_int(image_size_width(opened), 1, "file width")
 jpeg: int = open_image_file("tests/fixtures/pixel.jpg")
@@ -41,6 +50,12 @@ while i < len(tester.canvas.kinds):
         nox.test.assert_eq_int(tester.canvas.weights[i], decoded, "draw_image keeps the handle")
     i = i + 1
 nox.test.assert_eq_int(painted, 1, "image paints a draw_image command")
+
+dense: WidgetTester = WidgetTester()
+dense.pump_widget(WindowMetricsScope(default_window_metrics(40.0, 40.0, 2.0, 1), Center(Image(decoded))), 40.0, 40.0)
+scaled: RenderBox = require_box(require_box(dense.view().only_child, "dense center").only_child, "dense image")
+nox.test.assert_eq_float(scaled.width, 0.5, "image width divides by device pixel ratio")
+nox.test.assert_eq_float(scaled.height, 0.5, "image height divides by device pixel ratio")
 
 binding: Binding = Binding(200, 200, "Aura", 0)
 canvas_of(binding).draw_image(0.0, 0.0, 1.0, 1.0, opened)

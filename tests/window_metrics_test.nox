@@ -1,0 +1,128 @@
+import nox.test
+from aura.foundation.insets import EdgeInsets
+from aura.foundation.window_metrics import ORIENTATION_LANDSCAPE, ORIENTATION_PORTRAIT, CutoutRect, WindowMetrics, default_window_metrics, frame_budget_ms, primary_locale, same_window_metrics
+from aura.layout import SafeArea, SizedBox
+from aura.rendering.render_object import RenderBox
+from aura.testing.tester import WidgetTester
+from aura.widgets import BuildContext, State, StatefulWidget, StatelessWidget, Widget, WindowMetricsScope, window_metrics_of
+from aura.widgets.window_metrics import _window_metrics_entry_count
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_METRICS_READER: int = alloc_type_id()
+TYPE_METRICS_PAGE: int = alloc_type_id()
+seen_width: float = 0.0
+seen_bottom: float = 0.0
+reader_builds: int = 0
+
+
+class MetricsReader(StatelessWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_METRICS_READER, None)
+
+    def build(self, context: BuildContext) -> Widget:
+        metrics: WindowMetrics = window_metrics_of(context)
+        seen_width = metrics.logical_width
+        seen_bottom = metrics.view_padding.bottom
+        reader_builds = reader_builds + 1
+        return SizedBox(10.0, 10.0)
+
+
+class MetricsState(State):
+    metrics: WindowMetrics
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.metrics = default_window_metrics(320.0, 640.0, 2.0, 1)
+        metrics_holder = self
+
+    def build(self, context: BuildContext) -> Widget:
+        return WindowMetricsScope(self.metrics, MetricsReader())
+
+
+metrics_holder: MetricsState | None = None
+
+
+class MetricsPage(StatefulWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_METRICS_PAGE, None)
+
+    def create_state(self) -> State:
+        return MetricsState()
+
+
+def require_metrics_state() -> MetricsState:
+    current: MetricsState | None = metrics_holder
+    if current is None:
+        raise Exception("missing metrics state")
+    return current
+
+
+def require_box(box: RenderBox | None, message: str) -> RenderBox:
+    if box is None:
+        raise Exception(message)
+    return box
+
+
+portrait: WindowMetrics = default_window_metrics(320.0, 640.0, 2.0, 7)
+nox.test.assert_eq_int(portrait.physical_width, 640, "physical width")
+nox.test.assert_eq_int(portrait.physical_height, 1280, "physical height")
+nox.test.assert_eq_int(portrait.orientation, ORIENTATION_PORTRAIT, "portrait")
+
+landscape: WindowMetrics = default_window_metrics(800.0, 400.0, 0.0, 8)
+nox.test.assert_eq_float(landscape.device_pixel_ratio, 1.0, "invalid scale normalizes")
+nox.test.assert_eq_int(landscape.orientation, ORIENTATION_LANDSCAPE, "landscape")
+
+same: WindowMetrics = default_window_metrics(320.0, 640.0, 2.0, 99)
+nox.test.assert_eq_int(same_window_metrics(portrait, same), 1, "revision is not visual state")
+same.view_padding = EdgeInsets(0.0, 0.0, 0.0, 24.0)
+nox.test.assert_eq_int(same_window_metrics(portrait, same), 0, "safe area changes metrics")
+
+tester: WidgetTester = WidgetTester()
+tester.pump_widget(MetricsPage(), 320.0, 640.0)
+nox.test.assert_eq_float(seen_width, 320.0, "context sees logical width")
+nox.test.assert_eq_float(seen_bottom, 0.0, "context sees safe area")
+nox.test.assert_eq_int(reader_builds, 1, "metrics reader mounted once")
+
+require_metrics_state().metrics = default_window_metrics(320.0, 640.0, 2.0, 99)
+require_metrics_state().invalidate()
+tester.pump_frame()
+nox.test.assert_eq_int(reader_builds, 1, "equal values skip dependent rebuild")
+
+changed: WindowMetrics = default_window_metrics(320.0, 640.0, 2.0, 99)
+changed.view_padding = EdgeInsets(0.0, 0.0, 0.0, 32.0)
+require_metrics_state().metrics = changed
+require_metrics_state().invalidate()
+tester.pump_frame()
+nox.test.assert_eq_int(reader_builds, 2, "changed metrics rebuild dependent")
+nox.test.assert_eq_float(seen_bottom, 32.0, "changed safe area reaches dependent")
+
+safe: WindowMetrics = default_window_metrics(200.0, 200.0, 1.0, 3)
+safe.view_padding = EdgeInsets(11.0, 22.0, 13.0, 24.0)
+safe_tester: WidgetTester = WidgetTester()
+safe_tester.pump_widget(WindowMetricsScope(safe, SafeArea(SizedBox(10.0, 10.0), left=0, bottom=0)), 200.0, 200.0)
+safe_padding: RenderBox = require_box(safe_tester.view().only_child, "safe padding missing")
+safe_child: RenderBox = require_box(safe_padding.only_child, "safe child missing")
+nox.test.assert_eq_float(safe_child.offset_x, 0.0, "disabled safe left")
+nox.test.assert_eq_float(safe_child.offset_y, 22.0, "safe top")
+nox.test.assert_eq_float(safe_padding.width, 23.0, "safe right contributes width")
+nox.test.assert_eq_float(safe_padding.height, 32.0, "disabled safe bottom")
+
+entries_before: int = _window_metrics_entry_count()
+cleanup_tester: WidgetTester = WidgetTester()
+cleanup_tester.pump_widget(WindowMetricsScope(safe, SizedBox(1.0, 1.0)), 20.0, 20.0)
+nox.test.assert_eq_int(_window_metrics_entry_count(), entries_before + 1, "metrics scope registered")
+cleanup_tester.pump_widget(SizedBox(1.0, 1.0), 20.0, 20.0)
+nox.test.assert_eq_int(_window_metrics_entry_count(), entries_before, "metrics scope unregistered")
+nox.test.assert_eq_float(frame_budget_ms(default_window_metrics(100.0, 100.0, 1.0, 1)), 1000.0 / 60.0, "60 Hz frame budget")
+fast: WindowMetrics = default_window_metrics(100.0, 100.0, 1.0, 1)
+fast.refresh_rate = 120.0
+nox.test.assert_eq_float(frame_budget_ms(fast), 1000.0 / 120.0, "120 Hz frame budget")
+nox.test.assert_eq_str(primary_locale("tr\nar"), "tr", "primary locale is the first tag")
+nox.test.assert_eq_str(primary_locale("en"), "en", "single locale stays intact")
+rotated: WindowMetrics = default_window_metrics(100.0, 200.0, 1.0, 1)
+rotated.rotation_degrees = 90
+rotated.bold_text = 1
+rotated.locale_list = "tr\nen"
+rotated.cutouts = [CutoutRect(0.0, 0.0, 40.0, 12.0)]
+nox.test.assert_eq_int(same_window_metrics(default_window_metrics(100.0, 200.0, 1.0, 4), rotated), 0, "rotation, bold text, locale list and cutout change metrics")
+print("window metrics ok")

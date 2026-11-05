@@ -1,16 +1,26 @@
 from aura.animation.effects import Opacity
 from aura.controls import Button
 from aura.core.mode import MODE_DEBUG, MODE_PROFILE, MODE_RELEASE, set_mode
-from aura.foundation.color import COLOR_ACCENT
+from aura.foundation.color import COLOR_ACCENT, COLOR_BUTTON_TEXT, rgb
 from aura.image.image import Image
 from aura.layout import Center, ColoredBox, Column, Row, SizedBox
 from aura.layout.flex import MAIN_MIN
 from aura.text import Text
-from aura.widgets import BuildContext, PlatformView, StatelessWidget, State, StatefulWidget, TextSignal, Widget, build_view
+from aura.widgets import BuildContext, GestureDetector, PlatformView, Signal, StatelessWidget, State, StatefulWidget, TextSignal, Widget, build_view
 from aura.widgets.type_ids import alloc_type_id
 
 TYPE_PROOF: int = alloc_type_id()
 TYPE_MODE: int = alloc_type_id()
+TYPE_SWATCHES: int = alloc_type_id()
+TYPE_MODE_BUTTONS: int = alloc_type_id()
+
+
+def accent_color(index: int) -> int:
+    if index == 1:
+        return rgb(47, 111, 176)
+    if index == 2:
+        return rgb(46, 125, 82)
+    return COLOR_ACCENT
 
 
 class ModeRead(StatelessWidget):
@@ -24,11 +34,59 @@ class ModeRead(StatelessWidget):
         return Text(self.source.get())
 
 
+class SwatchRow(StatelessWidget):
+    colors: Signal
+    on_pick: () -> None
+
+    def __init__(self, colors: Signal, on_pick: () -> None) -> None:
+        super().__init__(TYPE_SWATCHES, None)
+        self.colors = colors
+        self.on_pick = on_pick
+
+    def build(self, context: BuildContext) -> Widget:
+        color: int = accent_color(self.colors.get())
+        solid: Widget = GestureDetector(SizedBox(48.0, 48.0, ColoredBox(color)), self.on_pick, "solid color")
+        faded: Widget = GestureDetector(Opacity(0.45, SizedBox(48.0, 48.0, ColoredBox(color))), self.on_pick, "faded color")
+        return Row([solid, faded], main_size=MAIN_MIN, spacing=12.0)
+
+
+class ModeButtons(StatelessWidget):
+    modes: Signal
+    colors: Signal
+    on_debug: () -> None
+    on_profile: () -> None
+    on_release: () -> None
+
+    def __init__(self, modes: Signal, colors: Signal, on_debug: () -> None, on_profile: () -> None, on_release: () -> None) -> None:
+        super().__init__(TYPE_MODE_BUTTONS, None)
+        self.modes = modes
+        self.colors = colors
+        self.on_debug = on_debug
+        self.on_profile = on_profile
+        self.on_release = on_release
+
+    def button(self, label: str, handler: () -> None, mode: int, selected: int, color: int) -> Widget:
+        if selected == mode:
+            return Button(label, handler, color=COLOR_BUTTON_TEXT, background=color)
+        return Button(label, handler)
+
+    def build(self, context: BuildContext) -> Widget:
+        selected: int = self.modes.get()
+        color: int = accent_color(self.colors.get())
+        return Row([
+            self.button("Debug", self.on_debug, MODE_DEBUG, selected, color),
+            self.button("Profile", self.on_profile, MODE_PROFILE, selected, color),
+            self.button("Release", self.on_release, MODE_RELEASE, selected, color),
+        ], main_size=MAIN_MIN, spacing=8.0)
+
+
 class ProofState(State):
     png: int
     jpeg: int
     plugin: int
     mode: TextSignal
+    modes: Signal
+    colors: Signal
 
     def __init__(self, png: int, jpeg: int, plugin: int) -> None:
         super().__init__()
@@ -36,26 +94,34 @@ class ProofState(State):
         self.jpeg = jpeg
         self.plugin = plugin
         self.mode = TextSignal("release")
+        self.modes = Signal(MODE_RELEASE)
+        self.colors = Signal(0)
+
+    def cycle_color(self) -> None:
+        next: int = self.colors.value + 1
+        if next > 2:
+            next = 0
+        self.colors.set(next)
+
+    def show_mode(self, mode: int, label: str) -> None:
+        set_mode(mode)
+        self.modes.set(mode)
+        self.mode.set(label)
 
     def show_debug(self) -> None:
-        set_mode(MODE_DEBUG)
-        self.mode.set("debug")
+        self.show_mode(MODE_DEBUG, "debug")
 
     def show_profile(self) -> None:
-        set_mode(MODE_PROFILE)
-        self.mode.set("profile")
+        self.show_mode(MODE_PROFILE, "profile")
 
     def show_release(self) -> None:
-        set_mode(MODE_RELEASE)
-        self.mode.set("release")
+        self.show_mode(MODE_RELEASE, "release")
 
     def build(self, context: BuildContext) -> Widget:
-        solid: Widget = SizedBox(48.0, 48.0, ColoredBox(COLOR_ACCENT))
-        faded: Widget = Opacity(0.45, SizedBox(48.0, 48.0, ColoredBox(COLOR_ACCENT)))
         return Center(Column([
             Text("Aura 0.3", font_size=32.0),
             Text("Noto Sans", font_size=20.0),
-            Row([solid, faded], main_size=MAIN_MIN, spacing=12.0),
+            SwatchRow(self.colors, self.cycle_color),
             Row([
                 Text("PNG"),
                 Image(self.png),
@@ -65,11 +131,7 @@ class ProofState(State):
             build_view("badge"),
             SizedBox(160.0, 48.0, PlatformView(self.plugin)),
             ModeRead(self.mode),
-            Row([
-                Button("Debug", self.show_debug),
-                Button("Profile", self.show_profile),
-                Button("Release", self.show_release),
-            ], main_size=MAIN_MIN, spacing=8.0),
+            ModeButtons(self.modes, self.colors, self.show_debug, self.show_profile, self.show_release),
         ], main_size=MAIN_MIN, spacing=12.0))
 
 

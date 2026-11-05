@@ -13,9 +13,29 @@ EVENT_IME_MARK: int = 12
 EVENT_WINDOW_FOCUS: int = 13
 EVENT_FILE_DROP: int = 14
 EVENT_AX_ACTION: int = 15
+EVENT_METRICS: int = 16
+EVENT_LIFECYCLE: int = 17
+EVENT_MEMORY_PRESSURE: int = 18
+EVENT_SURFACE_CREATED: int = 19
+EVENT_SURFACE_CHANGED: int = 20
+EVENT_SURFACE_DESTROYED: int = 21
+EVENT_ENVIRONMENT_CHANGED: int = 22
+EVENT_SYSTEM_BACK: int = 23
+EVENT_PLATFORM_ROUTE: int = 24
+EVENT_QUEUE_OVERFLOW: int = 25
+EVENT_TEXT_EDIT: int = 26
+BACK_PHASE_START: int = 1
+BACK_PHASE_UPDATE: int = 2
+BACK_PHASE_CANCEL: int = 3
+BACK_PHASE_COMMIT: int = 4
 BUTTON_PRIMARY: int = 1
 BUTTON_SECONDARY: int = 2
 BUTTON_MIDDLE: int = 3
+POINTER_KIND_UNKNOWN: int = 0
+POINTER_KIND_TOUCH: int = 1
+POINTER_KIND_MOUSE: int = 2
+POINTER_KIND_STYLUS: int = 3
+POINTER_KIND_TRACKPAD: int = 4
 
 
 class PointerEvent:
@@ -34,10 +54,12 @@ class PointerEvent:
 class KeyEvent:
     kind: int
     key_code: int
+    modifiers: int
 
-    def __init__(self, kind: int, key_code: int) -> None:
+    def __init__(self, kind: int, key_code: int, modifiers: int = 0) -> None:
         self.kind = kind
         self.key_code = key_code
+        self.modifiers = modifiers
 
 
 class TextInputEvent:

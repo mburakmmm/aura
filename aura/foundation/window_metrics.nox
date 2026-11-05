@@ -1,0 +1,239 @@
+from aura.foundation.insets import EdgeInsets
+
+ORIENTATION_UNKNOWN: int = 0
+ORIENTATION_PORTRAIT: int = 1
+ORIENTATION_LANDSCAPE: int = 2
+
+BRIGHTNESS_LIGHT: int = 0
+BRIGHTNESS_DARK: int = 1
+
+TEXT_DIRECTION_LTR: int = 0
+TEXT_DIRECTION_RTL: int = 1
+
+KEYBOARD_CURVE_UNSPECIFIED: int = 0
+KEYBOARD_CURVE_LINEAR: int = 1
+KEYBOARD_CURVE_EASE_IN: int = 2
+KEYBOARD_CURVE_EASE_OUT: int = 3
+KEYBOARD_CURVE_EASE_IN_OUT: int = 4
+
+
+class CutoutRect:
+    x: float
+    y: float
+    width: float
+    height: float
+
+    def __init__(self, x: float, y: float, width: float, height: float) -> None:
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+
+
+class WindowMetrics:
+    logical_width: float
+    logical_height: float
+    physical_width: int
+    physical_height: int
+    device_pixel_ratio: float
+    refresh_rate: float
+    view_padding: EdgeInsets
+    view_insets: EdgeInsets
+    system_gesture_insets: EdgeInsets
+    orientation: int
+    font_scale: float
+    brightness: int
+    high_contrast: int
+    locale: str
+    text_direction: int
+    reduce_motion: int
+    accessible_navigation: int
+    rotation_degrees: int
+    bold_text: int
+    cutouts: list[CutoutRect]
+    keyboard_duration_s: float
+    keyboard_curve: int
+    locale_list: str
+    revision: int
+
+    def __init__(self, logical_width: float, logical_height: float, physical_width: int, physical_height: int, device_pixel_ratio: float, refresh_rate: float, view_padding: EdgeInsets, view_insets: EdgeInsets, system_gesture_insets: EdgeInsets, orientation: int, font_scale: float, brightness: int, high_contrast: int, locale: str, text_direction: int, reduce_motion: int, accessible_navigation: int, rotation_degrees: int, bold_text: int, cutouts: list[CutoutRect], keyboard_duration_s: float, keyboard_curve: int, locale_list: str, revision: int) -> None:
+        self.logical_width = logical_width
+        self.logical_height = logical_height
+        self.physical_width = physical_width
+        self.physical_height = physical_height
+        self.device_pixel_ratio = device_pixel_ratio
+        self.refresh_rate = refresh_rate
+        self.view_padding = view_padding
+        self.view_insets = view_insets
+        self.system_gesture_insets = system_gesture_insets
+        self.orientation = orientation
+        self.font_scale = font_scale
+        self.brightness = brightness
+        self.high_contrast = high_contrast
+        self.locale = locale
+        self.text_direction = text_direction
+        self.reduce_motion = reduce_motion
+        self.accessible_navigation = accessible_navigation
+        self.rotation_degrees = rotation_degrees
+        self.bold_text = bold_text
+        self.cutouts = cutouts
+        self.keyboard_duration_s = keyboard_duration_s
+        self.keyboard_curve = keyboard_curve
+        self.locale_list = locale_list
+        self.revision = revision
+
+
+def _zero_insets() -> EdgeInsets:
+    return EdgeInsets(0.0, 0.0, 0.0, 0.0)
+
+
+def _no_cutouts() -> list[CutoutRect]:
+    return []
+
+
+def primary_locale(value: str) -> str:
+    i: int = 0
+    if value == "":
+        return ""
+    while i < len(value):
+        if value[i:i + 1] == "\n":
+            return value[0:i]
+        i = i + 1
+    return value
+
+
+def frame_budget_ms(metrics: WindowMetrics) -> float:
+    rate: float = metrics.refresh_rate
+    if rate <= 0.0:
+        rate = 60.0
+    return 1000.0 / rate
+
+
+def same_cutouts(left: list[CutoutRect], right: list[CutoutRect]) -> int:
+    i: int = 0
+    if len(left) != len(right):
+        return 0
+    while i < len(left):
+        if left[i].x != right[i].x or left[i].y != right[i].y:
+            return 0
+        if left[i].width != right[i].width or left[i].height != right[i].height:
+            return 0
+        i = i + 1
+    return 1
+
+
+def copy_cutouts(source: list[CutoutRect]) -> list[CutoutRect]:
+    copied: list[CutoutRect] = []
+    i: int = 0
+    while i < len(source):
+        item: CutoutRect = source[i]
+        copied.append(CutoutRect(item.x, item.y, item.width, item.height))
+        i = i + 1
+    return copied
+
+
+def default_window_metrics(width: float, height: float, scale: float = 1.0, revision: int = 1) -> WindowMetrics:
+    safe_scale: float = scale
+    orientation: int = ORIENTATION_PORTRAIT
+    if safe_scale <= 0.0:
+        safe_scale = 1.0
+    if width > height:
+        orientation = ORIENTATION_LANDSCAPE
+    return WindowMetrics(
+        width,
+        height,
+        int(width * safe_scale),
+        int(height * safe_scale),
+        safe_scale,
+        60.0,
+        _zero_insets(),
+        _zero_insets(),
+        _zero_insets(),
+        orientation,
+        1.0,
+        BRIGHTNESS_DARK,
+        0,
+        "en",
+        TEXT_DIRECTION_LTR,
+        0,
+        0,
+        0,
+        0,
+        _no_cutouts(),
+        0.0,
+        KEYBOARD_CURVE_UNSPECIFIED,
+        "en",
+        revision
+    )
+
+
+def resized_window_metrics(previous: WindowMetrics, width: float, height: float, revision: int) -> WindowMetrics:
+    orientation: int = ORIENTATION_PORTRAIT
+    if width > height:
+        orientation = ORIENTATION_LANDSCAPE
+    return WindowMetrics(
+        width,
+        height,
+        int(width * previous.device_pixel_ratio),
+        int(height * previous.device_pixel_ratio),
+        previous.device_pixel_ratio,
+        previous.refresh_rate,
+        previous.view_padding,
+        previous.view_insets,
+        previous.system_gesture_insets,
+        orientation,
+        previous.font_scale,
+        previous.brightness,
+        previous.high_contrast,
+        previous.locale,
+        previous.text_direction,
+        previous.reduce_motion,
+        previous.accessible_navigation,
+        previous.rotation_degrees,
+        previous.bold_text,
+        copy_cutouts(previous.cutouts),
+        previous.keyboard_duration_s,
+        previous.keyboard_curve,
+        previous.locale_list,
+        revision
+    )
+
+
+def same_insets(left: EdgeInsets, right: EdgeInsets) -> int:
+    if left.left != right.left or left.top != right.top:
+        return 0
+    if left.right != right.right or left.bottom != right.bottom:
+        return 0
+    return 1
+
+
+def same_window_metrics(left: WindowMetrics, right: WindowMetrics) -> int:
+    if left.logical_width != right.logical_width or left.logical_height != right.logical_height:
+        return 0
+    if left.physical_width != right.physical_width or left.physical_height != right.physical_height:
+        return 0
+    if left.device_pixel_ratio != right.device_pixel_ratio or left.refresh_rate != right.refresh_rate:
+        return 0
+    if same_insets(left.view_padding, right.view_padding) == 0:
+        return 0
+    if same_insets(left.view_insets, right.view_insets) == 0:
+        return 0
+    if same_insets(left.system_gesture_insets, right.system_gesture_insets) == 0:
+        return 0
+    if left.orientation != right.orientation or left.font_scale != right.font_scale:
+        return 0
+    if left.brightness != right.brightness or left.high_contrast != right.high_contrast:
+        return 0
+    if left.locale != right.locale or left.text_direction != right.text_direction:
+        return 0
+    if left.reduce_motion != right.reduce_motion or left.accessible_navigation != right.accessible_navigation:
+        return 0
+    if left.rotation_degrees != right.rotation_degrees or left.bold_text != right.bold_text:
+        return 0
+    if left.keyboard_duration_s != right.keyboard_duration_s or left.keyboard_curve != right.keyboard_curve:
+        return 0
+    if left.locale_list != right.locale_list:
+        return 0
+    if same_cutouts(left.cutouts, right.cutouts) == 0:
+        return 0
+    return 1

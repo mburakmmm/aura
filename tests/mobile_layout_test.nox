@@ -1,0 +1,169 @@
+import nox.test
+from aura.controls.button import Button
+from aura.core.mode import MODE_DEBUG, MODE_RELEASE, set_mode
+from aura.foundation.insets import EdgeInsets
+from aura.foundation.window_class import WINDOW_CLASS_COMPACT, WINDOW_CLASS_REGULAR, WINDOW_CLASS_WIDE, window_class_for_width
+from aura.foundation.window_metrics import ORIENTATION_LANDSCAPE, ORIENTATION_PORTRAIT, WindowMetrics, default_window_metrics
+from aura.layout import KeyboardInset, SafeArea, SizedBox
+from aura.layout.touch_target import touch_target_warning_count
+from aura.layout.window_class import window_class_of
+from aura.rendering.render_object import RenderBox
+from aura.testing.tester import WidgetTester
+from aura.widgets import BuildContext, State, StatefulWidget, StatelessWidget, Widget, WindowMetricsScope, window_metrics_of
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_HOLD: int = alloc_type_id()
+TYPE_KEY: int = alloc_type_id()
+TYPE_CLASS_READER: int = alloc_type_id()
+
+seen_orientation: int = -1
+seen_class: int = -1
+
+
+class KeyState(State):
+    metrics: WindowMetrics
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.metrics = default_window_metrics(200.0, 400.0, 1.0, 4)
+        self.metrics.view_insets = EdgeInsets(-2.0, 0.0, 0.0, 180.0)
+        key_holder = self
+
+    def build(self, context: BuildContext) -> Widget:
+        return WindowMetricsScope(self.metrics, KeyboardInset(SizedBox(10.0, 10.0)))
+
+
+class KeyPage(StatefulWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_KEY, None)
+
+    def create_state(self) -> State:
+        return KeyState()
+
+
+key_holder: KeyState | None = None
+
+
+class Quiet:
+    def press(self) -> None:
+        return
+
+
+class ClassReader(StatelessWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_CLASS_READER, None)
+
+    def build(self, context: BuildContext) -> Widget:
+        metrics: WindowMetrics = window_metrics_of(context)
+        seen_orientation = metrics.orientation
+        seen_class = window_class_of(context)
+        return SizedBox(8.0, 8.0)
+
+
+class HoldState(State):
+    count: int
+    metrics: WindowMetrics
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.count = 3
+        self.metrics = default_window_metrics(320.0, 640.0, 2.0, 1)
+        hold_holder = self
+
+    def build(self, context: BuildContext) -> Widget:
+        return WindowMetricsScope(self.metrics, ClassReader())
+
+
+hold_holder: HoldState | None = None
+
+
+class HoldPage(StatefulWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_HOLD, None)
+
+    def create_state(self) -> State:
+        return HoldState()
+
+
+def require_key() -> KeyState:
+    current: KeyState | None = key_holder
+    if current != None:
+        return current
+    raise Exception("missing keyboard state")
+
+
+def require_hold() -> HoldState:
+    current: HoldState | None = hold_holder
+    if current != None:
+        return current
+    raise Exception("missing hold state")
+
+
+def require_box(box: RenderBox | None, message: str) -> RenderBox:
+    if box != None:
+        return box
+    raise Exception(message)
+
+
+nox.test.assert_eq_int(window_class_for_width(599.0), WINDOW_CLASS_COMPACT, "narrow width is compact")
+nox.test.assert_eq_int(window_class_for_width(600.0), WINDOW_CLASS_REGULAR, "600 is regular")
+nox.test.assert_eq_int(window_class_for_width(839.0), WINDOW_CLASS_REGULAR, "839 stays regular")
+nox.test.assert_eq_int(window_class_for_width(840.0), WINDOW_CLASS_WIDE, "840 is wide")
+
+page: WidgetTester = WidgetTester()
+page.pump_widget(HoldPage(), 320.0, 640.0)
+held: HoldState = require_hold()
+nox.test.assert_eq_int(held.count, 3, "state starts at the initial count")
+nox.test.assert_eq_int(seen_orientation, ORIENTATION_PORTRAIT, "portrait reaches the child")
+nox.test.assert_eq_int(seen_class, WINDOW_CLASS_COMPACT, "320 is compact")
+held.count = 7
+rotated: WindowMetrics = default_window_metrics(840.0, 400.0, 2.0, 2)
+rotated.orientation = ORIENTATION_LANDSCAPE
+held.metrics = rotated
+held.invalidate()
+page.pump_frame()
+nox.test.assert_eq_int(require_hold().count, 7, "orientation change keeps state")
+nox.test.assert_eq_int(seen_orientation, ORIENTATION_LANDSCAPE, "orientation snapshot updates")
+nox.test.assert_eq_int(seen_class, WINDOW_CLASS_WIDE, "rotated width is wide")
+
+safe_metrics: WindowMetrics = default_window_metrics(200.0, 200.0, 1.0, 3)
+safe_metrics.view_padding = EdgeInsets(4.0, 6.0, 5.0, 4.0)
+safe_metrics.view_insets = EdgeInsets(0.0, 0.0, 0.0, 180.0)
+safe_page: WidgetTester = WidgetTester()
+safe_page.pump_widget(WindowMetricsScope(safe_metrics, SafeArea(SizedBox(8.0, 8.0), minimum=EdgeInsets(10.0, 0.0, 0.0, 12.0))), 200.0, 200.0)
+safe_padding: RenderBox = require_box(safe_page.view().only_child, "safe padding")
+safe_child: RenderBox = require_box(safe_padding.only_child, "safe child")
+nox.test.assert_eq_float(safe_child.offset_x, 10.0, "minimum wins over smaller padding")
+nox.test.assert_eq_float(safe_child.offset_y, 6.0, "padding wins when minimum is zero")
+nox.test.assert_eq_float(safe_padding.width, 23.0, "right padding is included")
+nox.test.assert_eq_float(safe_padding.height, 26.0, "keyboard inset does not grow safe area")
+nox.test.assert_eq_float(safe_page.view().height, 200.0, "safe area keeps the surface height")
+
+key_page: WidgetTester = WidgetTester()
+key_page.pump_widget(KeyPage(), 200.0, 400.0)
+key_padding: RenderBox = require_box(key_page.view().only_child, "keyboard padding")
+key_child: RenderBox = require_box(key_padding.only_child, "keyboard child")
+nox.test.assert_eq_float(key_padding.height, 190.0, "keyboard inset adds bottom space")
+nox.test.assert_eq_float(key_child.offset_y, 0.0, "bottom inset does not shift the child")
+nox.test.assert_eq_float(key_padding.width, 10.0, "negative inset does not pad the left")
+nox.test.assert_eq_float(key_page.view().width, 200.0, "keyboard inset keeps the surface width")
+nox.test.assert_eq_float(key_page.view().height, 400.0, "keyboard inset keeps the surface height")
+closed: WindowMetrics = default_window_metrics(200.0, 400.0, 1.0, 5)
+require_key().metrics = closed
+require_key().invalidate()
+key_page.pump_frame()
+key_padding = require_box(key_page.view().only_child, "keyboard padding after close")
+nox.test.assert_eq_float(key_padding.height, 10.0, "closed keyboard removes the inset")
+
+quiet: Quiet = Quiet()
+before_warnings: int = touch_target_warning_count()
+set_mode(MODE_DEBUG)
+target_page: WidgetTester = WidgetTester()
+target_page.pump_widget(SizedBox(80.0, 80.0, Button("Save", quiet.press)), 120.0, 120.0)
+nox.test.assert_eq_int(touch_target_warning_count(), before_warnings, "44 logical pixels do not warn")
+target_page.pump_widget(SizedBox(20.0, 20.0, Button("Save", quiet.press)), 120.0, 120.0)
+nox.test.assert_eq_int(touch_target_warning_count(), before_warnings + 1, "small target warns once")
+target_page.pump_frame()
+nox.test.assert_eq_int(touch_target_warning_count(), before_warnings + 1, "the same target does not warn again")
+set_mode(MODE_RELEASE)
+print("mobile layout ok")

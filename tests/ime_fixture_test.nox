@@ -1,0 +1,187 @@
+import nox.test
+from aura.foundation.window_metrics import TEXT_DIRECTION_RTL, WindowMetrics, default_window_metrics
+from aura.input.keyboard import KEY_ENTER
+from aura.layout import Column, Spacer
+from aura.rendering.render_object import RenderBox
+from aura.text.editing import TEXT_EDIT_FINISH_COMPOSING, TEXT_EDIT_PERFORM_ACTION, TEXT_EDIT_SET_COMPOSING, TextEditingController, deliver_key, deliver_text_edit
+from aura.text.field import TextField
+from aura.text.input_configuration import TEXT_ACTION_DONE, TEXT_ACTION_NEWLINE, TEXT_ACTION_SEND, TextInputConfiguration
+from aura.testing.tester import WidgetTester
+from aura.widgets import BuildContext, State, StatefulWidget, Widget, WindowMetricsScope
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_ROTATE: int = alloc_type_id()
+done_action: int = -1
+rotate_holder: RotateState | None = None
+rotate_controller: TextEditingController = TextEditingController("not")
+rotate_metrics: WindowMetrics = default_window_metrics(240.0, 120.0, 1.0, 1)
+
+
+def note_done(action: int) -> None:
+    done_action = action
+
+
+def require_box(box: RenderBox | None, name: str) -> RenderBox:
+    if box is None:
+        raise Exception(name)
+    return box
+
+
+class RotateState(State):
+    metrics: WindowMetrics
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.metrics = rotate_metrics
+        rotate_holder = self
+
+    def build(self, context: BuildContext) -> Widget:
+        return WindowMetricsScope(self.metrics, TextField(rotate_controller))
+
+
+class RotatePage(StatefulWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_ROTATE, None)
+
+    def create_state(self) -> State:
+        return RotateState()
+
+
+def require_rotate() -> RotateState:
+    current: RotateState | None = rotate_holder
+    if current is None:
+        raise Exception("missing rotate state")
+    return current
+
+
+english: TextEditingController = TextEditingController("")
+english.begin_session()
+english.insert("Hello")
+nox.test.assert_eq_str(english.text, "Hello", "english text commits as one string")
+english.backspace()
+nox.test.assert_eq_str(english.text, "Hell", "english backspace removes one letter")
+
+turkish: TextEditingController = TextEditingController("")
+turkish.begin_session()
+turkish.insert("şığüöç")
+nox.test.assert_eq_str(turkish.text, "şığüöç", "turkish letters commit without splitting")
+turkish.backspace()
+nox.test.assert_eq_str(turkish.text, "şığüö", "turkish backspace removes one letter")
+
+cjk: TextEditingController = TextEditingController("a")
+cjk.begin_session()
+cjk.collapse(len(cjk.text))
+cjk.set_composing("你")
+nox.test.assert_eq_str(cjk.text, "a", "cjk composition stays out of committed text")
+cjk.set_composing("你好")
+nox.test.assert_eq_str(cjk.text, "a", "cjk replacement still stays uncommitted")
+nox.test.assert_eq_str(cjk.editing_value().text, "a你好", "cjk editing buffer shows the mark")
+cjk.finish_composing()
+nox.test.assert_eq_str(cjk.text, "a你好", "finishing cjk composition commits the mark")
+
+emoji: TextEditingController = TextEditingController("👩‍👩‍👧‍👦")
+emoji.begin_session()
+emoji.collapse(len(emoji.text))
+emoji.backspace()
+nox.test.assert_eq_str(emoji.text, "", "backspace removes one zwj emoji grapheme")
+
+replaced: TextEditingController = TextEditingController("abcd")
+replaced.begin_session()
+replaced.replace_range(1, 3, "")
+nox.test.assert_eq_str(replaced.text, "ad", "selection replace deletes the range")
+replaced.replace_range(1, 1, "XY")
+nox.test.assert_eq_str(replaced.text, "aXYd", "selection replace inserts at the caret")
+
+notes: TextEditingController = TextEditingController("one")
+notes_view: WidgetTester = WidgetTester()
+notes_view.pump_widget(TextField(notes, configuration=TextInputConfiguration(action=TEXT_ACTION_NEWLINE, multiline=1)), 220.0, 160.0)
+notes_revision: int = notes.editing_value().revision + 1
+nox.test.assert_true(deliver_text_edit(notes_view.pump.focus, TEXT_EDIT_PERFORM_ACTION, "", notes.generation, notes_revision, TEXT_ACTION_NEWLINE, 0), "notes newline action is accepted")
+nox.test.assert_eq_str(notes.text, "one\n", "multiline notes keeps the line break")
+
+send_action: int = -1
+
+
+def note_send(action: int) -> None:
+    send_action = action
+
+
+chat: TextEditingController = TextEditingController("hi")
+chat_view: WidgetTester = WidgetTester()
+chat_view.pump_widget(TextField(chat, configuration=TextInputConfiguration(action=TEXT_ACTION_SEND)).with_action(note_send), 220.0, 80.0)
+chat_revision: int = chat.editing_value().revision + 1
+nox.test.assert_true(deliver_text_edit(chat_view.pump.focus, TEXT_EDIT_PERFORM_ACTION, "", chat.generation, chat_revision, TEXT_ACTION_SEND, 0), "chat send action is accepted")
+nox.test.assert_eq_int(send_action, TEXT_ACTION_SEND, "chat send reaches the callback")
+nox.test.assert_eq_str(chat.text, "hi", "send does not insert a newline")
+
+done: TextEditingController = TextEditingController("ok")
+done_view: WidgetTester = WidgetTester()
+done_view.pump_widget(TextField(done, configuration=TextInputConfiguration(action=TEXT_ACTION_DONE)).with_action(note_done), 220.0, 80.0)
+deliver_key(done_view.pump.focus, KEY_ENTER, 0)
+nox.test.assert_eq_int(done_action, TEXT_ACTION_DONE, "done action closes the edit without a newline")
+nox.test.assert_eq_str(done.text, "ok", "done leaves committed text unchanged")
+
+hide: TextEditingController = TextEditingController("stay")
+hide_view: WidgetTester = WidgetTester()
+hide_view.pump_widget(TextField(hide), 220.0, 80.0)
+hide_revision: int = hide.editing_value().revision + 1
+nox.test.assert_true(deliver_text_edit(hide_view.pump.focus, TEXT_EDIT_SET_COMPOSING, "x", hide.generation, hide_revision, 0, 0), "keyboard mark is accepted")
+hide_view.pump.set_keyboard_inset(0.0)
+hide_view.pump_frame()
+nox.test.assert_true(hide.session_active, "hiding the keyboard keeps the focused session")
+nox.test.assert_eq_str(hide.composing, "x", "hiding the keyboard keeps the mark")
+hide_view.pump.focus.suspend_input()
+nox.test.assert_true(not hide.session_active, "background closes the text session")
+nox.test.assert_eq_str(hide.text, "stay", "background discards an unfinished mark")
+nox.test.assert_eq_str(hide.composing, "", "background clears composition")
+
+rotate_view: WidgetTester = WidgetTester()
+rotate_view.pump_widget(RotatePage(), 240.0, 120.0)
+rotate_revision: int = rotate_controller.editing_value().revision + 1
+nox.test.assert_true(deliver_text_edit(rotate_view.pump.focus, TEXT_EDIT_SET_COMPOSING, "e", rotate_controller.generation, rotate_revision, 0, 0), "rotation fixture accepts composition")
+turned: WindowMetrics = default_window_metrics(120.0, 240.0, 1.0, 2)
+turned.rotation_degrees = 90
+require_rotate().metrics = turned
+require_rotate().invalidate()
+rotate_view.pump_frame()
+nox.test.assert_eq_str(rotate_controller.text, "not", "rotation keeps committed text")
+nox.test.assert_eq_str(rotate_controller.composing, "e", "rotation keeps the active composition")
+nox.test.assert_true(deliver_text_edit(rotate_view.pump.focus, TEXT_EDIT_FINISH_COMPOSING, "", rotate_controller.generation, rotate_revision + 1, 0, 0), "composition can finish after rotation")
+nox.test.assert_eq_str(rotate_controller.text, "note", "finished composition commits after rotation")
+
+rtl_text: TextEditingController = TextEditingController("ab")
+rtl_metrics: WindowMetrics = default_window_metrics(240.0, 80.0, 1.0, 3)
+rtl_metrics.text_direction = TEXT_DIRECTION_RTL
+rtl_view: WidgetTester = WidgetTester()
+rtl_view.pump_widget(WindowMetricsScope(rtl_metrics, TextField(rtl_text)), 240.0, 80.0)
+rtl_box: RenderBox = require_box(rtl_view.view().only_child, "rtl field")
+rtl_view.pump.pointer_down(rtl_box.absolute_x() + rtl_box.width - 9.0, rtl_box.absolute_y() + 12.0)
+rtl_view.pump.pointer_up(rtl_box.absolute_x() + rtl_box.width - 9.0, rtl_box.absolute_y() + 12.0)
+rtl_view.pump_frame()
+nox.test.assert_eq_int(rtl_text.cursor, 0, "rtl click at the right edge places the start")
+rtl_view.pump.pointer_down(rtl_box.absolute_x() + 12.0, rtl_box.absolute_y() + 12.0)
+rtl_view.pump.pointer_up(rtl_box.absolute_x() + 12.0, rtl_box.absolute_y() + 12.0)
+rtl_view.pump_frame()
+nox.test.assert_eq_int(rtl_text.cursor, 2, "rtl click at the left edge places the end")
+
+top: TextEditingController = TextEditingController("a")
+top_view: WidgetTester = WidgetTester()
+top_view.pump_widget(TextField(top), 200.0, 400.0)
+top_box: RenderBox = require_box(top_view.view().only_child, "top field")
+top_view.pump.set_keyboard_inset(220.0)
+top_view.pump_frame()
+nox.test.assert_eq_float(top_box.offset_y, 0.0, "a caret already above the keyboard stays put")
+
+bottom: TextEditingController = TextEditingController("a")
+bottom_view: WidgetTester = WidgetTester()
+bottom_view.pump_widget(Column([Spacer(), TextField(bottom)]), 200.0, 400.0)
+bottom_view.pump.set_keyboard_inset(220.0)
+bottom_view.pump_frame()
+column: RenderBox = require_box(bottom_view.view().only_child, "column")
+covered: RenderBox = column.children[1]
+caret_bottom: float = covered.absolute_y() + covered.caret_local_y + covered.caret_local_h
+nox.test.assert_true(caret_bottom <= 180.0, "keyboard inset keeps the caret above the inset")
+bottom_view.pump.set_keyboard_inset(0.0)
+bottom_view.pump_frame()
+nox.test.assert_eq_float(column.offset_y, 0.0, "closing the keyboard clears the caret shift")
+print("ime fixture ok")

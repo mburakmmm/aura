@@ -1,4 +1,6 @@
-from aura.platform.bridge import image_size_height, image_size_width
+from aura.foundation.window_metrics import WindowMetrics
+from aura.platform.bridge import image_dispose, image_size_height, image_size_width, open_image_bytes, open_image_file
+from aura.widgets.window_metrics import window_metrics_if_present
 from aura.rendering.layer import PaintingContext
 from aura.rendering.render_object import RenderBox
 from aura.widgets.framework import Element, RenderObjectWidget
@@ -10,10 +12,12 @@ TYPE_IMAGE: int = alloc_type_id()
 
 class RenderImage(RenderBox):
     handle: int
+    pixel_ratio: float
 
     def __init__(self) -> None:
         super().__init__()
         self.handle = 0
+        self.pixel_ratio = 1.0
         self.semantics_role = "image"
 
     def set_image(self, handle: int) -> None:
@@ -22,9 +26,18 @@ class RenderImage(RenderBox):
             self.mark_needs_layout()
             self.mark_needs_paint()
 
+    def set_pixel_ratio(self, ratio: float) -> None:
+        safe: float = ratio
+        if safe <= 0.0:
+            safe = 1.0
+        if self.pixel_ratio != safe:
+            self.pixel_ratio = safe
+            self.mark_needs_layout()
+            self.mark_needs_paint()
+
     def perform_layout(self) -> None:
-        width: float = float(image_size_width(self.handle))
-        height: float = float(image_size_height(self.handle))
+        width: float = float(image_size_width(self.handle)) / self.pixel_ratio
+        height: float = float(image_size_height(self.handle)) / self.pixel_ratio
         self.width = self.constraints.constrain_width(width)
         self.height = self.constraints.constrain_height(height)
 
@@ -47,3 +60,8 @@ class Image(RenderObjectWidget):
         if box is None:
             return
         box.set_image(self.handle)
+        ratio: float = 1.0
+        metrics: WindowMetrics | None = window_metrics_if_present(element)
+        if metrics is not None and metrics.device_pixel_ratio > 0.0:
+            ratio = metrics.device_pixel_ratio
+        box.set_pixel_ratio(ratio)

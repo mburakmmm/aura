@@ -4,7 +4,9 @@ from aura.rendering.render_object import RenderBox
 from aura.semantics.semantics_node import SemanticsNode
 from aura.text.measure import measure_height, measure_width, wrap_text
 from aura.widgets.framework import Element, RenderObjectWidget
-from aura.widgets.theme import theme_for_element
+from aura.widgets.theme import ThemeData, resolved_theme
+from aura.widgets.window_metrics import window_metrics_if_present
+from aura.foundation.window_metrics import WindowMetrics
 from aura.widgets.key import Key
 from aura.widgets.type_ids import alloc_type_id
 
@@ -56,6 +58,13 @@ class Paragraph:
             self.height = self.line_height
 
 
+_paragraph_measures: int = 0
+
+
+def paragraph_measure_count() -> int:
+    return _paragraph_measures
+
+
 class RenderParagraph(RenderBox):
     value: str
     font_size: float
@@ -64,16 +73,26 @@ class RenderParagraph(RenderBox):
     family: str
     lines: list[str]
     line_height: float
+    cache_valid: int
+    cached_max: float
+    cached_width: float
+    cached_height: float
+    heading: int
 
     def __init__(self) -> None:
         super().__init__()
         self.value = ""
+        self.heading = 0
         self.font_size = 16.0
         self.color = COLOR_TEXT
         self.weight = 400
         self.family = ""
         self.lines = []
         self.line_height = 16.0
+        self.cache_valid = 0
+        self.cached_max = -1.0
+        self.cached_width = 0.0
+        self.cached_height = 0.0
 
     def set_paragraph(self, value: str, font_size: float, color: int, weight: int, family: str) -> None:
         changed: bool = False
@@ -87,13 +106,24 @@ class RenderParagraph(RenderBox):
         self.semantics_role = "text"
         self.semantics_label = value
         if changed:
+            self.cache_valid = 0
             self.mark_needs_layout()
 
     def perform_layout(self) -> None:
+        max_width: float = self.constraints.max_width
+        if self.cache_valid == 1 and self.cached_max == max_width:
+            self.width = self.constraints.constrain_width(self.cached_width)
+            self.height = self.constraints.constrain_height(self.cached_height)
+            return
         paragraph: Paragraph = Paragraph(self.value, TextStyle(self.font_size, self.weight, self.color, self.family))
-        paragraph.layout(self.constraints.max_width)
+        paragraph.layout(max_width)
         self.lines = paragraph.lines
         self.line_height = paragraph.line_height
+        self.cached_width = paragraph.width
+        self.cached_height = paragraph.height
+        self.cached_max = max_width
+        self.cache_valid = 1
+        _paragraph_measures = _paragraph_measures + 1
         self.width = self.constraints.constrain_width(paragraph.width)
         self.height = self.constraints.constrain_height(paragraph.height)
 
@@ -106,12 +136,16 @@ class RenderParagraph(RenderBox):
     def hit_test_self(self, x: float, y: float) -> bool:
         return True
 
+    def set_heading(self, heading: int) -> None:
+        self.heading = heading
+
     def describe_semantics(self, node: SemanticsNode) -> None:
         node.role = "text"
         node.label = self.value
         node.value = self.value
         node.enabled = True
         node.checked = False
+        node.heading = self.heading != 0
 
 
 class Text(RenderObjectWidget):
@@ -121,6 +155,7 @@ class Text(RenderObjectWidget):
     color: int
     has_color: int
     family: str
+    heading: int
 
     def __init__(self, value: str, font_size: float = 16.0, weight: int = 400, color: int | None = None, family: str = "", key: Key | None = None) -> None:
         super().__init__(TYPE_TEXT, key)
@@ -133,12 +168,33 @@ class Text(RenderObjectWidget):
             self.color = color
             self.has_color = 1
         self.family = family
+        self.heading = 0
+
+    def as_heading(self) -> Text:
+        self.heading = 1
+        return self
 
     def create_render(self) -> RenderBox | None:
         return RenderParagraph()
 
     def sync_render(self, element: Element) -> None:
+        scale: float = 1.0
+        weight: int = self.weight
         color: int = self.color
         if self.has_color == 0:
-            color = theme_for_element(element).scheme.text
-        element.apply_text(self.value, self.font_size, color, self.weight, self.family)
+            theme: ThemeData = resolved_theme(element)
+            color = theme.scheme.text
+            scale = theme.font_scale
+            if theme.bold_text != 0 and weight < 600:
+                weight = 700
+        else:
+            metrics: WindowMetrics | None = window_metrics_if_present(element)
+            if metrics is not None:
+                if metrics.font_scale > 0.0:
+                    scale = metrics.font_scale
+                if metrics.bold_text != 0 and weight < 600:
+                    weight = 700
+        if scale <= 0.0:
+            scale = 1.0
+        element.apply_text(self.value, self.font_size * scale, color, weight, self.family)
+        element.apply_heading(self.heading)

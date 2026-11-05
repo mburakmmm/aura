@@ -1,4 +1,5 @@
 from aura.text.editing import TextEditingController
 from aura.text.field import TextField
+from aura.text.input_configuration import CAPITALIZATION_CHARACTERS, CAPITALIZATION_NONE, CAPITALIZATION_SENTENCES, CAPITALIZATION_WORDS, TEXT_ACTION_DONE, TEXT_ACTION_GO, TEXT_ACTION_NEWLINE, TEXT_ACTION_NEXT, TEXT_ACTION_NONE, TEXT_ACTION_SEARCH, TEXT_ACTION_SEND, TEXT_INPUT_EMAIL, TEXT_INPUT_NUMBER, TEXT_INPUT_PHONE, TEXT_INPUT_TEXT, TEXT_INPUT_URL, TextInputConfiguration
 from aura.text.rich import RichText, TextRun
 from aura.text.text import Paragraph, Text, TextStyle

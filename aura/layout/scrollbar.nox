@@ -1,13 +1,15 @@
-from aura.foundation.color import COLOR_ACCENT, COLOR_BUTTON
+from aura.foundation.color import COLOR_ACCENT
 from aura.layout.virtual_list import ScrollController
 from aura.rendering.layer import PaintingContext, PictureLayer
 from aura.rendering.render_object import PipelineOwner, RenderBox
-from aura.widgets.framework import Element, RenderObjectWidget, Widget
+from aura.widgets.framework import Element, RenderObjectWidget, Widget, dirty_element_id
 from aura.widgets.key import Key
+from aura.widgets.scheduler import Scheduler, Ticker
 from aura.widgets.type_ids import alloc_type_id
 
 TYPE_BAR: int = alloc_type_id()
 BAR_WIDTH: float = 12.0
+THUMB_FADE_S: float = 0.9
 
 _bar_ids: list[int] = []
 _bar_controls: list[ScrollController] = []
@@ -22,6 +24,33 @@ def _remember_bar(node_id: int, controller: ScrollController) -> None:
         i = i + 1
     _bar_ids.append(node_id)
     _bar_controls.append(controller)
+
+
+class _ThumbFade(Ticker):
+    controller: ScrollController
+
+    def __init__(self, controller: ScrollController) -> None:
+        super().__init__()
+        self.controller = controller
+
+    def tick(self, time_s: float) -> None:
+        linked: ScrollController = self.controller
+        if linked.primed == 0:
+            linked.seen = linked.position.pixels
+            linked.primed = 1
+            return
+        if linked.position.pixels != linked.seen or linked.held == 1:
+            linked.seen = linked.position.pixels
+            linked.activity = time_s
+        show: int = 0
+        if linked.position.max_pixels > 0.0:
+            if linked.held == 1 or (linked.activity >= 0.0 and time_s - linked.activity <= THUMB_FADE_S):
+                show = 1
+        if show == linked.shown:
+            return
+        linked.shown = show
+        if linked.bar_element != 0:
+            dirty_element_id(linked.bar_element)
 
 
 def _bar_controller(node_id: int) -> ScrollController | None:
@@ -42,6 +71,7 @@ class RenderScrollbar(RenderBox):
     has_cache: int
     child_dirty: int
     grab: float
+    grip: float
 
     def __init__(self) -> None:
         super().__init__()
@@ -53,30 +83,50 @@ class RenderScrollbar(RenderBox):
         self.has_cache = 0
         self.child_dirty = 1
         self.grab = 0.0
+        self.grip = BAR_WIDTH
         self.is_repaint_boundary = True
         self.semantics_role = "scrollbar"
 
-    def set_scroll(self, pixels: float, max_pixels: float, viewport: float, content: float) -> None:
-        shown: int = 0
-        was: int = 0
-        if max_pixels > 0.0:
-            shown = 1
-        if self.max_pixels > 0.0:
-            was = 1
-        self.has_thumb = shown == 1
-        if self.pixels == pixels and self.max_pixels == max_pixels and self.viewport == viewport and self.content == content:
+    def set_grip(self, grip: float) -> None:
+        span: float = grip
+        if span <= 0.0:
+            span = BAR_WIDTH
+        if self.grip == span:
             return
+        self.grip = span
+        self.mark_needs_layout()
+
+    def _thumb_visible(self) -> bool:
+        if self.max_pixels <= 0.0:
+            return False
+        linked: ScrollController | None = _bar_controller(self.node_id)
+        if linked is None:
+            return False
+        return linked.shown == 1
+
+    def set_scroll(self, pixels: float, max_pixels: float, viewport: float, content: float) -> None:
+        was_overflow: bool = self.max_pixels > 0.0
         self.pixels = pixels
         self.max_pixels = max_pixels
         self.viewport = viewport
         self.content = content
-        if shown != was:
+        self.has_thumb = self._thumb_visible()
+        now_overflow: bool = self.max_pixels > 0.0
+        if was_overflow != now_overflow:
             self.mark_needs_layout()
         self.mark_thumb()
 
-    def place_thumb(self, local_y: float) -> None:
-        if self.max_pixels <= 0.0:
+    def _hold(self) -> None:
+        linked: ScrollController | None = _bar_controller(self.node_id)
+        if linked is None:
             return
+        linked.held = 1
+        linked.shown = 1
+
+    def place_thumb(self, local_y: float) -> None:
+        if self.max_pixels <= 0.0 or not self._thumb_visible():
+            return
+        self._hold()
         top: float = self._thumb_top()
         thumb: float = self._thumb_height()
         if local_y >= top and local_y <= top + thumb:
@@ -85,9 +135,16 @@ class RenderScrollbar(RenderBox):
         self.grab = thumb / 2.0
         self._move_to(local_y)
 
-    def drag_thumb(self, local_y: float) -> None:
-        if self.max_pixels <= 0.0:
+    def release_thumb(self) -> None:
+        linked: ScrollController | None = _bar_controller(self.node_id)
+        if linked is None:
             return
+        linked.held = 0
+
+    def drag_thumb(self, local_y: float) -> None:
+        if self.max_pixels <= 0.0 or not self._thumb_visible():
+            return
+        self._hold()
         self._move_to(local_y)
 
     def _move_to(self, local_y: float) -> None:
@@ -119,10 +176,13 @@ class RenderScrollbar(RenderBox):
         super().mark_needs_paint()
 
     def perform_layout(self) -> None:
+        span: float = self.grip
+        if span < 1.0:
+            span = BAR_WIDTH
         if self.max_pixels <= 0.0:
             self.width = self.constraints.constrain_width(0.0)
         else:
-            self.width = self.constraints.constrain_width(BAR_WIDTH)
+            self.width = self.constraints.constrain_width(span)
         self.height = self.constraints.constrain_height(self.constraints.max_height)
         child: RenderBox | None = self.only_child
         if child is None:
@@ -132,9 +192,7 @@ class RenderScrollbar(RenderBox):
         child.offset_y = 0.0
 
     def hit_test_self(self, x: float, y: float) -> bool:
-        if self.max_pixels <= 0.0:
-            return False
-        return True
+        return self._thumb_visible()
 
     def paint(self, context: PaintingContext) -> None:
         self.paint_visit_count = self.paint_visit_count + 1
@@ -149,7 +207,8 @@ class RenderScrollbar(RenderBox):
             self.has_cache = 1
             self.child_dirty = 0
         context.blit(self.cache)
-        self._paint_thumb(context)
+        if self._thumb_visible():
+            self._paint_thumb(context)
         self.needs_paint = False
 
     def _thumb_height(self) -> float:
@@ -178,18 +237,25 @@ class RenderScrollbar(RenderBox):
 
     def _paint_thumb(self, context: PaintingContext) -> None:
         thumb: float = self._thumb_height()
-        context.fill_rect(0.0, 0.0, self.width, self.height, COLOR_BUTTON)
-        context.fill_rect(2.0, self._thumb_top(), self.width - 4.0, thumb, COLOR_ACCENT)
+        span: float = 4.0
+        x: float = self.width - span - 2.0
+        if x < 0.0:
+            x = 0.0
+        if span > self.width:
+            span = self.width
+        context.fill_rect(x, self._thumb_top(), span, thumb, COLOR_ACCENT)
 
 
 class Scrollbar(RenderObjectWidget):
     controller: ScrollController
     child: Widget | None
+    grip: float
 
-    def __init__(self, controller: ScrollController, child: Widget | None = None, key: Key | None = None) -> None:
+    def __init__(self, controller: ScrollController, child: Widget | None = None, grip: float = 0.0, key: Key | None = None) -> None:
         super().__init__(TYPE_BAR, key)
         self.controller = controller
         self.child = child
+        self.grip = grip
 
     def create_render(self) -> RenderBox | None:
         return RenderScrollbar()
@@ -201,10 +267,17 @@ class Scrollbar(RenderObjectWidget):
         return [shown]
 
     def sync_render(self, element: Element) -> None:
+        clock: Scheduler | None = element.scheduler
+        if self.controller.fade_on == 0 and clock is not None:
+            self.controller.seen = self.controller.position.pixels
+            self.controller.primed = 1
+            self.controller.fade_on = 1
+            clock.add(_ThumbFade(self.controller))
         self.controller.watch(element.element_id)
         box: RenderBox | None = element.render
         if box is not None:
             _remember_bar(box.node_id, self.controller)
         if box is None:
             return
+        box.set_grip(self.grip)
         box.set_scroll(self.controller.position.pixels, self.controller.position.max_pixels, self.controller.position.viewport, self.controller.position.content)

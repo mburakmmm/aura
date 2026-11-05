@@ -1,0 +1,18 @@
+# Pointer adapter coordinates are normalized by device_pixel_ratio before they
+# enter Aura. Gesture distances therefore use logical pixels, and velocities
+# use logical pixels per second on every density and refresh rate.
+
+TOUCH_SLOP_LOGICAL: float = 18.0
+DOUBLE_TAP_TIMEOUT_S: float = 0.30
+LONG_PRESS_TIMEOUT_S: float = 0.50
+MIN_FLING_START_LOGICAL_PER_S: float = 40.0
+MIN_FLING_STOP_LOGICAL_PER_S: float = 24.0
+FLING_DECAY_PER_S: float = 3.0
+SCROLL_REMAINDER_EPSILON_LOGICAL: float = 0.000001
+INTERACTIVE_BACK_EDGE_LOGICAL: float = 20.0
+INTERACTIVE_BACK_COMMIT_PROGRESS: float = 0.5
+INTERACTIVE_BACK_COMMIT_VELOCITY_LOGICAL_PER_S: float = 800.0
+
+
+def has_scroll_remainder(value: float) -> bool:
+    return value > SCROLL_REMAINDER_EPSILON_LOGICAL or value < -SCROLL_REMAINDER_EPSILON_LOGICAL

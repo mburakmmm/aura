@@ -1,9 +1,12 @@
-from aura.foundation.color import COLOR_ACCENT, COLOR_BACKGROUND, COLOR_BUTTON, COLOR_BUTTON_TEXT, COLOR_TEXT
+from aura.foundation.color import COLOR_ACCENT, COLOR_BACKGROUND, COLOR_BUTTON, COLOR_BUTTON_TEXT, COLOR_TEXT, rgb
+from aura.foundation.window_metrics import BRIGHTNESS_DARK, WindowMetrics
 from aura.widgets.framework import BuildContext, Element, InheritedElement, StatelessWidget, Widget
+from aura.widgets.window_metrics import window_metrics_if_present, window_metrics_of
 from aura.widgets.key import Key
 from aura.widgets.type_ids import alloc_type_id
 
 TYPE_THEME: int = alloc_type_id()
+TYPE_SYSTEM_THEME: int = alloc_type_id()
 
 _theme_ids: list[int] = []
 _theme_text: list[int] = []
@@ -13,6 +16,12 @@ _theme_background: list[int] = []
 _theme_accent: list[int] = []
 _theme_body: list[float] = []
 _theme_title: list[float] = []
+_theme_font_scale: list[float] = []
+_theme_bold: list[int] = []
+_theme_contrast: list[int] = []
+_theme_brightness: list[int] = []
+_theme_direction: list[int] = []
+_theme_follow: list[int] = []
 
 
 class ColorScheme:
@@ -42,10 +51,22 @@ class Typography:
 class ThemeData:
     scheme: ColorScheme
     typography: Typography
+    font_scale: float
+    bold_text: int
+    high_contrast: int
+    brightness: int
+    text_direction: int
+    follow_system: int
 
-    def __init__(self, scheme: ColorScheme, typography: Typography) -> None:
+    def __init__(self, scheme: ColorScheme, typography: Typography, font_scale: float = 1.0, bold_text: int = 0, high_contrast: int = 0, brightness: int = 1, text_direction: int = 0, follow_system: int = 0) -> None:
         self.scheme = scheme
         self.typography = typography
+        self.font_scale = font_scale
+        self.bold_text = bold_text
+        self.high_contrast = high_contrast
+        self.brightness = brightness
+        self.text_direction = text_direction
+        self.follow_system = follow_system
 
 
 def default_scheme() -> ColorScheme:
@@ -71,6 +92,12 @@ def publish_theme(element_id: int, data: ThemeData) -> None:
     _theme_accent.append(data.scheme.accent)
     _theme_body.append(data.typography.body_size)
     _theme_title.append(data.typography.title_size)
+    _theme_font_scale.append(data.font_scale)
+    _theme_bold.append(data.bold_text)
+    _theme_contrast.append(data.high_contrast)
+    _theme_brightness.append(data.brightness)
+    _theme_direction.append(data.text_direction)
+    _theme_follow.append(data.follow_system)
 
 
 def _store_at(index: int, data: ThemeData) -> None:
@@ -81,12 +108,18 @@ def _store_at(index: int, data: ThemeData) -> None:
     _theme_accent[index] = data.scheme.accent
     _theme_body[index] = data.typography.body_size
     _theme_title[index] = data.typography.title_size
+    _theme_font_scale[index] = data.font_scale
+    _theme_bold[index] = data.bold_text
+    _theme_contrast[index] = data.high_contrast
+    _theme_brightness[index] = data.brightness
+    _theme_direction[index] = data.text_direction
+    _theme_follow[index] = data.follow_system
 
 
 def _theme_at(index: int) -> ThemeData:
     scheme: ColorScheme = ColorScheme(_theme_background[index], _theme_text[index], _theme_button[index], _theme_button_text[index], _theme_accent[index])
     typography: Typography = Typography(_theme_body[index], _theme_title[index])
-    return ThemeData(scheme, typography)
+    return ThemeData(scheme, typography, _theme_font_scale[index], _theme_bold[index], _theme_contrast[index], _theme_brightness[index], _theme_direction[index], _theme_follow[index])
 
 
 def theme_for_element(element: Element) -> ThemeData:
@@ -102,8 +135,57 @@ def theme_for_element(element: Element) -> ThemeData:
     return default_theme()
 
 
+def _scheme_for_brightness(brightness: int) -> ColorScheme:
+    if brightness == BRIGHTNESS_DARK:
+        return default_scheme()
+    return ColorScheme(rgb(248, 246, 242), rgb(28, 27, 25), rgb(28, 27, 25), rgb(248, 246, 242), COLOR_ACCENT)
+
+
+def _high_contrast_scheme(brightness: int) -> ColorScheme:
+    if brightness == BRIGHTNESS_DARK:
+        return ColorScheme(rgb(0, 0, 0), rgb(255, 255, 255), rgb(255, 255, 255), rgb(0, 0, 0), rgb(255, 255, 0))
+    return ColorScheme(rgb(255, 255, 255), rgb(0, 0, 0), rgb(0, 0, 0), rgb(255, 255, 255), rgb(0, 0, 128))
+
+
+def platform_theme(metrics: WindowMetrics) -> ThemeData:
+    scale: float = metrics.font_scale
+    scheme: ColorScheme = _scheme_for_brightness(metrics.brightness)
+    if scale <= 0.0:
+        scale = 1.0
+    if metrics.high_contrast != 0:
+        scheme = _high_contrast_scheme(metrics.brightness)
+    return ThemeData(scheme, Typography(), scale, metrics.bold_text, metrics.high_contrast, metrics.brightness, metrics.text_direction, 1)
+
+
+def resolved_theme(element: Element) -> ThemeData:
+    data: ThemeData = theme_for_element(element)
+    metrics: WindowMetrics | None = window_metrics_if_present(element)
+    scale: float = data.font_scale
+    brightness: int = data.brightness
+    scheme: ColorScheme = data.scheme
+    bold: int = data.bold_text
+    contrast: int = data.high_contrast
+    direction: int = data.text_direction
+    if metrics is None:
+        return data
+    scale = metrics.font_scale
+    if scale <= 0.0:
+        scale = 1.0
+    direction = metrics.text_direction
+    contrast = metrics.high_contrast
+    if metrics.bold_text != 0:
+        bold = 1
+    if data.follow_system != 0:
+        brightness = metrics.brightness
+        scheme = _scheme_for_brightness(brightness)
+    if metrics.high_contrast != 0:
+        brightness = metrics.brightness
+        scheme = _high_contrast_scheme(brightness)
+    return ThemeData(scheme, Typography(data.typography.body_size, data.typography.title_size), scale, bold, contrast, brightness, direction, data.follow_system)
+
+
 def theme_of(context: BuildContext) -> ThemeData:
-    return theme_for_element(context.element)
+    return resolved_theme(context.element)
 
 
 class Theme(StatelessWidget):
@@ -124,3 +206,14 @@ class Theme(StatelessWidget):
     def build(self, context: BuildContext) -> Widget:
         publish_theme(context.element.element_id, self.data)
         return self.child
+
+
+class SystemTheme(StatelessWidget):
+    child: Widget
+
+    def __init__(self, child: Widget, key: Key | None = None) -> None:
+        super().__init__(TYPE_SYSTEM_THEME, key)
+        self.child = child
+
+    def build(self, context: BuildContext) -> Widget:
+        return Theme(platform_theme(window_metrics_of(context)), self.child)

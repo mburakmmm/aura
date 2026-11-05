@@ -1,0 +1,51 @@
+from aura.foundation.insets import EdgeInsets
+from aura.layout.boxes import Padding
+from aura.widgets.framework import BuildContext, StatelessWidget, Widget
+from aura.widgets.key import Key
+from aura.widgets.type_ids import alloc_type_id
+from aura.widgets.window_metrics import window_metrics_of
+
+TYPE_SAFE_AREA: int = alloc_type_id()
+
+
+def _at_least(value: float, minimum: float) -> float:
+    if value < minimum:
+        return minimum
+    return value
+
+
+class SafeArea(StatelessWidget):
+    child: Widget
+    left: int
+    top: int
+    right: int
+    bottom: int
+    minimum: EdgeInsets
+
+    def __init__(self, child: Widget, left: int = 1, top: int = 1, right: int = 1, bottom: int = 1, minimum: EdgeInsets | None = None, key: Key | None = None) -> None:
+        super().__init__(TYPE_SAFE_AREA, key)
+        self.child = child
+        self.left = left
+        self.top = top
+        self.right = right
+        self.bottom = bottom
+        if minimum is None:
+            self.minimum = EdgeInsets(0.0, 0.0, 0.0, 0.0)
+        else:
+            self.minimum = minimum
+
+    def build(self, context: BuildContext) -> Widget:
+        padding: EdgeInsets = window_metrics_of(context).view_padding
+        left: float = self.minimum.left
+        top: float = self.minimum.top
+        right: float = self.minimum.right
+        bottom: float = self.minimum.bottom
+        if self.left != 0:
+            left = _at_least(padding.left, left)
+        if self.top != 0:
+            top = _at_least(padding.top, top)
+        if self.right != 0:
+            right = _at_least(padding.right, right)
+        if self.bottom != 0:
+            bottom = _at_least(padding.bottom, bottom)
+        return Padding(EdgeInsets(left, top, right, bottom), self.child)

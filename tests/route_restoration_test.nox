@@ -1,0 +1,42 @@
+import nox.test
+from aura.core.diagnostics import FrameworkError
+from aura.widgets.route_restoration import ROUTE_STACK_VERSION, RouteStackSnapshot, decode_route_stack
+
+routes: list[str] = ["home", "https://example.test/a:b\nnext", "ayarlar/😀"]
+snapshot: RouteStackSnapshot = RouteStackSnapshot(ROUTE_STACK_VERSION, routes)
+encoded: str = snapshot.encode()
+decoded: RouteStackSnapshot = decode_route_stack(encoded)
+nox.test.assert_eq_int(decoded.version, ROUTE_STACK_VERSION, "route stack version round trips")
+nox.test.assert_eq_int(len(decoded.routes), 3, "route count round trips")
+nox.test.assert_eq_str(decoded.routes[0], "home", "home route round trips")
+nox.test.assert_eq_str(decoded.routes[1], "https://example.test/a:b\nnext", "delimiter and newline round trip")
+nox.test.assert_eq_str(decoded.routes[2], "ayarlar/😀", "unicode route round trips")
+
+bad_version: bool = False
+try:
+    decode_route_stack("AURA-RS:2:1:4:home")
+except FrameworkError as error:
+    bad_version = error.message == "unsupported route stack version"
+nox.test.assert_true(bad_version, "unsupported version is rejected")
+
+truncated: bool = False
+try:
+    decode_route_stack("AURA-RS:1:1:8:home")
+except FrameworkError as error:
+    truncated = error.message == "truncated route stack"
+nox.test.assert_true(truncated, "truncated route is rejected")
+
+trailing: bool = False
+try:
+    decode_route_stack("AURA-RS:1:1:4:homejunk")
+except FrameworkError as error:
+    trailing = error.message == "trailing route stack data"
+nox.test.assert_true(trailing, "trailing data is rejected")
+
+invalid_number: bool = False
+try:
+    decode_route_stack("AURA-RS:x:1:4:home")
+except FrameworkError as error:
+    invalid_number = error.message == "invalid route stack number"
+nox.test.assert_true(invalid_number, "invalid numeric field is rejected")
+print("route restoration format ok")

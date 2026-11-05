@@ -1,0 +1,12 @@
+PLATFORM_ROUTE_APP_LINK: int = 1
+PLATFORM_ROUTE_UNIVERSAL_LINK: int = 2
+PLATFORM_ROUTE_INTENT: int = 3
+
+
+class PlatformRouteRequest:
+    location: str
+    source: int
+
+    def __init__(self, location: str, source: int) -> None:
+        self.location = location
+        self.source = source

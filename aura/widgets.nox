@@ -1,14 +1,17 @@
 from aura.rendering.painter import Painter
 from aura.widgets.custom_paint import CustomPaint
 from aura.widgets.framework import BuildContext, BuildOwner, Element, ParentDataWidget, RenderObjectWidget, State, StatefulWidget, StatelessWidget, Widget, mount_tree
-from aura.widgets.gesture_detector import GestureDetector
+from aura.widgets.gesture_detector import PAN_FREE, PAN_HORIZONTAL, PAN_VERTICAL, GestureDetector
 from aura.widgets.inherited import FloatScope, Inherited, IntScope, TextScope, inherit
 from aura.widgets.mouse_region import CURSOR_ARROW, CURSOR_HAND, CURSOR_TEXT, MouseRegion
 from aura.widgets.scope import ScopeAsk
 from aura.widgets.key import GlobalKey, IntValueKey, Key, ObjectKey, ValueKey
 from aura.widgets.signal import Computed, IntReader, Signal, TextSignal
 from aura.widgets.navigator import Navigator, NavigatorHandle, Route, navigator_handle, navigator_of
-from aura.widgets.theme import ColorScheme, Theme, ThemeData, Typography, theme_of
+from aura.widgets.theme import ColorScheme, SystemTheme, Theme, ThemeData, Typography, platform_theme, resolved_theme, theme_of
+from aura.widgets.window_metrics import WindowMetricsScope, window_metrics_of
 from aura.widgets.overlay import DialogResult, MenuItem, Overlay, overlay_handle, overlay_of, show_dialog, show_menu
 from aura.widgets.platform_view import PlatformView
+from aura.widgets.platform_route import PLATFORM_ROUTE_APP_LINK, PLATFORM_ROUTE_INTENT, PLATFORM_ROUTE_UNIVERSAL_LINK, PlatformRouteRequest
+from aura.widgets.route_restoration import ROUTE_STACK_VERSION, RouteStackSnapshot, decode_route_stack
 from aura.widgets.plugin import build_view, register_view

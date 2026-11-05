@@ -1,8 +1,9 @@
 from aura.app import run_app
+from aura.input.clipboard import clipboard_get, clipboard_set
 from aura.input.events import EVENT_IME_MARK, EVENT_POINTER_DOWN, EVENT_POINTER_MOVE, EVENT_POINTER_UP
-from aura.platform.macos import clipboard_get, clipboard_set, post_mouse
 from aura.rendering.render_object import RenderBox
 from aura.runtime.binding import Binding
+from aura.testing.host import post_mouse
 from aura.text.field import painted_text, selection_row_count
 from aura.text.measure import TextLine, layout_lines, measure_height, measure_width, wrap_text
 from examples.notes.page import SENTENCE, NotesPage, document

@@ -1,18 +1,24 @@
-from aura.foundation.color import COLOR_BACKGROUND
+from aura.foundation.color import COLOR_BACKGROUND, COLOR_TEXT
 from aura.foundation.constraints import Constraints
+from aura.foundation.gesture_metrics import INTERACTIVE_BACK_COMMIT_PROGRESS, INTERACTIVE_BACK_COMMIT_VELOCITY_LOGICAL_PER_S, INTERACTIVE_BACK_EDGE_LOGICAL, TOUCH_SLOP_LOGICAL
 from aura.graphics.canvas import Canvas
 from aura.input.drop import deliver_drop
 from aura.layout.virtual_list import begin_fling
-from aura.input.events import EVENT_AX_ACTION, EVENT_FILE_DROP, EVENT_IME_DELETE, EVENT_IME_INSERT, EVENT_IME_MARK, EVENT_KEY_DOWN, EVENT_KEY_UP, EVENT_POINTER_CANCEL, EVENT_POINTER_DOWN, EVENT_POINTER_MOVE, EVENT_POINTER_UP, EVENT_RESIZE, EVENT_SCROLL, EVENT_TEXT, EVENT_WINDOW_FOCUS
+from aura.input.events import BACK_PHASE_CANCEL, BACK_PHASE_COMMIT, BACK_PHASE_START, BACK_PHASE_UPDATE, EVENT_AX_ACTION, EVENT_FILE_DROP, EVENT_IME_DELETE, EVENT_IME_INSERT, EVENT_IME_MARK, EVENT_KEY_DOWN, EVENT_KEY_UP, EVENT_PLATFORM_ROUTE, EVENT_POINTER_CANCEL, EVENT_POINTER_DOWN, EVENT_POINTER_MOVE, EVENT_POINTER_UP, EVENT_QUEUE_OVERFLOW, EVENT_RESIZE, EVENT_SCROLL, EVENT_SYSTEM_BACK, EVENT_TEXT, EVENT_TEXT_EDIT, EVENT_WINDOW_FOCUS, POINTER_KIND_TOUCH
 from aura.core.mode import MODE_PROFILE, current_mode
 from aura.platform.bridge import mono_time, set_cursor
-from aura.text.editing import deliver_delete, deliver_insert, deliver_key, deliver_mark
+from aura.text.editing import deliver_delete, deliver_insert, deliver_key, deliver_mark, deliver_text_edit
 from aura.input.focus import FocusManager
 from aura.input.gesture import GestureArena
-from aura.rendering.render_object import PHASE_BUILD, PHASE_IDLE, HitTestResult, PipelineOwner, RenderBox, RenderView, invoke_press
+from aura.rendering.render_object import PHASE_BUILD, PHASE_IDLE, HitTestResult, PipelineOwner, RenderBox, RenderView, dispatch_semantics_action, invoke_press
+from aura.semantics.semantics_node import ACTION_DECREMENT, ACTION_INCREMENT
 from aura.files.listing import apply_listing
 from aura.widgets.framework import BuildOwner, Element, Widget, mount_tree
 from aura.widgets.scheduler import Scheduler
+from aura.widgets.navigator import pop_system_route
+from aura.widgets.overlay import dismiss_system_overlay
+from aura.widgets.platform_route import PlatformRouteRequest
+from aura.runtime.lifecycle import LIFECYCLE_RESUMED
 
 
 class FramePump:
@@ -40,6 +46,24 @@ class FramePump:
     painted: int
     layers: int
     hovered: RenderBox | None
+    event_overflows: int
+    lifecycle_state: int
+    surface_available: bool
+    last_system_back_handled: bool
+    system_back_active: bool
+    system_back_progress: float
+    interactive_back_enabled: bool
+    interactive_back_rtl: bool
+    interactive_back_edge: float
+    interactive_back_candidate: bool
+    interactive_back_won: bool
+    interactive_back_pointer: int
+    interactive_back_down_x: float
+    interactive_back_down_y: float
+    interactive_back_last_x: float
+    interactive_back_last_time: float
+    interactive_back_velocity: float
+    last_platform_route_handled: bool
 
     def __init__(self) -> None:
         self.owner = BuildOwner()
@@ -66,10 +90,29 @@ class FramePump:
         self.painted = 0
         self.layers = 0
         self.hovered = None
+        self.event_overflows = 0
+        self.lifecycle_state = LIFECYCLE_RESUMED
+        self.surface_available = True
+        self.last_system_back_handled = False
+        self.system_back_active = False
+        self.system_back_progress = 0.0
+        self.interactive_back_enabled = False
+        self.interactive_back_rtl = False
+        self.interactive_back_edge = INTERACTIVE_BACK_EDGE_LOGICAL
+        self.interactive_back_candidate = False
+        self.interactive_back_won = False
+        self.interactive_back_pointer = -1
+        self.interactive_back_down_x = 0.0
+        self.interactive_back_down_y = 0.0
+        self.interactive_back_last_x = 0.0
+        self.interactive_back_last_time = 0.0
+        self.interactive_back_velocity = 0.0
+        self.last_platform_route_handled = False
         self.view.pipeline = self.pipeline
         self.pipeline.root = self.view
 
     def mount(self, widget: Widget, width: float, height: float) -> None:
+        self._cancel_interactive_back()
         previous: Element | None = self.root
         if previous is not None:
             previous.unmount()
@@ -82,7 +125,15 @@ class FramePump:
         self.view.set_only_child(child)
         self.resize(width, height)
 
+    def set_keyboard_inset(self, bottom: float) -> None:
+        inset: float = bottom
+        if inset < 0.0:
+            inset = 0.0
+        self.view.keyboard_inset = inset
+        self.view.mark_needs_layout()
+
     def resize(self, width: float, height: float) -> None:
+        self._cancel_interactive_back()
         self.width = width
         self.height = height
         self.view.constraints = Constraints(width, width, height, height)
@@ -91,6 +142,7 @@ class FramePump:
 
     def pump(self, canvas: Canvas) -> None:
         apply_listing()
+        self.arena.tick(self.frame_time)
         profile: int = 0
         started: float = 0.0
         if current_mode() == MODE_PROFILE:
@@ -114,11 +166,17 @@ class FramePump:
         if profile == 1:
             self.layout_ms = mono_time() - started
             started = mono_time()
+        root: Element | None = self.root
+        if root is not None:
+            self.focus.begin_traversal_sync()
+            root.sync_focus_geometry()
+            self.focus.end_traversal_sync()
         canvas.clear(self.background)
         self.pipeline.flush_scene(canvas)
         if profile == 1:
             self.paint_ms = mono_time() - started
             started = mono_time()
+            _paint_profile(canvas, self)
         canvas.present()
         if profile == 1:
             self.composite_ms = mono_time() - started
@@ -131,50 +189,193 @@ class FramePump:
         self.painted = self.pipeline.objects_painted
         self.layers = self.pipeline.layers_submitted
 
-    def pointer_down(self, x: float, y: float, button: int = 1) -> None:
-        self.arena.pointer_down(self.view, x, y, self.frame_time, button)
+    def configure_interactive_back(self, enabled: bool, edge: float = 20.0, rtl: bool = False) -> None:
+        self.interactive_back_enabled = enabled
+        self.interactive_back_rtl = rtl
+        self.interactive_back_edge = edge
+        if self.interactive_back_edge < INTERACTIVE_BACK_EDGE_LOGICAL:
+            self.interactive_back_edge = INTERACTIVE_BACK_EDGE_LOGICAL
+        if not enabled:
+            self._cancel_interactive_back()
+
+    def pointer_down(self, x: float, y: float, button: int = 1, pointer_id: int = 0, event_time: float = -1.0, pointer_kind: int = 0) -> None:
+        time_s: float = event_time
+        if time_s < 0.0:
+            time_s = self.frame_time
+        if self.interactive_back_won or self.interactive_back_candidate:
+            if pointer_id != self.interactive_back_pointer:
+                return
+        elif self._edge_back_candidate(x, button, pointer_kind):
+            root: Element | None = self.root
+            if root is not None and root.can_begin_interactive_route() == 1:
+                self.interactive_back_candidate = True
+                self.interactive_back_pointer = pointer_id
+                self.interactive_back_down_x = x
+                self.interactive_back_down_y = y
+                self.interactive_back_last_x = x
+                self.interactive_back_last_time = time_s
+                self.interactive_back_velocity = 0.0
+        self.arena.pointer_down(self.view, x, y, time_s, button, pointer_id)
         self._hover_cursor(x, y)
 
-    def pointer_move(self, x: float, y: float) -> None:
-        self.arena.pointer_move(x, y, self.frame_time)
+    def pointer_move(self, x: float, y: float, pointer_id: int = 0, event_time: float = -1.0) -> None:
+        time_s: float = event_time
+        if time_s < 0.0:
+            time_s = self.frame_time
+        if pointer_id == self.interactive_back_pointer and (self.interactive_back_candidate or self.interactive_back_won):
+            if self._move_interactive_back(x, y, time_s):
+                return
+        self.arena.pointer_move(x, y, time_s, pointer_id)
         self._hover_cursor(x, y)
 
-    def pointer_up(self, x: float, y: float) -> None:
-        self.arena.pointer_up(x, y, self.frame_time)
-        begin_fling(self.scheduler, self.arena.fling_host, self.arena.fling_velocity, self.frame_time)
+    def pointer_up(self, x: float, y: float, pointer_id: int = 0, event_time: float = -1.0) -> None:
+        time_s: float = event_time
+        if time_s < 0.0:
+            time_s = self.frame_time
+        if pointer_id == self.interactive_back_pointer and (self.interactive_back_candidate or self.interactive_back_won):
+            self._move_interactive_back(x, y, time_s)
+            if self.interactive_back_won:
+                progress: float = self._interactive_progress(x)
+                inward_velocity: float = self.interactive_back_velocity
+                if self.interactive_back_rtl:
+                    inward_velocity = -inward_velocity
+                commit: int = 0
+                if progress >= INTERACTIVE_BACK_COMMIT_PROGRESS or inward_velocity >= INTERACTIVE_BACK_COMMIT_VELOCITY_LOGICAL_PER_S:
+                    commit = 1
+                root: Element | None = self.root
+                if root is not None:
+                    root.finish_interactive_route(commit)
+                self._reset_interactive_back()
+                return
+            self._reset_interactive_back()
+        self.arena.pointer_up(x, y, time_s, pointer_id)
+        begin_fling(self.scheduler, self.arena.fling_host, self.arena.fling_velocity, time_s)
         self._hover_cursor(x, y)
 
-    def pointer_cancel(self) -> None:
+    def pointer_cancel(self, pointer_id: int = -1) -> None:
+        if pointer_id < 0 or pointer_id == self.interactive_back_pointer:
+            self._cancel_interactive_back()
+        self.arena.pointer_cancel(pointer_id)
+
+    def system_back(self) -> bool:
+        self._cancel_interactive_back()
         self.arena.pointer_cancel()
+        root: Element | None = self.root
+        if root is None:
+            self.last_system_back_handled = False
+            return False
+        if dismiss_system_overlay(root):
+            self.last_system_back_handled = True
+            return True
+        self.last_system_back_handled = pop_system_route(root)
+        return self.last_system_back_handled
+
+    def system_back_event(self, phase: int, progress: float) -> None:
+        if phase == BACK_PHASE_START:
+            self._cancel_interactive_back()
+            self.arena.pointer_cancel()
+            self.system_back_active = True
+            self.system_back_progress = 0.0
+            self.last_system_back_handled = False
+            return
+        if phase == BACK_PHASE_UPDATE:
+            self.system_back_active = True
+            if progress < 0.0:
+                progress = 0.0
+            if progress > 1.0:
+                progress = 1.0
+            self.system_back_progress = progress
+            return
+        if phase == BACK_PHASE_CANCEL:
+            self.system_back_active = False
+            self.system_back_progress = 0.0
+            self.last_system_back_handled = False
+            return
+        if phase == 0 or phase == BACK_PHASE_COMMIT:
+            self.system_back_active = False
+            self.system_back_progress = 1.0
+            self.system_back()
+
+    def platform_route(self, location: str, source: int) -> bool:
+        self._cancel_interactive_back()
+        self.arena.pointer_cancel()
+        root: Element | None = self.root
+        if root is None or location == "":
+            self.last_platform_route_handled = False
+            return False
+        self.last_platform_route_handled = root.handle_platform_route(PlatformRouteRequest(location, source)) == 1
+        return self.last_platform_route_handled
+
+    def apply_reduce_motion(self, enabled: int) -> None:
+        self.scheduler.set_reduce_motion(enabled)
+
+    def apply_lifecycle(self, state: int) -> None:
+        if state == self.lifecycle_state:
+            return
+        self.lifecycle_state = state
+        if state == LIFECYCLE_RESUMED:
+            if self.surface_available:
+                self.scheduler.resume(self.frame_time)
+                self.focus.resume_input()
+            return
+        self._cancel_interactive_back()
+        self.arena.pointer_cancel()
+        self.scheduler.suspend(self.frame_time)
+        self.focus.suspend_input()
+
+    def apply_surface_available(self, available: bool) -> None:
+        if available == self.surface_available:
+            return
+        self.surface_available = available
+        if available:
+            if self.lifecycle_state == LIFECYCLE_RESUMED:
+                self.scheduler.resume(self.frame_time)
+                self.focus.resume_input()
+            return
+        self._cancel_interactive_back()
+        self.arena.pointer_cancel()
+        self.scheduler.suspend(self.frame_time)
+        self.focus.suspend_input()
+
+    def adjust_semantics(self, direction: float, node_id: float) -> None:
+        action: str = ACTION_DECREMENT
+        if direction > 0.0:
+            action = ACTION_INCREMENT
+        dispatch_semantics_action(int(node_id), action, "", direction)
 
     def key_down(self, code: int, mods: int = 0) -> None:
+        if self.focus.handle_traversal(code, mods):
+            return
         self.focus.dispatch_key(code, 1)
         deliver_key(self.focus, code, mods)
 
-    def key_up(self, code: int) -> None:
+    def key_up(self, code: int, mods: int = 0) -> None:
         self.focus.dispatch_key(code, 0)
 
     def text_input(self, code: int) -> None:
         self.focus.dispatch_text(code)
+
+    def text_edit(self, operation: int, text: str, generation: int, revision: int, first: int, second: int) -> bool:
+        return deliver_text_edit(self.focus, operation, text, generation, revision, first, second)
 
     def scroll(self, dx: float, dy: float) -> None:
         self.arena.pointer_scroll(self.view, dx, dy)
         self.last_scroll_x = dx
         self.last_scroll_y = dy
 
-    def dispatch(self, kind: int, x: float, y: float, key_code: int, text: str, mods: int = 0) -> None:
+    def dispatch(self, kind: int, x: float, y: float, key_code: int, text: str, mods: int = 0, pointer_id: int = 0, event_time: float = -1.0, pointer_kind: int = 0) -> None:
         if kind == EVENT_POINTER_DOWN:
-            self.pointer_down(x, y, mods)
+            self.pointer_down(x, y, mods, pointer_id, event_time, pointer_kind)
         elif kind == EVENT_POINTER_MOVE:
-            self.pointer_move(x, y)
+            self.pointer_move(x, y, pointer_id, event_time)
         elif kind == EVENT_POINTER_UP:
-            self.pointer_up(x, y)
+            self.pointer_up(x, y, pointer_id, event_time)
         elif kind == EVENT_POINTER_CANCEL:
-            self.pointer_cancel()
+            self.pointer_cancel(pointer_id)
         elif kind == EVENT_KEY_DOWN:
             self.key_down(key_code, mods)
         elif kind == EVENT_KEY_UP:
-            self.key_up(key_code)
+            self.key_up(key_code, mods)
         elif kind == EVENT_TEXT:
             self.text_input(key_code)
         elif kind == EVENT_IME_INSERT:
@@ -192,7 +393,90 @@ class FramePump:
         elif kind == EVENT_FILE_DROP:
             deliver_drop(self.view, x, y, text)
         elif kind == EVENT_AX_ACTION:
-            invoke_press(self.window_handle, key_code)
+            if key_code < 0:
+                self.adjust_semantics(x, y)
+            else:
+                invoke_press(self.window_handle, key_code)
+        elif kind == EVENT_QUEUE_OVERFLOW:
+            self._cancel_interactive_back()
+            self.arena.pointer_cancel()
+            self.event_overflows = self.event_overflows + 1
+            print("Aura event queue overflow; input continuity was reset")
+        elif kind == EVENT_SYSTEM_BACK:
+            self.system_back_event(key_code, x)
+        elif kind == EVENT_PLATFORM_ROUTE:
+            self.platform_route(text, key_code)
+
+    def _edge_back_candidate(self, x: float, button: int, pointer_kind: int) -> bool:
+        if not self.interactive_back_enabled or button != 1 or pointer_kind != POINTER_KIND_TOUCH:
+            return False
+        if self.interactive_back_rtl:
+            return x >= self.width - self.interactive_back_edge
+        return x <= self.interactive_back_edge
+
+    def _interactive_progress(self, x: float) -> float:
+        if self.width <= 0.0:
+            return 0.0
+        distance: float = x - self.interactive_back_down_x
+        if self.interactive_back_rtl:
+            distance = -distance
+        value: float = distance / self.width
+        if value < 0.0:
+            return 0.0
+        if value > 1.0:
+            return 1.0
+        return value
+
+    def _move_interactive_back(self, x: float, y: float, time_s: float) -> bool:
+        dt: float = time_s - self.interactive_back_last_time
+        if dt > 0.0001:
+            self.interactive_back_velocity = (x - self.interactive_back_last_x) / dt
+        self.interactive_back_last_x = x
+        self.interactive_back_last_time = time_s
+        if self.interactive_back_won:
+            root: Element | None = self.root
+            if root is not None:
+                root.update_interactive_route(self._interactive_progress(x))
+            return True
+        dx: float = x - self.interactive_back_down_x
+        if self.interactive_back_rtl:
+            dx = -dx
+        dy: float = y - self.interactive_back_down_y
+        abs_x: float = dx
+        abs_y: float = dy
+        if abs_x < 0.0:
+            abs_x = -abs_x
+        if abs_y < 0.0:
+            abs_y = -abs_y
+        if abs_y > TOUCH_SLOP_LOGICAL and abs_y > abs_x:
+            self._reset_interactive_back()
+            return False
+        if dx < -TOUCH_SLOP_LOGICAL:
+            self._reset_interactive_back()
+            return False
+        if dx > TOUCH_SLOP_LOGICAL and dx > abs_y:
+            root = self.root
+            if root is None or root.begin_interactive_route() == 0:
+                self._reset_interactive_back()
+                return False
+            self.interactive_back_won = True
+            self.arena.pointer_cancel()
+            root.update_interactive_route(self._interactive_progress(x))
+            return True
+        return False
+
+    def _cancel_interactive_back(self) -> None:
+        if self.interactive_back_won:
+            root: Element | None = self.root
+            if root is not None:
+                root.finish_interactive_route(0)
+        self._reset_interactive_back()
+
+    def _reset_interactive_back(self) -> None:
+        self.interactive_back_candidate = False
+        self.interactive_back_won = False
+        self.interactive_back_pointer = -1
+        self.interactive_back_velocity = 0.0
 
     def _hover_cursor(self, x: float, y: float) -> None:
         result: HitTestResult = HitTestResult()
@@ -228,3 +512,23 @@ class FramePump:
         if next is not None and next_id != 0:
             next.enter_hover()
             self.hovered = next
+
+
+def _tenths(value: float) -> str:
+    scaled: int = int(value * 10.0)
+    whole: int = 0
+    frac: int = 0
+    if scaled < 0:
+        scaled = 0
+    whole = int(float(scaled) / 10.0)
+    frac = scaled - whole * 10
+    return str(whole) + "." + str(frac)
+
+
+def _paint_profile(canvas: Canvas, pump: FramePump) -> None:
+    line: str = "profile  build " + _tenths(pump.build_ms) + "  layout " + _tenths(pump.layout_ms) + "  paint " + _tenths(pump.paint_ms) + " ms"
+    top: float = pump.height - 36.0
+    if pump.width < 8.0 or top < 0.0:
+        return
+    canvas.fill_rect(0.0, top, pump.width, 36.0, COLOR_BACKGROUND)
+    canvas.fill_text(12.0, top + 10.0, line, 14.0, 500, COLOR_TEXT, "")

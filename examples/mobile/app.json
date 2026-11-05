@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "bundle_id": "com.noxlang.aura",
+  "display_name": "Aura",
+  "version": "1.0.0",
+  "build_number": 1,
+  "ios": {
+    "minimum": "17.0",
+    "orientations": ["landscape", "portrait"]
+  },
+  "android": {
+    "min_sdk": 24,
+    "target_sdk": 36,
+    "orientations": ["landscape", "portrait"],
+    "allow_backup": false
+  },
+  "permissions": [],
+  "purpose_strings": [],
+  "entitlements": [],
+  "icons": [],
+  "deep_links": [],
+  "network": {
+    "cleartext": false
+  },
+  "assets": [
+    {
+      "path": "native/fonts/NotoSans-Regular.ttf",
+      "sha256": "bfb7bb691513f12e734dc346c03a03f784912432d7e3fa8e56efcf906fe86b3d"
+    },
+    {
+      "path": "tests/fixtures/pixel.jpg",
+      "sha256": "95ec656f94ada529679e4c7da103599777c24e090c592c6f052b503b231ff9e5"
+    },
+    {
+      "path": "tests/fixtures/pixel.png",
+      "sha256": "b1ff9c8ea3a780bad09b346c423d2d0e46815926879b18e841d928376a946640"
+    }
+  ]
+}

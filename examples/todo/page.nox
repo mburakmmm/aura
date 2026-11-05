@@ -1,14 +1,13 @@
 from aura.animation.effects import Opacity
 from aura.animation.ticker import AnimationController
 from aura.controls import Button, Toggle
-from aura.foundation.color import rgb
+from aura.foundation.color import COLOR_TEXT, rgb
 from aura.foundation.insets import insets_all
-from aura.image.image import Image
-from aura.layout import Center, ColoredBox, Column, Expanded, Padding, Row, VirtualList
+from aura.image.image import Image, open_image_file
+from aura.layout import Center, ColoredBox, Column, Expanded, Row, SafeArea, SizedBox, VirtualList
 from aura.layout.flex import CROSS_STRETCH
 from aura.layout.scrollbar import Scrollbar
 from aura.layout.virtual_list import ItemSource, ScrollController
-from aura.platform.macos import open_image_file
 from aura.runtime.host import WindowController
 from aura.text import Text, TextEditingController, TextField
 from aura.widgets import BuildContext, Element, Navigator, Route, State, StatefulWidget, StatelessWidget, Widget, navigator_handle
@@ -25,7 +24,13 @@ TYPE_ROW: int = alloc_type_id()
 TYPE_DETAIL: int = alloc_type_id()
 TYPE_PICTURE: int = alloc_type_id()
 ROW_EXTENT: float = 56.0
+PICTURE_EDGE: float = 160.0
 SURFACE: int = rgb(46, 44, 41)
+PAGE_INK: int = rgb(28, 27, 25)
+
+
+def close_picture() -> None:
+    WindowController().close_front()
 
 
 def scheduler_of(state: State) -> Scheduler | None:
@@ -92,7 +97,7 @@ class TodoRowState(State):
     def open_picture(self) -> None:
         handle: int = open_image_file("tests/fixtures/pixel.png")
         notes.picture = handle
-        WindowController().open(NotePicture(handle), 420, 320, "Note", notes.preview_visible)
+        WindowController().open(NotePicture(handle), 480, 720, "Note", notes.preview_visible)
 
     def ask_delete(self) -> None:
         element: Element | None = self.element
@@ -110,7 +115,7 @@ class TodoRowState(State):
         checked: bool = notes.done[self.index] == 1
         return Opacity(self.motion.value, Row([
             Toggle(checked, "Done", self.toggle),
-            Text(self.title_text()),
+            Text(self.title_text(), color=COLOR_TEXT),
             Button("Open", self.open_row),
             Button("Menu", self.open_menu),
         ], spacing=12.0))
@@ -148,14 +153,14 @@ class DetailState(State):
         navigator_handle(BuildContext(element)).pop()
 
     def build(self, context: BuildContext) -> Widget:
-        return Padding(insets_all(24.0), Column([
-            Text("Detail", font_size=32.0),
-            Text("Title"),
+        return SafeArea(Column([
+            Text("Detail", font_size=32.0, color=PAGE_INK),
+            Text("Title", color=PAGE_INK),
             TextField(self.title),
-            Text("Body"),
+            Text("Body", color=PAGE_INK),
             TextField(self.body, multiline=1),
             Button("Save", self.save),
-        ], spacing=12.0, cross_align=CROSS_STRETCH))
+        ], spacing=12.0, cross_align=CROSS_STRETCH), minimum=insets_all(24.0))
 
 
 class DetailPage(StatefulWidget):
@@ -197,7 +202,11 @@ class NotePicture(StatelessWidget):
         self.handle = handle
 
     def build(self, context: BuildContext) -> Widget:
-        return Center(Image(self.handle))
+        return SafeArea(Column([
+            Text("Picture", font_size=32.0, color=PAGE_INK),
+            Expanded(Center(SizedBox(PICTURE_EDGE, PICTURE_EDGE, Image(self.handle)))),
+            Button("Close", close_picture),
+        ], spacing=16.0, cross_align=CROSS_STRETCH), minimum=insets_all(24.0))
 
 
 class HomeState(State):
@@ -215,17 +224,17 @@ class HomeState(State):
 
     def build(self, context: BuildContext) -> Widget:
         notes.home_element = context.element.element_id
-        body: Widget = Center(Text("Nothing yet"))
+        body: Widget = Center(Text("Nothing yet", color=COLOR_TEXT))
         if len(notes.titles) > 0:
             body = Row([
                 Expanded(self.listing),
                 Scrollbar(self.scroll),
             ])
-        return Padding(insets_all(24.0), Column([
-            Text("Todo", font_size=32.0),
+        return SafeArea(Column([
+            Text("Todo", font_size=32.0, color=PAGE_INK),
             Button("Add", self.add),
             Expanded(ColoredBox(SURFACE, body)),
-        ], spacing=16.0, cross_align=0))
+        ], spacing=16.0, cross_align=0), minimum=insets_all(24.0))
 
 
 class TodoHome(StatefulWidget):

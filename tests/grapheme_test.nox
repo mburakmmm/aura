@@ -1,0 +1,72 @@
+import nox.test
+from aura.text.editing import TextEditingController
+from aura.text.grapheme import ceil_grapheme_boundary, floor_grapheme_boundary, is_grapheme_boundary, next_grapheme_boundary, previous_grapheme_boundary
+
+
+accent: str = "éx"
+nox.test.assert_true(not is_grapheme_boundary(accent, 1), "combining mark stays with its base")
+nox.test.assert_eq_int(next_grapheme_boundary(accent, 0), 2, "next skips a combining sequence")
+nox.test.assert_eq_int(previous_grapheme_boundary(accent, 2), 0, "previous skips a combining sequence")
+nox.test.assert_eq_int(floor_grapheme_boundary(accent, 1), 0, "floor does not split a combining sequence")
+nox.test.assert_eq_int(ceil_grapheme_boundary(accent, 1), 2, "ceil does not split a combining sequence")
+
+skin_tone: str = "👍🏽a"
+nox.test.assert_eq_int(next_grapheme_boundary(skin_tone, 0), 2, "emoji modifier stays with emoji")
+
+family: str = "👩‍👩‍👧‍👦!"
+nox.test.assert_eq_int(next_grapheme_boundary(family, 0), 7, "ZWJ emoji family is one grapheme")
+nox.test.assert_eq_int(previous_grapheme_boundary(family, 7), 0, "ZWJ emoji family moves as one grapheme")
+
+flags: str = "🇹🇷🇺🇸"
+nox.test.assert_eq_int(next_grapheme_boundary(flags, 0), 2, "regional indicators form flag pairs")
+nox.test.assert_eq_int(next_grapheme_boundary(flags, 2), 4, "regional indicator pairing restarts")
+
+hangul: str = "각x"
+nox.test.assert_eq_int(next_grapheme_boundary(hangul, 0), 3, "Hangul jamo sequence is one grapheme")
+
+spacing: str = "काx"
+nox.test.assert_eq_int(next_grapheme_boundary(spacing, 0), 2, "spacing mark stays with its base")
+
+newline: str = "\r\nx"
+nox.test.assert_true(not is_grapheme_boundary(newline, 1), "CRLF is one grapheme boundary unit")
+nox.test.assert_true(is_grapheme_boundary(newline, 2), "boundary follows CRLF")
+
+edited: TextEditingController = TextEditingController("é👍🏽")
+edited.backspace()
+nox.test.assert_eq_str(edited.text, "é", "backspace removes a complete emoji grapheme")
+edited.backspace()
+nox.test.assert_eq_str(edited.text, "", "backspace removes base and combining mark together")
+
+moved: TextEditingController = TextEditingController(family)
+moved.move_by(-1, 0)
+nox.test.assert_eq_int(moved.cursor, 7, "left moves over trailing ASCII")
+moved.move_by(-1, 0)
+nox.test.assert_eq_int(moved.cursor, 0, "left moves over complete ZWJ grapheme")
+moved.move_by(1, 0)
+nox.test.assert_eq_int(moved.cursor, 7, "right moves over complete ZWJ grapheme")
+
+selected: TextEditingController = TextEditingController(accent)
+selected.set_selection(1, 1)
+nox.test.assert_eq_int(selected.cursor, 0, "selection endpoint snaps to a grapheme boundary")
+
+surrounding: TextEditingController = TextEditingController(skin_tone)
+surrounding.cursor = 2
+surrounding.anchor = 2
+surrounding.delete_surrounding(1, 0)
+nox.test.assert_eq_str(surrounding.text, "a", "surrounding delete expands to the grapheme boundary")
+
+words: TextEditingController = TextEditingController("Türkçe 中文 👍🏽!")
+words.select_word_at(2)
+nox.test.assert_eq_str(words.selected_text(), "Türkçe", "word selection follows Unicode letters")
+words.select_word_at(8)
+nox.test.assert_eq_str(words.selected_text(), "中文", "word selection follows CJK letters")
+words.select_word_at(11)
+nox.test.assert_eq_str(words.selected_text(), "👍🏽!", "adjacent symbol graphemes share symbol selection class")
+
+lines: TextEditingController = TextEditingController("ilk é\r\nikinci\nüç")
+lines.select_line_at(8)
+nox.test.assert_eq_str(lines.selected_text(), "ikinci", "line selection excludes CRLF separators")
+lines.select_all()
+nox.test.assert_eq_str(lines.selected_text(), "ilk é\r\nikinci\nüç", "select all preserves Unicode content")
+
+print("grapheme ok")

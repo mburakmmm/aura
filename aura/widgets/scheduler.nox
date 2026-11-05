@@ -16,14 +16,27 @@ class Ticker:
     def tick(self, time_s: float) -> None:
         pass
 
+    def rebase(self, delta_s: float) -> None:
+        if delta_s == 0.0:
+            return
+
+    def apply_reduce_motion(self) -> None:
+        pass
+
 
 class Scheduler:
     tickers: list[Ticker]
     time_s: float
+    active: bool
+    suspended_at: float
+    reduce_motion: int
 
     def __init__(self) -> None:
         self.tickers = []
         self.time_s = 0.0
+        self.active = True
+        self.suspended_at = 0.0
+        self.reduce_motion = 0
 
     def add(self, ticker: Ticker) -> None:
         i: int = 0
@@ -43,7 +56,39 @@ class Scheduler:
         self.tickers = kept
 
     def flush(self) -> None:
+        if not self.active:
+            return
         i: int = 0
         while i < len(self.tickers):
             self.tickers[i].tick(self.time_s)
             i = i + 1
+
+    def set_reduce_motion(self, enabled: int) -> None:
+        i: int = 0
+        if enabled == self.reduce_motion:
+            return
+        self.reduce_motion = enabled
+        if enabled == 0:
+            return
+        while i < len(self.tickers):
+            self.tickers[i].apply_reduce_motion()
+            i = i + 1
+
+    def suspend(self, time_s: float) -> None:
+        if not self.active:
+            return
+        self.active = False
+        self.suspended_at = time_s
+
+    def resume(self, time_s: float) -> None:
+        if self.active:
+            return
+        delta_s: float = time_s - self.suspended_at
+        if delta_s < 0.0:
+            delta_s = 0.0
+        i: int = 0
+        while i < len(self.tickers):
+            self.tickers[i].rebase(delta_s)
+            i = i + 1
+        self.time_s = time_s
+        self.active = True

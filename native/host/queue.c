@@ -126,6 +126,17 @@ int64_t aura_ax_add_node(AuraAx *ax, const char *role, const char *label, const 
     return 0;
 }
 
+int64_t aura_ax_set_last_node(AuraAx *ax, int64_t node_id, int64_t heading) {
+    AuraNode *node = NULL;
+    if (ax == NULL || !ax->building || ax->pending_count <= 0) {
+        return -1;
+    }
+    node = &ax->pending[ax->pending_count - 1];
+    node->node_id = node_id;
+    node->heading = heading != 0;
+    return 0;
+}
+
 int64_t aura_ax_commit_nodes(AuraAx *ax) {
     free_nodes(ax->nodes, ax->count);
     ax->nodes = ax->pending;

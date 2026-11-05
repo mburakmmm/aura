@@ -1,0 +1,291 @@
+import nox.test
+from aura.controls.button import Button
+from aura.layout.flex import Column
+from aura.layout.virtual_list import ItemSource, VirtualList
+from aura.rendering.render_object import RenderBox, dispatch_semantics_action
+from aura.semantics.platform_map import ANDROID_ACTION_CLICK, ANDROID_ACTION_SCROLL_BACKWARD, ANDROID_ACTION_SCROLL_FORWARD, ANDROID_ACTION_SET_TEXT, SemanticsPlatformNames, aura_action_for_android, aura_action_for_ios, platform_names
+from aura.input.events import EVENT_AX_ACTION
+from aura.semantics.semantics_node import ACTION_DECREMENT, ACTION_INCREMENT, ACTION_SCROLL_BACKWARD, ACTION_SCROLL_FORWARD, ACTION_SET_TEXT, ACTION_TAP, LIVE_ASSERTIVE, SEMANTICS_REMOVED, SEMANTICS_UPDATED, SemanticsNode, SemanticsOwner, SemanticsUpdate
+from aura.text import Text
+from aura.testing.tester import WidgetTester
+from aura.text.editing import TextEditingController
+from aura.text.field import TextField
+from aura.widgets.framework import Element, RenderObjectWidget, Widget
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_PROBE: int = alloc_type_id()
+TYPE_ROW: int = alloc_type_id()
+
+probe_hint: str = "louder"
+probe_hidden: int = 0
+probe_increments: int = 0
+
+
+class Tally:
+    count: int
+
+    def __init__(self) -> None:
+        self.count = 0
+
+    def press(self) -> None:
+        self.count = self.count + 1
+
+
+class ProbeBox(RenderBox):
+    def __init__(self) -> None:
+        super().__init__()
+        self.debug_tag = 91
+
+    def perform_layout(self) -> None:
+        self.width = self.constraints.constrain_width(80.0)
+        self.height = self.constraints.constrain_height(32.0)
+
+    def describe_semantics(self, node: SemanticsNode) -> None:
+        node.role = "adjustable"
+        node.label = "Volume"
+        node.value = "3"
+        node.hint = probe_hint
+        node.enabled = True
+        node.selected = True
+        node.checked = False
+        node.toggled = False
+        node.expanded = True
+        node.obscured = False
+        node.heading = False
+        node.hidden = probe_hidden != 0
+        node.focusable = True
+        node.live = LIVE_ASSERTIVE
+        node.add_action(ACTION_INCREMENT)
+        node.add_action(ACTION_DECREMENT)
+
+    def semantics_action(self, action: str, text: str, amount: float) -> int:
+        if action == ACTION_INCREMENT:
+            probe_increments = probe_increments + 1
+            return 1
+        return super().semantics_action(action, text, amount)
+
+
+class Probe(RenderObjectWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_PROBE, None)
+
+    def create_render(self) -> RenderBox | None:
+        return ProbeBox()
+
+
+class RowLabel(RenderObjectWidget):
+    caption: str
+
+    def __init__(self, caption: str) -> None:
+        super().__init__(TYPE_ROW, None)
+        self.caption = caption
+
+    def create_render(self) -> RenderBox | None:
+        return RenderBox()
+
+    def sync_render(self, element: Element) -> None:
+        box: RenderBox | None = element.render
+        if box is None:
+            return
+        box.semantics_role = "text"
+        box.semantics_label = self.caption
+
+
+class Rows(ItemSource):
+    def count(self) -> int:
+        return 20
+
+    def widget_at(self, index: int) -> Widget:
+        return RowLabel("row-" + str(index))
+
+    def keep_alive(self, index: int) -> bool:
+        return index == 0
+
+
+def label_present(node: SemanticsNode, label: str) -> int:
+    if node.label == label:
+        return 1
+    i: int = 0
+    while i < len(node.children):
+        if label_present(node.children[i], label) == 1:
+            return 1
+        i = i + 1
+    return 0
+
+
+def find_label(node: SemanticsNode, label: str) -> SemanticsNode | None:
+    if node.label == label:
+        return node
+    i: int = 0
+    while i < len(node.children):
+        found: SemanticsNode | None = find_label(node.children[i], label)
+        if found is not None:
+            return found
+        i = i + 1
+    return None
+
+
+def update_has(owner: SemanticsOwner, kind: int, node_id: int) -> int:
+    i: int = 0
+    while i < len(owner.updates):
+        item: SemanticsUpdate = owner.updates[i]
+        if item.kind == kind and item.node_id == node_id:
+            return 1
+        i = i + 1
+    return 0
+
+
+def require_node(node: SemanticsNode | None, name: str) -> SemanticsNode:
+    if node != None:
+        return node
+    raise Exception(name)
+
+
+def box_has_label(box: RenderBox, label: str) -> int:
+    if box.semantics_label == label:
+        return 1
+    only: RenderBox | None = box.only_child
+    if only is not None:
+        if box_has_label(only, label) == 1:
+            return 1
+    i: int = 0
+    while i < len(box.children):
+        if box_has_label(box.children[i], label) == 1:
+            return 1
+        i = i + 1
+    return 0
+
+
+button_names: SemanticsPlatformNames = platform_names("button", 0)
+nox.test.assert_eq_str(button_names.ios_element, "UIButton", "button maps to UIButton")
+nox.test.assert_eq_str(button_names.ios_trait, "button", "button trait")
+nox.test.assert_eq_str(button_names.android_class, "android.widget.Button", "button class")
+heading_names: SemanticsPlatformNames = platform_names("text", 1)
+nox.test.assert_eq_str(heading_names.ios_trait, "header", "heading trait")
+plain_text: SemanticsPlatformNames = platform_names("text", 0)
+field_names: SemanticsPlatformNames = platform_names("text-field", 0)
+toggle_names: SemanticsPlatformNames = platform_names("toggle", 0)
+image_names: SemanticsPlatformNames = platform_names("image", 0)
+scroll_names: SemanticsPlatformNames = platform_names("scroll-view", 0)
+adjustable_names: SemanticsPlatformNames = platform_names("adjustable", 0)
+unknown_names: SemanticsPlatformNames = platform_names("unknown", 0)
+nox.test.assert_eq_str(plain_text.ios_element, "UILabel", "plain text element")
+nox.test.assert_eq_str(field_names.android_class, "android.widget.EditText", "field class")
+nox.test.assert_eq_str(toggle_names.ios_element, "UISwitch", "switch element")
+nox.test.assert_eq_str(image_names.android_class, "android.widget.ImageView", "image class")
+nox.test.assert_eq_str(scroll_names.ios_element, "UIScrollView", "scroll element")
+nox.test.assert_eq_str(adjustable_names.android_class, "android.widget.SeekBar", "adjustable class")
+nox.test.assert_eq_str(unknown_names.android_class, "android.view.View", "unknown class")
+
+adjustable: SemanticsNode = SemanticsNode()
+adjustable.add_action(ACTION_INCREMENT)
+adjustable.add_action(ACTION_DECREMENT)
+nox.test.assert_eq_str(aura_action_for_android(adjustable, ANDROID_ACTION_SCROLL_FORWARD), ACTION_INCREMENT, "forward scroll on adjustable is increment")
+nox.test.assert_eq_str(aura_action_for_android(adjustable, ANDROID_ACTION_SCROLL_BACKWARD), ACTION_DECREMENT, "backward scroll on adjustable is decrement")
+nox.test.assert_eq_str(aura_action_for_ios(adjustable, "increment"), ACTION_INCREMENT, "ios increment")
+nox.test.assert_eq_str(aura_action_for_android(adjustable, ANDROID_ACTION_CLICK), "", "adjustable without tap ignores click")
+
+scroller: SemanticsNode = SemanticsNode()
+scroller.add_action(ACTION_SCROLL_FORWARD)
+scroller.add_action(ACTION_SCROLL_BACKWARD)
+nox.test.assert_eq_str(aura_action_for_android(scroller, ANDROID_ACTION_SCROLL_FORWARD), ACTION_SCROLL_FORWARD, "scroll forward stays scroll")
+nox.test.assert_eq_str(aura_action_for_ios(scroller, "scroll-backward"), ACTION_SCROLL_BACKWARD, "ios scroll backward")
+
+field_actions: SemanticsNode = SemanticsNode()
+field_actions.add_action(ACTION_SET_TEXT)
+nox.test.assert_eq_str(aura_action_for_android(field_actions, ANDROID_ACTION_SET_TEXT), ACTION_SET_TEXT, "set text action")
+nox.test.assert_eq_str(aura_action_for_ios(field_actions, "activate"), "", "set text does not activate")
+
+tally: Tally = Tally()
+page: WidgetTester = WidgetTester()
+page.pump_widget(Column([Probe(), Button("Save", tally.press)]), 240.0, 180.0)
+page.pump_frame()
+owner: SemanticsOwner = page.pump.pipeline.semantics
+nox.test.assert_eq_int(len(owner.updates), 0, "unchanged semantics frame produces an empty diff")
+volume: SemanticsNode = require_node(owner.find_role("adjustable"), "missing volume")
+save: SemanticsNode = require_node(owner.find_role("button"), "missing button")
+nox.test.assert_eq_str(volume.hint, "louder", "hint is separate from label")
+nox.test.assert_eq_str(volume.value, "3", "value is separate from label")
+nox.test.assert_true(volume.selected, "selected state")
+nox.test.assert_true(volume.expanded, "expanded state")
+nox.test.assert_eq_int(volume.live, LIVE_ASSERTIVE, "assertive live region")
+nox.test.assert_true(volume.focusable, "adjustable is focusable")
+nox.test.assert_true(save.focusable, "button is focusable")
+nox.test.assert_true(volume.focus_order > 0, "focus order starts at one")
+nox.test.assert_true(save.focus_order > volume.focus_order, "focus order follows tree order")
+nox.test.assert_eq_int(volume.group_id, 0, "unlabeled column is not a group")
+nox.test.assert_true(volume.has_action(ACTION_INCREMENT), "increment action")
+nox.test.assert_true(save.has_action(ACTION_TAP), "button tap action")
+held_id: int = volume.node_id
+held_hint: str = volume.hint
+probe_hint = "quieter"
+page.pump_frame()
+owner = page.pump.pipeline.semantics
+changed: SemanticsNode = require_node(owner.find_role("adjustable"), "missing updated volume")
+nox.test.assert_eq_int(changed.node_id, held_id, "semantics id survives the next frame")
+nox.test.assert_eq_str(held_hint, "louder", "previous snapshot value stays")
+nox.test.assert_eq_str(changed.hint, "quieter", "new snapshot carries the new hint")
+nox.test.assert_eq_int(update_has(owner, SEMANTICS_UPDATED, held_id), 1, "hint change updates one node")
+save = require_node(owner.find_role("button"), "missing button after update")
+nox.test.assert_eq_int(update_has(owner, SEMANTICS_UPDATED, save.node_id), 0, "unchanged button is not in the diff")
+nox.test.assert_eq_int(dispatch_semantics_action(changed.node_id, ACTION_INCREMENT, "", 0.0), 1, "increment is handled")
+nox.test.assert_eq_int(probe_increments, 1, "increment reaches state")
+page.pump.dispatch(EVENT_AX_ACTION, 1.0, float(changed.node_id), -1, "")
+nox.test.assert_eq_int(probe_increments, 2, "voiceover increment reaches the node")
+nox.test.assert_eq_int(dispatch_semantics_action(save.node_id, ACTION_TAP, "", 0.0), 1, "tap is handled")
+nox.test.assert_eq_int(tally.count, 1, "tap presses the button")
+probe_hidden = 1
+page.pump_frame()
+owner = page.pump.pipeline.semantics
+hidden: SemanticsNode | None = owner.find_role("adjustable")
+nox.test.assert_true(hidden == None, "hidden node is not published")
+nox.test.assert_eq_int(update_has(owner, SEMANTICS_REMOVED, held_id), 1, "hiding removes the node")
+nox.test.assert_eq_int(dispatch_semantics_action(held_id, ACTION_INCREMENT, "", 0.0), 0, "removed node does not handle actions")
+
+controller: TextEditingController = TextEditingController("hi")
+field_page: WidgetTester = WidgetTester()
+field_page.pump_widget(TextField(controller, label="Message"), 200.0, 80.0)
+field_owner: SemanticsOwner = field_page.pump.pipeline.semantics
+field_node: SemanticsNode = require_node(field_owner.find_role("text-field"), "missing text field semantics")
+nox.test.assert_eq_str(field_node.label, "Message", "field publishes its accessibility label separately")
+nox.test.assert_eq_str(field_node.value, "hi", "field publishes the committed value")
+nox.test.assert_eq_int(field_node.selection_base, 2, "selection base")
+nox.test.assert_eq_int(field_node.selection_extent, 2, "selection extent")
+nox.test.assert_true(field_node.has_action(ACTION_SET_TEXT), "field exposes set-text")
+nox.test.assert_eq_int(dispatch_semantics_action(field_node.node_id, ACTION_SET_TEXT, "hello", 0.0), 1, "set-text is handled")
+nox.test.assert_eq_str(controller.text, "hello", "set-text replaces the field")
+field_page.pump_frame()
+field_owner = field_page.pump.pipeline.semantics
+field_node = require_node(field_owner.find_role("text-field"), "missing field after set-text")
+nox.test.assert_eq_str(field_node.value, "hello", "field snapshot follows set-text")
+nox.test.assert_eq_int(field_node.selection_extent, 5, "selection follows the replacement")
+
+listed: VirtualList = VirtualList(Rows(), 20.0)
+rows: WidgetTester = WidgetTester()
+rows.pump_widget(listed, 120.0, 100.0)
+row_owner: SemanticsOwner = rows.pump.pipeline.semantics
+nox.test.assert_eq_int(label_present(row_owner.root, "row-0"), 1, "visible first row is published")
+scroll: SemanticsNode = require_node(row_owner.find_role("scroll-view"), "missing scroll view")
+first: SemanticsNode = require_node(find_label(row_owner.root, "row-0"), "missing first row")
+nox.test.assert_eq_int(first.group_id, scroll.node_id, "visible row is grouped under the scroll view")
+nox.test.assert_eq_int(dispatch_semantics_action(scroll.node_id, ACTION_SCROLL_FORWARD, "", 40.0), 1, "scroll action is handled")
+nox.test.assert_eq_float(listed.controller.position.pixels, 40.0, "scroll action moves the viewport")
+rows.pump_frame()
+row_owner = rows.pump.pipeline.semantics
+nox.test.assert_eq_int(label_present(row_owner.root, "row-0"), 0, "offscreen keep-alive row is not published")
+nox.test.assert_eq_int(box_has_label(rows.view(), "row-0"), 1, "offscreen keep-alive row stays in the render tree")
+nox.test.assert_eq_int(label_present(row_owner.root, "row-19"), 0, "far row is outside the scrolled window")
+listed.controller.jump(listed.controller.position.max_pixels)
+rows.pump_frame()
+row_owner = rows.pump.pipeline.semantics
+nox.test.assert_eq_int(label_present(row_owner.root, "row-0"), 0, "jumped keep-alive row stays unpublished")
+nox.test.assert_eq_int(label_present(row_owner.root, "row-19"), 1, "row at the new window is published")
+
+heading_page: WidgetTester = WidgetTester()
+heading_page.pump_widget(Text("Notes", font_size=32.0).as_heading(), 200.0, 80.0)
+heading_owner: SemanticsOwner = heading_page.pump.pipeline.semantics
+heading_node: SemanticsNode = require_node(heading_owner.find_role("text"), "missing heading")
+nox.test.assert_true(heading_node.heading, "title is a heading")
+nox.test.assert_eq_str(heading_node.label, "Notes", "heading label")
+
+print("semantics ok")

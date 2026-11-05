@@ -1,25 +1,36 @@
+import nox.mathx
+from aura.foundation.gesture_metrics import DOUBLE_TAP_TIMEOUT_S, LONG_PRESS_TIMEOUT_S, TOUCH_SLOP_LOGICAL, has_scroll_remainder
 from aura.input.drag import drag_by
 from aura.input.events import BUTTON_MIDDLE, BUTTON_SECONDARY
 from aura.rendering.render_object import HitTestResult, RenderBox
-from aura.text.editing import pointer_text_down, pointer_text_move
+from aura.text.editing import pointer_local_x, pointer_text_down, pointer_text_move
 
-TAP_SLOP: float = 18.0
+TAP_SLOP: float = TOUCH_SLOP_LOGICAL
+PAN_FREE: int = 0
+PAN_HORIZONTAL: int = 1
+PAN_VERTICAL: int = 2
 
 
 class TapRecognizer:
     on_tap: () -> None
     accepted: bool
+    cancelled: bool
 
     def __init__(self, on_tap: () -> None) -> None:
         self.on_tap = on_tap
         self.accepted = False
+        self.cancelled = False
 
     def accept(self) -> None:
         self.accepted = True
         self.on_tap()
 
+    def reject(self) -> None:
+        self.cancelled = True
 
-class GestureArena:
+
+class GestureSequence:
+    pointer_id: int
     members: list[TapRecognizer]
     tracking: bool
     rejected: bool
@@ -31,6 +42,7 @@ class GestureArena:
     member_count: int
     winner_count: int
     scroll_box: RenderBox | None
+    scroll_boxes: list[RenderBox]
     thumb_box: RenderBox | None
     text_box: RenderBox | None
     text_selecting: bool
@@ -40,11 +52,21 @@ class GestureArena:
     file_sent: int
     button: int
     secondary_box: RenderBox | None
+    tap_box: RenderBox | None
+    double_tap_box: RenderBox | None
+    long_press_box: RenderBox | None
+    long_press_fired: bool
+    pan_box: RenderBox | None
+    pan_won: bool
+    scale_box: RenderBox | None
+    scale_claimed: bool
+    tap_ready: bool
     last_time: float
     fling_host: int
     fling_velocity: float
 
-    def __init__(self) -> None:
+    def __init__(self, pointer_id: int = 0) -> None:
+        self.pointer_id = pointer_id
         self.members = []
         self.tracking = False
         self.rejected = False
@@ -56,6 +78,7 @@ class GestureArena:
         self.member_count = 0
         self.winner_count = 0
         self.scroll_box = None
+        self.scroll_boxes = []
         self.thumb_box = None
         self.text_box = None
         self.text_selecting = False
@@ -65,6 +88,15 @@ class GestureArena:
         self.file_sent = 0
         self.button = 1
         self.secondary_box = None
+        self.tap_box = None
+        self.double_tap_box = None
+        self.long_press_box = None
+        self.long_press_fired = False
+        self.pan_box = None
+        self.pan_won = False
+        self.scale_box = None
+        self.scale_claimed = False
+        self.tap_ready = False
         self.last_time = 0.0
         self.fling_host = 0
         self.fling_velocity = 0.0
@@ -80,6 +112,7 @@ class GestureArena:
         self.last_y = y
         self.winner_count = 0
         self.scroll_box = None
+        self.scroll_boxes = []
         self.thumb_box = None
         self.text_box = None
         self.text_selecting = False
@@ -89,6 +122,15 @@ class GestureArena:
         self.file_sent = 0
         self.button = button
         self.secondary_box = None
+        self.tap_box = None
+        self.double_tap_box = None
+        self.long_press_box = None
+        self.long_press_fired = False
+        self.pan_box = None
+        self.pan_won = False
+        self.scale_box = None
+        self.scale_claimed = False
+        self.tap_ready = False
         self.last_time = time_s
         self.fling_velocity = 0.0
         self.fling_host = 0
@@ -108,15 +150,27 @@ class GestureArena:
             if target.has_thumb and self.thumb_box is None:
                 self.thumb_box = target
                 target.place_thumb(result.entries[i].y)
-            if target.has_scroll and self.scroll_box is None:
-                self.scroll_box = target
+            if target.has_scroll:
+                self.scroll_boxes.append(target)
+                if self.scroll_box is None:
+                    self.scroll_box = target
             if target.drag_id != 0 and self.drag_box is None:
                 self.drag_box = target
             if target.has_file_drag and self.file_box is None:
                 self.file_box = target
+            if target.has_tap and self.tap_box is None:
+                self.tap_box = target
+            if target.has_double_tap and self.double_tap_box is None:
+                self.double_tap_box = target
+            if target.has_long_press and self.long_press_box is None:
+                self.long_press_box = target
+            if target.has_pan and self.pan_box is None:
+                self.pan_box = target
+            if target.has_scale and self.scale_box is None:
+                self.scale_box = target
             if target.text_target != 0 and self.text_box is None:
                 self.text_box = target
-                pointer_text_down(target.text_target, x - target.absolute_x() - 8.0, y - target.absolute_y() - 8.0, target.width - 16.0)
+                pointer_text_down(target.text_target, pointer_local_x(target.absolute_x(), target.width, target.text_rtl, x), y - target.absolute_y() - 8.0, target.width - 16.0)
                 if target.has_tap:
                     target.on_tap()
             if target.has_tap:
@@ -127,6 +181,11 @@ class GestureArena:
     def pointer_move(self, x: float, y: float, time_s: float = 0.0) -> None:
         if not self.tracking:
             return
+        if self.scale_claimed:
+            self.last_x = x
+            self.last_y = y
+            self.last_time = time_s
+            return
         if self.button == BUTTON_SECONDARY or self.button == BUTTON_MIDDLE:
             alt_x: float = x - self.down_x
             alt_y: float = y - self.down_y
@@ -136,12 +195,14 @@ class GestureArena:
                 alt_y = -alt_y
             if alt_x > TAP_SLOP or alt_y > TAP_SLOP:
                 self.rejected = True
+                self._reject_members()
             self.last_x = x
             self.last_y = y
             return
         thumb: RenderBox | None = self.thumb_box
         if thumb is not None:
             self.rejected = True
+            self._reject_members()
             thumb.drag_thumb(y - thumb.absolute_y())
             self.last_x = x
             self.last_y = y
@@ -158,14 +219,20 @@ class GestureArena:
                 span_x = -span_x
             if span_y < 0.0:
                 span_y = -span_y
-            if span_x > TAP_SLOP or span_y > TAP_SLOP:
+            vertical_scroll: bool = self.scroll_box is not None and span_y > TAP_SLOP and span_y > span_x
+            if not vertical_scroll and (span_x > TAP_SLOP or span_y > TAP_SLOP):
                 self.rejected = True
+                self._reject_members()
                 self.text_selecting = True
             if self.text_selecting:
-                pointer_text_move(field.text_target, x - field.absolute_x() - 8.0, y - field.absolute_y() - 8.0, field.width - 16.0)
-            self.last_x = x
-            self.last_y = y
-            return
+                pointer_text_move(field.text_target, pointer_local_x(field.absolute_x(), field.width, field.text_rtl, x), y - field.absolute_y() - 8.0, field.width - 16.0)
+                self.last_x = x
+                self.last_y = y
+                return
+            if not vertical_scroll:
+                self.last_x = x
+                self.last_y = y
+                return
         dragged: RenderBox | None = self.drag_box
         if dragged is not None:
             drag_span_x: float = x - self.down_x
@@ -176,6 +243,7 @@ class GestureArena:
                 drag_span_y = -drag_span_y
             if drag_span_x > TAP_SLOP or drag_span_y > TAP_SLOP:
                 self.rejected = True
+                self._reject_members()
                 self.drag_won = True
             if self.drag_won:
                 drag_by(dragged.drag_id, x - self.last_x, y - self.last_y)
@@ -196,10 +264,54 @@ class GestureArena:
                 file_dy = -file_dy
             if file_dx > TAP_SLOP and file_dx > file_dy:
                 self.rejected = True
+                self._reject_members()
                 self.file_sent = 1
                 carried.on_file_drag(carried.file_path)
                 self.last_x = x
                 self.last_y = y
+                return
+        panned: RenderBox | None = self.pan_box
+        if panned is not None:
+            pan_dx: float = x - self.down_x
+            pan_dy: float = y - self.down_y
+            pan_abs_x: float = pan_dx
+            pan_abs_y: float = pan_dy
+            if pan_abs_x < 0.0:
+                pan_abs_x = -pan_abs_x
+            if pan_abs_y < 0.0:
+                pan_abs_y = -pan_abs_y
+            if self.pan_won:
+                update_x: float = x - self.last_x
+                update_y: float = y - self.last_y
+                if panned.pan_axis == PAN_HORIZONTAL:
+                    update_y = 0.0
+                elif panned.pan_axis == PAN_VERTICAL:
+                    update_x = 0.0
+                panned.on_pan(update_x, update_y)
+                self.last_x = x
+                self.last_y = y
+                self.last_time = time_s
+                return
+            crossed: bool = pan_abs_x > TAP_SLOP or pan_abs_y > TAP_SLOP
+            axis_matches: bool = panned.pan_axis == PAN_FREE
+            if panned.pan_axis == PAN_HORIZONTAL and pan_abs_x >= pan_abs_y:
+                axis_matches = True
+            elif panned.pan_axis == PAN_VERTICAL and pan_abs_y >= pan_abs_x:
+                axis_matches = True
+            if crossed and axis_matches:
+                self.pan_won = True
+                self.rejected = True
+                self._reject_members()
+                first_x: float = x - self.last_x
+                first_y: float = y - self.last_y
+                if panned.pan_axis == PAN_HORIZONTAL:
+                    first_y = 0.0
+                elif panned.pan_axis == PAN_VERTICAL:
+                    first_x = 0.0
+                panned.on_pan(first_x, first_y)
+                self.last_x = x
+                self.last_y = y
+                self.last_time = time_s
                 return
         dx: float = x - self.down_x
         dy: float = y - self.down_y
@@ -209,6 +321,7 @@ class GestureArena:
             dy = -dy
         if dx > TAP_SLOP or dy > TAP_SLOP:
             self.rejected = True
+            self._reject_members()
             if self.scroll_box is not None:
                 self.scroll_won = True
                 self._sample(y, time_s)
@@ -218,6 +331,9 @@ class GestureArena:
         if not self.tracking:
             return
         self.pointer_move(x, y, time_s)
+        held: RenderBox | None = self.thumb_box
+        if held is not None:
+            held.release_thumb()
         scrolled: RenderBox | None = self.scroll_box
         if self.scroll_won and scrolled is not None:
             self.fling_host = scrolled.host_id
@@ -228,12 +344,16 @@ class GestureArena:
                     chosen.on_secondary(x, y)
                     self.winner_count = 1
         elif not self.rejected and len(self.members) > 0:
-            self.members[0].accept()
-            self.winner_count = 1
+            if self.double_tap_box is not None:
+                self.tap_ready = True
+            else:
+                self.members[0].accept()
+                self.winner_count = 1
         self.tracking = False
         self.secondary_box = None
         self.scroll_won = False
         self.scroll_box = None
+        self.scroll_boxes = []
         self.thumb_box = None
         self.text_box = None
         self.text_selecting = False
@@ -241,13 +361,20 @@ class GestureArena:
         self.drag_won = False
         self.file_box = None
         self.file_sent = 0
-        self.members = []
+        self.pan_won = False
+        self.scale_claimed = False
+        if not self.tap_ready:
+            self.members = []
 
     def pointer_cancel(self) -> None:
+        held: RenderBox | None = self.thumb_box
+        if held is not None:
+            held.release_thumb()
         self.tracking = False
         self.rejected = True
         self.scroll_won = False
         self.scroll_box = None
+        self.scroll_boxes = []
         self.thumb_box = None
         self.text_box = None
         self.text_selecting = False
@@ -256,7 +383,39 @@ class GestureArena:
         self.file_box = None
         self.file_sent = 0
         self.secondary_box = None
+        self.tap_box = None
+        self.double_tap_box = None
+        self.long_press_box = None
+        self.long_press_fired = False
+        self.pan_box = None
+        self.pan_won = False
+        self.scale_box = None
+        self.scale_claimed = False
+        self.tap_ready = False
+        self._reject_members()
         self.members = []
+
+    def tick(self, time_s: float) -> None:
+        if not self.tracking or self.rejected or self.long_press_fired:
+            return
+        target: RenderBox | None = self.long_press_box
+        if target is None:
+            return
+        if time_s - self.last_time < LONG_PRESS_TIMEOUT_S:
+            return
+        if not target.has_long_press or target.parent is None:
+            return
+        self.long_press_fired = True
+        self.rejected = True
+        self._reject_members()
+        target.on_long_press()
+
+    def _reject_members(self) -> None:
+        i: int = 0
+        while i < len(self.members):
+            if not self.members[i].accepted:
+                self.members[i].reject()
+            i = i + 1
 
     def pointer_scroll(self, root: RenderBox, dx: float, dy: float) -> None:
         self.down_x = dx
@@ -272,10 +431,258 @@ class GestureArena:
         self.last_time = time_s
 
     def _drag_scroll(self, x: float, y: float) -> None:
-        target: RenderBox | None = self.scroll_box
-        if target is None:
-            return
         delta: float = y - self.last_y
+        if delta == 0.0:
+            return
+        remaining: float = -delta
+        self.scroll_box = None
+        i: int = 0
+        while i < len(self.scroll_boxes) and has_scroll_remainder(remaining):
+            target: RenderBox = self.scroll_boxes[i]
+            before: float = remaining
+            if target.parent is not None:
+                remaining = target.consume_scroll(remaining)
+                if remaining != before:
+                    self.scroll_box = target
+            i = i + 1
         self.last_x = x
         self.last_y = y
-        target.scroll_by(-delta)
+
+
+class GestureArena:
+    sequences: list[GestureSequence]
+    tracking: bool
+    rejected: bool
+    member_count: int
+    winner_count: int
+    fling_host: int
+    fling_velocity: float
+    active_pointer_count: int
+    pending_tap_box: RenderBox | None
+    pending_double_box: RenderBox | None
+    pending_tap_time: float
+    pending_tap_x: float
+    pending_tap_y: float
+    has_pending_tap: bool
+    scale_box: RenderBox | None
+    scale_pointer_a: int
+    scale_pointer_b: int
+    scale_initial_distance: float
+    scale_active: bool
+
+    def __init__(self) -> None:
+        self.sequences = []
+        self.tracking = False
+        self.rejected = False
+        self.member_count = 0
+        self.winner_count = 0
+        self.fling_host = 0
+        self.fling_velocity = 0.0
+        self.active_pointer_count = 0
+        self.pending_tap_box = None
+        self.pending_double_box = None
+        self.pending_tap_time = 0.0
+        self.pending_tap_x = 0.0
+        self.pending_tap_y = 0.0
+        self.has_pending_tap = False
+        self.scale_box = None
+        self.scale_pointer_a = -1
+        self.scale_pointer_b = -1
+        self.scale_initial_distance = 0.0
+        self.scale_active = False
+
+    def _index_of(self, pointer_id: int) -> int:
+        i: int = 0
+        while i < len(self.sequences):
+            if self.sequences[i].pointer_id == pointer_id:
+                return i
+            i = i + 1
+        return -1
+
+    def _sync(self, sequence: GestureSequence) -> None:
+        self.rejected = sequence.rejected
+        self.member_count = sequence.member_count
+        self.winner_count = sequence.winner_count
+        self.fling_host = sequence.fling_host
+        self.fling_velocity = sequence.fling_velocity
+        self.active_pointer_count = len(self.sequences)
+        self.tracking = self.active_pointer_count > 0
+
+    def pointer_down(self, root: RenderBox, x: float, y: float, time_s: float = 0.0, button: int = 1, pointer_id: int = 0) -> None:
+        existing: int = self._index_of(pointer_id)
+        if existing >= 0:
+            self.sequences[existing].pointer_cancel()
+            self.sequences.pop(existing)
+        sequence: GestureSequence = GestureSequence(pointer_id)
+        sequence.pointer_down(root, x, y, time_s, button)
+        self.sequences.append(sequence)
+        self._try_begin_scale(sequence)
+        self._sync(sequence)
+
+    def pointer_move(self, x: float, y: float, time_s: float = 0.0, pointer_id: int = 0) -> None:
+        index: int = self._index_of(pointer_id)
+        if index < 0:
+            return
+        sequence: GestureSequence = self.sequences[index]
+        if self.scale_active and (pointer_id == self.scale_pointer_a or pointer_id == self.scale_pointer_b):
+            sequence.pointer_move(x, y, time_s)
+            self._update_scale()
+            self._sync(sequence)
+            return
+        sequence.pointer_move(x, y, time_s)
+        self._sync(sequence)
+
+    def pointer_up(self, x: float, y: float, time_s: float = 0.0, pointer_id: int = 0) -> None:
+        index: int = self._index_of(pointer_id)
+        if index < 0:
+            return
+        sequence: GestureSequence = self.sequences[index]
+        was_scale: bool = self.scale_active and (pointer_id == self.scale_pointer_a or pointer_id == self.scale_pointer_b)
+        sequence.pointer_up(x, y, time_s)
+        if sequence.tap_ready:
+            self._resolve_tap(sequence, x, y, time_s)
+        self.fling_host = sequence.fling_host
+        self.fling_velocity = sequence.fling_velocity
+        self.rejected = sequence.rejected
+        self.member_count = sequence.member_count
+        self.winner_count = sequence.winner_count
+        self.sequences.pop(index)
+        if was_scale:
+            self._end_scale()
+        self.active_pointer_count = len(self.sequences)
+        self.tracking = self.active_pointer_count > 0
+
+    def pointer_cancel(self, pointer_id: int = -1) -> None:
+        if pointer_id < 0:
+            i: int = 0
+            while i < len(self.sequences):
+                self.sequences[i].pointer_cancel()
+                i = i + 1
+            self.sequences = []
+            self._clear_pending_tap()
+            self._end_scale()
+        else:
+            index: int = self._index_of(pointer_id)
+            if index >= 0:
+                self.sequences[index].pointer_cancel()
+                self.sequences.pop(index)
+            if pointer_id == self.scale_pointer_a or pointer_id == self.scale_pointer_b:
+                self._end_scale()
+        self.active_pointer_count = len(self.sequences)
+        self.tracking = self.active_pointer_count > 0
+        self.rejected = True
+        if not self.tracking:
+            self.member_count = 0
+
+    def pointer_scroll(self, root: RenderBox, dx: float, dy: float) -> None:
+        found: RenderBox | None = root.find_scroll()
+        if found is not None:
+            found.scroll_by(dy)
+
+    def tick(self, time_s: float) -> None:
+        i: int = 0
+        while i < len(self.sequences):
+            self.sequences[i].tick(time_s)
+            i = i + 1
+        if self.has_pending_tap and time_s - self.pending_tap_time >= DOUBLE_TAP_TIMEOUT_S:
+            self._flush_pending_tap()
+
+    def _resolve_tap(self, sequence: GestureSequence, x: float, y: float, time_s: float) -> None:
+        double_target: RenderBox | None = sequence.double_tap_box
+        single_target: RenderBox | None = sequence.tap_box
+        matched: bool = False
+        pending_double: RenderBox | None = self.pending_double_box
+        same_double_target: bool = False
+        if double_target is not None and pending_double is not None:
+            same_double_target = pending_double.node_id == double_target.node_id
+        if self.has_pending_tap and double_target is not None and same_double_target:
+            dx: float = x - self.pending_tap_x
+            dy: float = y - self.pending_tap_y
+            if dx < 0.0:
+                dx = -dx
+            if dy < 0.0:
+                dy = -dy
+            if time_s - self.pending_tap_time <= DOUBLE_TAP_TIMEOUT_S and dx <= TAP_SLOP and dy <= TAP_SLOP:
+                matched = True
+        if matched and double_target is not None:
+            self._clear_pending_tap()
+            if double_target.has_double_tap and double_target.parent is not None:
+                double_target.on_double_tap()
+                sequence.winner_count = 1
+            sequence.members = []
+            return
+        if self.has_pending_tap:
+            self._flush_pending_tap()
+        self.pending_tap_box = single_target
+        self.pending_double_box = double_target
+        self.pending_tap_time = time_s
+        self.pending_tap_x = x
+        self.pending_tap_y = y
+        self.has_pending_tap = single_target is not None
+        sequence.members = []
+
+    def _flush_pending_tap(self) -> None:
+        target: RenderBox | None = self.pending_tap_box
+        self._clear_pending_tap()
+        if target is not None and target.has_tap and target.parent is not None:
+            target.on_tap()
+            self.winner_count = 1
+
+    def _clear_pending_tap(self) -> None:
+        self.pending_tap_box = None
+        self.pending_double_box = None
+        self.has_pending_tap = False
+
+    def _try_begin_scale(self, added: GestureSequence) -> None:
+        target: RenderBox | None = added.scale_box
+        if self.scale_active or target is None or added.button != 1:
+            return
+        i: int = 0
+        while i < len(self.sequences):
+            other: GestureSequence = self.sequences[i]
+            other_scale: RenderBox | None = other.scale_box
+            same_scale_target: bool = False
+            if other_scale is not None:
+                same_scale_target = other_scale.node_id == target.node_id
+            if other.pointer_id != added.pointer_id and same_scale_target and other.tracking and other.button == 1 and not other.rejected and not added.rejected:
+                dx: float = added.last_x - other.last_x
+                dy: float = added.last_y - other.last_y
+                distance: float = nox.mathx.sqrt(dx * dx + dy * dy)
+                if distance > 0.0001:
+                    self.scale_box = target
+                    self.scale_pointer_a = other.pointer_id
+                    self.scale_pointer_b = added.pointer_id
+                    self.scale_initial_distance = distance
+                    self.scale_active = True
+                    other.scale_claimed = True
+                    added.scale_claimed = True
+                    other.rejected = True
+                    added.rejected = True
+                    other._reject_members()
+                    added._reject_members()
+                    return
+            i = i + 1
+
+    def _update_scale(self) -> None:
+        if not self.scale_active:
+            return
+        first_index: int = self._index_of(self.scale_pointer_a)
+        second_index: int = self._index_of(self.scale_pointer_b)
+        target: RenderBox | None = self.scale_box
+        if first_index < 0 or second_index < 0 or target is None:
+            self._end_scale()
+            return
+        first: GestureSequence = self.sequences[first_index]
+        second: GestureSequence = self.sequences[second_index]
+        dx: float = second.last_x - first.last_x
+        dy: float = second.last_y - first.last_y
+        distance: float = nox.mathx.sqrt(dx * dx + dy * dy)
+        if self.scale_initial_distance > 0.0001 and target.has_scale and target.parent is not None:
+            target.on_scale(distance / self.scale_initial_distance)
+
+    def _end_scale(self) -> None:
+        self.scale_box = None
+        self.scale_pointer_a = -1
+        self.scale_pointer_b = -1
+        self.scale_initial_distance = 0.0
+        self.scale_active = False

@@ -61,6 +61,13 @@ class AnimationController(Ticker):
         self.animate_to(1.0, scheduler)
 
     def animate_to(self, target: float, scheduler: Scheduler) -> None:
+        if scheduler.reduce_motion != 0:
+            self.value = target
+            self.playing = False
+            self.has_start = False
+            if self.has_listener:
+                self.on_tick()
+            return
         if self.value == target and not self.playing:
             return
         self.from_v = self.value
@@ -89,6 +96,19 @@ class AnimationController(Ticker):
         self.value = self.from_v + (self.to_v - self.from_v) * curved
         if t >= 1.0:
             self.playing = False
+        if self.has_listener:
+            self.on_tick()
+
+    def rebase(self, delta_s: float) -> None:
+        if self.playing and self.has_start:
+            self.start_s = self.start_s + delta_s
+
+    def apply_reduce_motion(self) -> None:
+        if not self.playing:
+            return
+        self.value = self.to_v
+        self.playing = False
+        self.has_start = False
         if self.has_listener:
             self.on_tick()
 

@@ -1,0 +1,60 @@
+TEXT_INPUT_TEXT: int = 1
+TEXT_INPUT_EMAIL: int = 2
+TEXT_INPUT_URL: int = 3
+TEXT_INPUT_PHONE: int = 4
+TEXT_INPUT_NUMBER: int = 5
+
+TEXT_ACTION_NONE: int = 0
+TEXT_ACTION_DONE: int = 1
+TEXT_ACTION_GO: int = 2
+TEXT_ACTION_NEXT: int = 3
+TEXT_ACTION_SEARCH: int = 4
+TEXT_ACTION_SEND: int = 5
+TEXT_ACTION_NEWLINE: int = 6
+
+CAPITALIZATION_NONE: int = 0
+CAPITALIZATION_SENTENCES: int = 1
+CAPITALIZATION_WORDS: int = 2
+CAPITALIZATION_CHARACTERS: int = 3
+
+
+class TextInputConfiguration:
+    input_type: int
+    action: int
+    multiline: int
+    secure: int
+    autocorrect: int
+    capitalization: int
+    autofill_hints: list[str]
+
+    def __init__(self, input_type: int = 1, action: int = 0, multiline: int = 0, secure: int = 0, autocorrect: int = 1, capitalization: int = 0, autofill_hints: list[str] | None = None) -> None:
+        if input_type < TEXT_INPUT_TEXT or input_type > TEXT_INPUT_NUMBER:
+            raise ValueError("invalid text input type")
+        if action < TEXT_ACTION_NONE or action > TEXT_ACTION_NEWLINE:
+            raise ValueError("invalid text input action")
+        if capitalization < CAPITALIZATION_NONE or capitalization > CAPITALIZATION_CHARACTERS:
+            raise ValueError("invalid text capitalization")
+        self.input_type = input_type
+        self.action = action
+        self.multiline = 1 if multiline != 0 else 0
+        self.secure = 1 if secure != 0 else 0
+        self.autocorrect = 1 if autocorrect != 0 else 0
+        self.capitalization = capitalization
+        self.autofill_hints = []
+        if autofill_hints is not None:
+            i: int = 0
+            while i < len(autofill_hints):
+                hint: str = autofill_hints[i]
+                if hint != "":
+                    self.autofill_hints.append(hint)
+                i = i + 1
+
+    def autofill_payload(self) -> str:
+        value: str = ""
+        i: int = 0
+        while i < len(self.autofill_hints):
+            if i > 0:
+                value = value + "\n"
+            value = value + self.autofill_hints[i]
+            i = i + 1
+        return value

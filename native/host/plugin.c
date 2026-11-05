@@ -1,5 +1,6 @@
 #include "plugin.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -15,6 +16,8 @@ typedef void *AuraLib;
 typedef int64_t (*AuraProbeFrame)(int64_t, int64_t);
 typedef int64_t (*AuraProbeEvent)(int64_t, double, double);
 typedef int64_t (*AuraProbeClose)(void);
+
+extern int aura_storage_resolve_asset(const char *path, char *out, size_t out_len);
 
 #define AURA_MAX_PLUGINS 8
 
@@ -74,14 +77,27 @@ int64_t aura_plugin_load(const char *path) {
     if (slot < 0) {
         return 0;
     }
-    library = aura_lib_open(path);
+    {
+        char resolved[4096];
+        if (aura_storage_resolve_asset(path, resolved, sizeof(resolved)) == 0) {
+            library = aura_lib_open(resolved);
+        }
+    }
     if (library == NULL) {
+        library = aura_lib_open(path);
+    }
+    if (library == NULL) {
+#ifndef _WIN32
+        const char *reason = dlerror();
+        fprintf(stderr, "aura plugin load failed: %s (%s)\n", path, reason != NULL ? reason : "unknown");
+#endif
         return 0;
     }
     frame = (AuraProbeFrame)aura_symbol(library, "aura_plugin_probe_frame");
     event = (AuraProbeEvent)aura_symbol(library, "aura_plugin_probe_event");
     close_fn = (AuraProbeClose)aura_symbol(library, "aura_plugin_probe_close");
     if (frame == NULL || event == NULL || close_fn == NULL) {
+        fprintf(stderr, "aura plugin load failed: %s (missing probe export)\n", path);
         aura_lib_close(library);
         return 0;
     }

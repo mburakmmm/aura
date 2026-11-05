@@ -4,7 +4,7 @@ from aura.platform.mac_canvas import HostCanvas
 from aura.platform.bridge import create_window, destroy_window, extent_height, extent_scale, extent_width
 
 
-class MacSurface(Surface):
+class HostSurface(Surface):
     handle: int
 
     def __init__(self, handle: int, width: float, height: float, scale: float, canvas: Canvas) -> None:
@@ -18,11 +18,11 @@ class MacSurface(Surface):
         self.closed = True
 
 
-class MacGraphicsDevice(GraphicsDevice):
-    def open_surface(self, width: int, height: int, title: str, visible: int) -> MacSurface:
+class HostGraphicsDevice(GraphicsDevice):
+    def open_surface(self, width: int, height: int, title: str, visible: int) -> HostSurface:
         handle: int = create_window(width, height, title, visible)
         canvas: HostCanvas = HostCanvas(handle)
-        return MacSurface(handle, extent_width(handle), extent_height(handle), extent_scale(handle), canvas)
+        return HostSurface(handle, extent_width(handle), extent_height(handle), extent_scale(handle), canvas)
 
     def create_surface(self, width: int, height: int, title: str, visible: int) -> Surface:
         return self.open_surface(width, height, title, visible)

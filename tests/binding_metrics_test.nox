@@ -1,0 +1,46 @@
+import nox.test
+from aura.foundation.insets import EdgeInsets
+from aura.foundation.window_metrics import WindowMetrics, default_window_metrics
+from aura.layout import SizedBox
+from aura.runtime.binding import Binding
+from aura.widgets import BuildContext, StatelessWidget, Widget, window_metrics_of
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_BINDING_METRICS_READER: int = alloc_type_id()
+binding_width: float = 0.0
+binding_safe_top: float = 0.0
+binding_keyboard_bottom: float = 0.0
+binding_builds: int = 0
+
+
+class BindingMetricsReader(StatelessWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_BINDING_METRICS_READER, None)
+
+    def build(self, context: BuildContext) -> Widget:
+        metrics: WindowMetrics = window_metrics_of(context)
+        binding_width = metrics.logical_width
+        binding_safe_top = metrics.view_padding.top
+        binding_keyboard_bottom = metrics.view_insets.bottom
+        binding_builds = binding_builds + 1
+        return SizedBox(10.0, 10.0)
+
+
+binding: Binding = Binding(200, 100, "metrics-test", 0)
+nox.test.assert_true(not binding.pump.interactive_back_enabled, "desktop backend does not advertise iOS edge back")
+binding.mount(BindingMetricsReader())
+binding.frame()
+nox.test.assert_eq_float(binding_width, 200.0, "binding publishes initial metrics")
+nox.test.assert_eq_int(binding_builds, 1, "reader initially built once")
+
+changed: WindowMetrics = default_window_metrics(390.0, 844.0, 3.0, 2)
+changed.view_padding = EdgeInsets(0.0, 47.0, 0.0, 34.0)
+changed.view_insets = EdgeInsets(0.0, 0.0, 0.0, 301.0)
+binding._replace_metrics(changed)
+binding.frame()
+nox.test.assert_eq_float(binding_width, 390.0, "binding publishes changed width")
+nox.test.assert_eq_float(binding_safe_top, 47.0, "binding publishes safe area")
+nox.test.assert_eq_float(binding_keyboard_bottom, 301.0, "binding publishes keyboard inset")
+nox.test.assert_eq_int(binding_builds, 2, "only metrics dependent rebuilds")
+binding.close()
+print("binding metrics ok")

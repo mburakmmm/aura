@@ -1,4 +1,5 @@
 import nox.test
+from aura.text.grapheme import next_grapheme_boundary
 from aura.text.measure import TextLine, layout_lines, measure_width, wrap_text
 
 one: float = measure_width("alpha", 16.0, 400, "")
@@ -23,10 +24,33 @@ nox.test.assert_eq_int(paragraphs[2].start, 3, "second paragraph keeps its offse
 token: str = "MMMMMM"
 limit: float = measure_width("MM", 16.0, 400, "")
 pieces: list[str] = wrap_text(token, limit, 16.0, 400, "")
-nox.test.assert_eq_int(len(pieces), 3, "a wide word splits by character")
+nox.test.assert_eq_int(len(pieces), 3, "a wide word splits by grapheme")
 nox.test.assert_eq_str(pieces[0], "MM", "first piece fits")
 nox.test.assert_eq_str(pieces[1], "MM", "second piece fits")
 nox.test.assert_eq_str(pieces[2], "MM", "third piece fits")
+letters: list[str] = wrap_text("alpha", measure_width("a", 16.0, 400, ""), 16.0, 400, "")
+nox.test.assert_eq_int(len(letters), 5, "hyphenation is not inserted")
+nox.test.assert_eq_str(letters[0], "a", "overflow breaks at a grapheme")
+cluster: str = "éx"[0:2]
+clusters: str = cluster + cluster + cluster
+cluster_width: float = measure_width(cluster, 16.0, 400, "")
+cluster_lines: list[TextLine] = layout_lines(clusters, cluster_width, 16.0, 400, "")
+nox.test.assert_true(len(cluster_lines) > 1, "a combining sequence wraps")
+cluster_i: int = 0
+while cluster_i < len(cluster_lines):
+    nox.test.assert_eq_int(next_grapheme_boundary(cluster_lines[cluster_i].text, 0), len(cluster_lines[cluster_i].text), "a line keeps one grapheme")
+    cluster_i = cluster_i + 1
+intact: list[TextLine] = layout_lines(cluster, cluster_width / 4.0, 16.0, 400, "")
+nox.test.assert_eq_str(intact[0].text, cluster, "an overwide cluster stays intact")
+crlf: list[TextLine] = layout_lines("a\r\nb", 400.0, 16.0, 400, "")
+nox.test.assert_eq_int(len(crlf), 2, "crlf is one paragraph break")
+nox.test.assert_eq_str(crlf[0].text, "a", "cr is not part of the line")
+nox.test.assert_eq_str(crlf[1].text, "b", "text after crlf")
+nox.test.assert_eq_int(crlf[1].start, 3, "crlf consumes two units")
+cr_only: list[TextLine] = layout_lines("a\rb", 400.0, 16.0, 400, "")
+nox.test.assert_eq_int(len(cr_only), 2, "cr is a paragraph break")
+nox.test.assert_eq_str(cr_only[0].text, "a", "cr stays out of the line")
+nox.test.assert_eq_int(cr_only[1].start, 2, "cr consumes one unit")
 
 system_w: float = measure_width("MMMM", 32.0, 400, "")
 missing_w: float = measure_width("MMMM", 32.0, 400, "NoSuchAuraFontXYZ")

@@ -1,0 +1,14 @@
+WINDOW_CLASS_COMPACT: int = 0
+WINDOW_CLASS_REGULAR: int = 1
+WINDOW_CLASS_WIDE: int = 2
+
+WINDOW_REGULAR_MIN_WIDTH: float = 600.0
+WINDOW_WIDE_MIN_WIDTH: float = 840.0
+
+
+def window_class_for_width(width: float) -> int:
+    if width < WINDOW_REGULAR_MIN_WIDTH:
+        return WINDOW_CLASS_COMPACT
+    if width < WINDOW_WIDE_MIN_WIDTH:
+        return WINDOW_CLASS_REGULAR
+    return WINDOW_CLASS_WIDE

@@ -1,0 +1,94 @@
+from aura.core.diagnostics import FrameworkError
+
+ROUTE_STACK_VERSION: int = 1
+ROUTE_STACK_MAX_ROUTES: int = 256
+ROUTE_STACK_MAX_NAME: int = 4096
+_ROUTE_STACK_MAGIC: str = "AURA-RS:"
+
+
+class _ParsedNumber:
+    value: int
+    next_index: int
+
+    def __init__(self, value: int, next_index: int) -> None:
+        self.value = value
+        self.next_index = next_index
+
+
+class RouteStackSnapshot:
+    version: int
+    routes: list[str]
+
+    def __init__(self, version: int, routes: list[str]) -> None:
+        self.version = version
+        self.routes = routes
+
+    def encode(self) -> str:
+        if self.version != ROUTE_STACK_VERSION:
+            raise FrameworkError("unsupported route stack version")
+        _validate_routes(self.routes)
+        out: str = _ROUTE_STACK_MAGIC + str(self.version) + ":" + str(len(self.routes)) + ":"
+        i: int = 0
+        while i < len(self.routes):
+            route: str = self.routes[i]
+            out = out + str(len(route)) + ":" + route
+            i = i + 1
+        return out
+
+
+def decode_route_stack(encoded: str) -> RouteStackSnapshot:
+    if len(encoded) < len(_ROUTE_STACK_MAGIC) or encoded[0:len(_ROUTE_STACK_MAGIC)] != _ROUTE_STACK_MAGIC:
+        raise FrameworkError("invalid route stack magic")
+    cursor: int = len(_ROUTE_STACK_MAGIC)
+    parsed_version: _ParsedNumber = _read_number(encoded, cursor)
+    version: int = parsed_version.value
+    if version != ROUTE_STACK_VERSION:
+        raise FrameworkError("unsupported route stack version")
+    parsed_count: _ParsedNumber = _read_number(encoded, parsed_version.next_index)
+    count: int = parsed_count.value
+    if count < 1 or count > ROUTE_STACK_MAX_ROUTES:
+        raise FrameworkError("invalid route stack count")
+    cursor = parsed_count.next_index
+    routes: list[str] = []
+    i: int = 0
+    while i < count:
+        parsed_length: _ParsedNumber = _read_number(encoded, cursor)
+        length: int = parsed_length.value
+        if length < 1 or length > ROUTE_STACK_MAX_NAME:
+            raise FrameworkError("invalid route name length")
+        cursor = parsed_length.next_index
+        if cursor + length > len(encoded):
+            raise FrameworkError("truncated route stack")
+        routes.append(encoded[cursor:cursor + length])
+        cursor = cursor + length
+        i = i + 1
+    if cursor != len(encoded):
+        raise FrameworkError("trailing route stack data")
+    return RouteStackSnapshot(version, routes)
+
+
+def _read_number(encoded: str, start: int) -> _ParsedNumber:
+    if start < 0 or start >= len(encoded):
+        raise FrameworkError("truncated route stack number")
+    end: int = start
+    while end < len(encoded) and encoded[end:end + 1] != ":":
+        end = end + 1
+    if end == start or end >= len(encoded):
+        raise FrameworkError("invalid route stack number")
+    value: int = 0
+    try:
+        value = int(encoded[start:end])
+    except Exception as error:
+        raise FrameworkError("invalid route stack number")
+    return _ParsedNumber(value, end + 1)
+
+
+def _validate_routes(routes: list[str]) -> None:
+    if len(routes) < 1 or len(routes) > ROUTE_STACK_MAX_ROUTES:
+        raise FrameworkError("invalid route stack count")
+    i: int = 0
+    while i < len(routes):
+        length: int = len(routes[i])
+        if length < 1 or length > ROUTE_STACK_MAX_NAME:
+            raise FrameworkError("invalid route name length")
+        i = i + 1

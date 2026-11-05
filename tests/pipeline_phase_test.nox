@@ -1,0 +1,92 @@
+import nox.test
+from aura.core.diagnostics import FrameworkError
+from aura.graphics.canvas import Canvas
+from aura.layout.boxes import SizedBox
+from aura.rendering.layer import PaintingContext
+from aura.rendering.render_object import PipelineOwner, RenderBox
+from aura.testing.tester import WidgetTester
+from aura.widgets.framework import RenderObjectWidget
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_LAYOUT_AGAIN: int = alloc_type_id()
+TYPE_PAINT_DURING_LAYOUT: int = alloc_type_id()
+TYPE_LAYOUT_DURING_PAINT: int = alloc_type_id()
+TYPE_PAINT_AGAIN: int = alloc_type_id()
+
+
+class LayoutAgainBox(RenderBox):
+    def perform_layout(self) -> None:
+        pipeline: PipelineOwner | None = self.pipeline
+        if pipeline is not None:
+            pipeline.flush_layout()
+
+
+class LayoutAgain(RenderObjectWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_LAYOUT_AGAIN, None)
+
+    def create_render(self) -> RenderBox | None:
+        return LayoutAgainBox()
+
+
+class PaintDuringLayoutBox(RenderBox):
+    def perform_layout(self) -> None:
+        pipeline: PipelineOwner | None = self.pipeline
+        if pipeline is not None:
+            pipeline.flush_scene(Canvas())
+
+
+class PaintDuringLayout(RenderObjectWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_PAINT_DURING_LAYOUT, None)
+
+    def create_render(self) -> RenderBox | None:
+        return PaintDuringLayoutBox()
+
+
+class LayoutDuringPaintBox(RenderBox):
+    def paint_self(self, context: PaintingContext) -> None:
+        pipeline: PipelineOwner | None = self.pipeline
+        if pipeline is not None:
+            pipeline.flush_layout()
+
+
+class LayoutDuringPaint(RenderObjectWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_LAYOUT_DURING_PAINT, None)
+
+    def create_render(self) -> RenderBox | None:
+        return LayoutDuringPaintBox()
+
+
+class PaintAgainBox(RenderBox):
+    def paint_self(self, context: PaintingContext) -> None:
+        pipeline: PipelineOwner | None = self.pipeline
+        if pipeline is not None:
+            pipeline.flush_scene(Canvas())
+
+
+class PaintAgain(RenderObjectWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_PAINT_AGAIN, None)
+
+    def create_render(self) -> RenderBox | None:
+        return PaintAgainBox()
+
+
+def expect_transition(widget: RenderObjectWidget, message: str) -> None:
+    raised: int = 0
+    try:
+        WidgetTester().pump_widget(widget, 80.0, 40.0)
+    except FrameworkError as error:
+        raised = 1
+        nox.test.assert_eq_str(error.message, message, message)
+    nox.test.assert_eq_int(raised, 1, message)
+
+
+expect_transition(LayoutAgain(), "illegal pipeline transition: layout during layout")
+expect_transition(PaintDuringLayout(), "illegal pipeline transition: paint during layout")
+expect_transition(LayoutDuringPaint(), "illegal pipeline transition: layout during paint")
+expect_transition(PaintAgain(), "illegal pipeline transition: paint during paint")
+WidgetTester().pump_widget(SizedBox(12.0, 12.0, None, 1), 80.0, 40.0)
+print("pipeline phase ok")

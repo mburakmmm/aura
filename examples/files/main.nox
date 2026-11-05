@@ -1,12 +1,13 @@
 from aura.app import run_app
-from aura.files.listing import listing_has, listing_len
+from aura.files.listing import documents_root, listing_has, listing_len
+from aura.image.image import image_dispose
+from aura.input.clipboard import clipboard_get, clipboard_set
 from aura.input.drop import drop_path
 from aura.input.events import BUTTON_SECONDARY, EVENT_POINTER_DOWN, EVENT_POINTER_MOVE, EVENT_POINTER_UP
-from aura.platform.bridge import clipboard_get, clipboard_set, post_mouse, remove_empty_dir
-from aura.platform.macos import image_dispose
 from aura.rendering.render_object import RenderBox
 from aura.runtime.binding import Binding
 from aura.runtime.host import AppHost, bind_host
+from aura.testing.host import post_mouse, remove_empty_dir
 from aura.testing.tester import WidgetTester
 from aura.text.measure import measure_width
 from aura.text.rich import RichText, TextRun
@@ -305,7 +306,7 @@ def self_check() -> None:
         wait_until_gone(host, "anchor.txt")
         if find_label(binding.pump.view, "nested.txt") is None:
             fail("nested file was not shown")
-        click(host, binding, require_box(find_label(binding.pump.view, ".."), "parent"))
+        click(host, binding, require_box(find_label(binding.pump.view, "Back"), "parent"))
         wait_for(host, "anchor.txt")
         wait_until_gone(host, "nested.txt")
         note: RenderBox = require_box(find_label(binding.pump.view, "note.md"), "note")
@@ -390,7 +391,22 @@ def wants_self_check() -> bool:
     return False
 
 
+def browser_root() -> str:
+    root: str = documents_root()
+    folder: str = ""
+    if root == "":
+        return "."
+    folder = join(root, "notes")
+    if exists(join(root, "welcome.md")) != True:
+        write_string(join(root, "welcome.md"), "# Welcome\n\nFiles keeps this note in the app folder.\n")
+    if exists(folder) != True:
+        create_dir(folder)
+    if exists(join(folder, "hello.md")) != True:
+        write_string(join(folder, "hello.md"), "Hello\n")
+    return root
+
+
 if wants_self_check():
     self_check()
 else:
-    run_app(FilesPage("."), "Files")
+    run_app(FilesPage(browser_root()), "Files")

@@ -1,4 +1,5 @@
 #include "paint.h"
+#include "storage.h"
 
 #include "include/codec/SkJpegDecoder.h"
 #include "include/codec/SkPngDecoder.h"
@@ -63,7 +64,11 @@ void ensure_font(void) {
         return;
     }
     g_font_ready = 1;
-    data = SkData::MakeFromFileName("native/fonts/NotoSans-Regular.ttf");
+    char font_path[4096];
+    if (aura_storage_resolve_asset("native/fonts/NotoSans-Regular.ttf", font_path, sizeof(font_path)) != 0) {
+        return;
+    }
+    data = SkData::MakeFromFileName(font_path);
     if (!data) {
         return;
     }
@@ -574,6 +579,15 @@ extern "C" int64_t aura_paint_stride(void) {
     return static_cast<int64_t>(pixmap.rowBytes());
 }
 
+double logical_text_width(const SkFont &font, const char *text) {
+    double scale = logical_scale();
+    double width = static_cast<double>(font.measureText(text, std::strlen(text), SkTextEncoding::kUTF8));
+    if (scale <= 0.0) {
+        return width;
+    }
+    return width / scale;
+}
+
 extern "C" double aura_text_width(const char *text, double size, int64_t weight, const char *family) {
     SkFont font;
     (void)family;
@@ -585,8 +599,7 @@ extern "C" double aura_text_width(const char *text, double size, int64_t weight,
         return 0.0;
     }
     font = make_font(size, weight);
-    font.setSize(static_cast<float>(size));
-    return static_cast<double>(font.measureText(text, std::strlen(text), SkTextEncoding::kUTF8));
+    return logical_text_width(font, text);
 }
 
 extern "C" double aura_text_width_style(const char *text, double size, int64_t weight, const char *family, int64_t italic) {
@@ -600,8 +613,7 @@ extern "C" double aura_text_width_style(const char *text, double size, int64_t w
         return 0.0;
     }
     font = make_font_style(size, weight, italic);
-    font.setSize(static_cast<float>(size));
-    return static_cast<double>(font.measureText(text, std::strlen(text), SkTextEncoding::kUTF8));
+    return logical_text_width(font, text);
 }
 
 extern "C" double aura_text_height(double size, int64_t weight, const char *family) {
@@ -614,21 +626,21 @@ extern "C" double aura_text_height(double size, int64_t weight, const char *fami
         return size;
     }
     font = make_font(size, weight);
-    font.setSize(static_cast<float>(size));
     font.getMetrics(&metrics);
     height = metrics.fDescent - metrics.fAscent + metrics.fLeading;
     if (height < 1.0f) {
         return size;
     }
-    return static_cast<double>(height);
+    return static_cast<double>(height) / logical_scale();
 }
 
 extern "C" int64_t aura_image_open_file(const char *path) {
+    char resolved[4096];
     sk_sp<SkData> data;
-    if (path == nullptr) {
+    if (path == nullptr || aura_storage_resolve_asset(path, resolved, sizeof(resolved)) != 0) {
         return 0;
     }
-    data = SkData::MakeFromFileName(path);
+    data = SkData::MakeFromFileName(resolved);
     return store_codec(decode_data(data));
 }
 

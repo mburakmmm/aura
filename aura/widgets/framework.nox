@@ -5,6 +5,7 @@ from aura.rendering.painter import Painter
 from aura.rendering.render_object import PipelineOwner, RenderBox
 from aura.widgets.key import KEY_GLOBAL, Key
 from aura.widgets.scheduler import Scheduler
+from aura.widgets.platform_route import PlatformRouteRequest
 
 _next_element_id: int = 1
 
@@ -55,6 +56,9 @@ class Widget:
         pass
 
     def publish_inherited(self, element: Element) -> None:
+        pass
+
+    def _unpublish_inherited(self, element: Element) -> None:
         pass
 
     def answer(self, ask: ScopeAsk) -> None:
@@ -496,8 +500,86 @@ class Element:
     def pop_entry(self) -> None:
         pass
 
+    def push_entry_with_back(self, page: Widget, on_back: () -> None) -> None:
+        pass
+
+    def system_pop_entry(self) -> int:
+        return 0
+
+    def handle_system_overlay_back(self) -> int:
+        i: int = len(self.children) - 1
+        while i >= 0:
+            if self.children[i].handle_system_overlay_back() == 1:
+                return 1
+            i = i - 1
+        return 0
+
+    def handle_system_route_back(self) -> int:
+        i: int = len(self.children) - 1
+        while i >= 0:
+            if self.children[i].handle_system_route_back() == 1:
+                return 1
+            i = i - 1
+        return 0
+
+    def can_begin_interactive_route(self) -> int:
+        i: int = len(self.children) - 1
+        while i >= 0:
+            if self.children[i].can_begin_interactive_route() == 1:
+                return 1
+            i = i - 1
+        return 0
+
+    def begin_interactive_route(self) -> int:
+        i: int = len(self.children) - 1
+        while i >= 0:
+            if self.children[i].begin_interactive_route() == 1:
+                return 1
+            i = i - 1
+        return 0
+
+    def update_interactive_route(self, progress: float) -> int:
+        i: int = len(self.children) - 1
+        while i >= 0:
+            if self.children[i].update_interactive_route(progress) == 1:
+                return 1
+            i = i - 1
+        return 0
+
+    def finish_interactive_route(self, commit: int) -> int:
+        i: int = len(self.children) - 1
+        while i >= 0:
+            if self.children[i].finish_interactive_route(commit) == 1:
+                return 1
+            i = i - 1
+        return 0
+
+    def handle_platform_route(self, request: PlatformRouteRequest) -> int:
+        i: int = len(self.children) - 1
+        while i >= 0:
+            if self.children[i].handle_platform_route(request) == 1:
+                return 1
+            i = i - 1
+        return 0
+
+    def set_platform_route_resolver(self, resolver: (PlatformRouteRequest) -> Widget | None) -> None:
+        pass
+
+    def restoration_active(self) -> int:
+        return 0
+
+    def set_restoration(self, resolver: (str) -> Widget | None, enabled: int) -> None:
+        pass
+
+    def restore_encoded(self, encoded: str) -> int:
+        return 0
+
     def entry_count(self) -> int:
         return 0
+
+    def route_names(self) -> list[str]:
+        empty: list[str] = []
+        return empty
 
     def note_signal(self, reactive_id: int) -> None:
         i: int = 0
@@ -526,6 +608,9 @@ class Element:
     def unmount(self) -> None:
         if self.unmounted:
             return
+        widget: Widget | None = self.widget
+        if widget is not None:
+            widget._unpublish_inherited(self)
         self.drop_signals()
         self._unlink_dependents()
         self.unmounted = True
@@ -717,6 +802,12 @@ class Element:
         box.semantics_role = "text"
         box.semantics_label = value
 
+    def apply_heading(self, heading: int) -> None:
+        box: RenderBox | None = self.render
+        if box is None:
+            return
+        box.set_heading(heading)
+
     def apply_rich(self, texts: list[str], sizes: list[float], weights: list[int], italics: list[int], colors: list[int]) -> None:
         box: RenderBox | None = self.render
         label: str = ""
@@ -837,11 +928,11 @@ class Element:
             raise FrameworkError("transform has no render object")
         box.set_translation(x, y)
 
-    def apply_flex(self, axis: int, main_align: int, cross_align: int, main_size: int, spacing: float) -> None:
+    def apply_flex(self, axis: int, main_align: int, cross_align: int, main_size: int, spacing: float, reverse: int) -> None:
         box: RenderBox | None = self.render
         if box is None:
             raise FrameworkError("flex has no render object")
-        box.set_flex_style(axis, main_align, cross_align, main_size, spacing)
+        box.set_flex_style(axis, main_align, cross_align, main_size, spacing, reverse)
 
     def remember_press(self, handler: () -> None) -> None:
         self.press = handler
@@ -869,6 +960,20 @@ class Element:
         node: FocusNode | None = self.focus_node
         if manager is not None and node is not None:
             manager.focus(node)
+
+    def sync_focus_geometry(self) -> None:
+        node: FocusNode | None = self.focus_node
+        box: RenderBox | None = self.render
+        manager: FocusManager | None = self.focus_manager
+        if node is not None and box is not None and manager is not None:
+            manager.update_bounds(node, box.absolute_x(), box.absolute_y(), box.width, box.height)
+            focused: FocusNode | None = manager.focused
+            if focused is not None and focused.node_id == node.node_id and node.insert_target != 0:
+                box.sync_text_geometry()
+        i: int = 0
+        while i < len(self.children):
+            self.children[i].sync_focus_geometry()
+            i = i + 1
 
     def press_and_focus(self) -> None:
         self.take_focus()

@@ -1,22 +1,23 @@
 from aura.controls.button import BUTTON_ALIGN_START, Button
 from aura.controls.drop_target import DropSurface, DropTarget
-from aura.foundation.color import COLOR_ACCENT, COLOR_FIELD, COLOR_TEXT
+from aura.foundation.color import COLOR_ACCENT, COLOR_FIELD, COLOR_TEXT, rgb
 from aura.foundation.insets import insets_all, insets_symmetric
-from aura.image.image import Image
+from aura.image.image import Image, open_image_file
+from aura.input.clipboard import clipboard_set
 from aura.input.drop import DropController, drop_handle, set_drop_listener
-from aura.layout import Center, ColoredBox, Column, Expanded, Padding, Row, SizedBox
+from aura.input.file_drag import drag_file
+from aura.layout import Center, ColoredBox, Column, Expanded, Padding, Row, SafeArea, SizedBox
 from aura.layout.flex import CROSS_STRETCH, MAIN_MIN
-from aura.platform.bridge import clipboard_set, drag_file
 from aura.layout.scrollbar import Scrollbar
 from aura.layout.virtual_list import ItemSource, ScrollController, VirtualList
 from aura.files.listing import bind_listing, entry_count, entry_label, listing_current, listing_revision, listing_root, listing_status, set_listing_root, start_listing
-from aura.platform.macos import open_image_file
 from aura.runtime.host import WindowController
 from aura.text import Text
 from aura.text.measure import measure_height
 from aura.text.rich import RichText, rich_height
 from examples.files.markdown import parse_markdown_line
 from aura.widgets import BuildContext, Element, State, StatefulWidget, StatelessWidget, Widget
+from aura.widgets.framework import dirty_element_id
 from aura.widgets.overlay import MenuItem, Overlay, show_menu
 from aura.widgets.key import IntValueKey
 from aura.widgets.type_ids import alloc_type_id
@@ -28,12 +29,26 @@ TYPE_ROW: int = alloc_type_id()
 TYPE_PREVIEW: int = alloc_type_id()
 TYPE_NOTE: int = alloc_type_id()
 ROW_EXTENT: float = 56.0
+PICTURE_EDGE: float = 160.0
+PAGE_INK: int = rgb(28, 27, 25)
 last_drag: str = ""
 
 preview_visible: int = 1
 preview_handle: int = 0
 preview_owned: int = 0
 files_drop_id: int = 0
+files_element: int = 0
+blocked_name: str = ""
+
+
+def block_open(name: str) -> None:
+    blocked_name = name
+    if files_element != 0:
+        dirty_element_id(files_element)
+
+
+def clear_block() -> None:
+    blocked_name = ""
 
 
 def hide_preview() -> None:
@@ -123,6 +138,10 @@ def drag_named(path: str) -> None:
     drag_file(path)
 
 
+def close_reader() -> None:
+    WindowController().close_front()
+
+
 def open_text(path: str) -> None:
     body: str = ""
     if path == "":
@@ -151,22 +170,30 @@ def open_named(name: str) -> None:
         parent = dirname(listing_current())
         if parent != listing_root() and _inside(parent) == 0:
             return
+        clear_block()
         start_listing(parent)
         return
     path = join(listing_current(), name)
     if is_dir(path):
         if _inside(path) == 0:
+            block_open(name)
             return
+        clear_block()
         start_listing(path)
         return
     if _is_image(name) == 1:
         handle = open_image_file(path)
         if handle == 0:
+            block_open(name)
             return
+        clear_block()
         show_preview(handle, 1)
         return
     if _is_text(name) == 1:
+        clear_block()
         open_text(path)
+        return
+    block_open(name)
 
 
 class FilePreview(StatelessWidget):
@@ -177,7 +204,11 @@ class FilePreview(StatelessWidget):
         self.handle = handle
 
     def build(self, context: BuildContext) -> Widget:
-        return Center(Image(self.handle))
+        return SafeArea(Column([
+            Text("Preview", font_size=28.0, color=PAGE_INK),
+            Expanded(Center(SizedBox(PICTURE_EDGE, PICTURE_EDGE, Image(self.handle)))),
+            Button("Close", close_reader),
+        ], spacing=16.0, cross_align=CROSS_STRETCH), minimum=insets_all(24.0))
 
 
 def _note_lines(body: str) -> list[str]:
@@ -201,7 +232,7 @@ class NoteSource(ItemSource):
         return len(self.lines)
 
     def widget_at(self, index: int) -> Widget:
-        return Padding(insets_symmetric(16.0, 0.0), RichText(parse_markdown_line(self.lines[index], COLOR_TEXT)))
+        return Padding(insets_symmetric(16.0, 0.0), RichText(parse_markdown_line(self.lines[index], PAGE_INK)))
 
     def extent_at(self, index: int, width: float) -> float:
         inner: float = width
@@ -209,7 +240,7 @@ class NoteSource(ItemSource):
             return 0.0
         if width > 32.0:
             inner = width - 32.0
-        return rich_height(parse_markdown_line(self.lines[index], COLOR_TEXT), inner) + 6.0
+        return rich_height(parse_markdown_line(self.lines[index], PAGE_INK), inner) + 6.0
 
 
 class NoteState(State):
@@ -222,10 +253,14 @@ class NoteState(State):
         self.listing = VirtualList(NoteSource(""), 32.0, self.scroll)
 
     def build(self, context: BuildContext) -> Widget:
-        return Padding(insets_all(12.0), Row([
-            Expanded(self.listing),
-            Scrollbar(self.scroll),
-        ], cross_align=CROSS_STRETCH))
+        return SafeArea(Column([
+            Text("Note", font_size=28.0, color=PAGE_INK),
+            Expanded(Row([
+                Expanded(self.listing),
+                Scrollbar(self.scroll),
+            ], cross_align=CROSS_STRETCH)),
+            Button("Close", close_reader),
+        ], spacing=16.0, cross_align=CROSS_STRETCH), minimum=insets_all(24.0))
 
 
 class NotePage(StatefulWidget):
@@ -296,8 +331,11 @@ class FileRowState(State):
 
     def build(self, context: BuildContext) -> Widget:
         label: str = entry_label(self.index)
+        shown: str = label
+        if label == "..":
+            shown = "Back"
         return Column([
-            Button(label, self.activate, color=_entry_ink(label), background=COLOR_FIELD, text_align=BUTTON_ALIGN_START).with_secondary(self.open_menu).with_file(self.file_path(), drag_named),
+            Button(shown, self.activate, color=_entry_ink(label), background=COLOR_FIELD, text_align=BUTTON_ALIGN_START).with_secondary(self.open_menu).with_file(self.file_path(), drag_named),
         ], cross_align=CROSS_STRETCH, main_size=MAIN_MIN)
 
 
@@ -333,6 +371,7 @@ class FilesState(State):
         element: Element | None = self.element
         if element is None:
             return
+        files_element = element.element_id
         bind_listing(element.element_id)
         files_drop_id = self.drop.drop_id
         set_drop_listener(self.drop.drop_id, self.on_dropped)
@@ -359,15 +398,27 @@ class FilesState(State):
         self.notice = _leaf(path)
         self.invalidate()
 
+    def go_up(self) -> None:
+        open_named("..")
+        self.invalidate()
+
     def build(self, context: BuildContext) -> Widget:
         rows: list[Widget] = []
         label: str = "Drop a file"
+        away: int = 0
         if self.notice != "":
             label = self.notice
-        rows.append(Text("Files", font_size=28.0, color=COLOR_TEXT))
+        elif blocked_name != "":
+            label = "Could not open " + blocked_name
+        rows.append(Text("Files", font_size=28.0, color=PAGE_INK))
         rows.append(SizedBox(None, 10.0))
         rows.append(ColoredBox(COLOR_FIELD, Padding(insets_symmetric(14.0, 10.0), Text(listing_current(), color=COLOR_TEXT))))
         rows.append(SizedBox(None, 12.0))
+        if listing_current() != listing_root():
+            away = 1
+        if away == 1:
+            rows.append(Button("Back", self.go_up))
+            rows.append(SizedBox(None, 12.0))
         if listing_status() == 2:
             rows.append(Text("Could not read this folder.", color=COLOR_ACCENT))
             rows.append(SizedBox(None, 8.0))
@@ -377,7 +428,7 @@ class FilesState(State):
         ], cross_align=CROSS_STRETCH)))
         rows.append(SizedBox(None, 12.0))
         rows.append(SizedBox(None, 64.0, DropTarget(self.drop, _drop_face(label))))
-        return DropSurface(self.drop, Overlay(Padding(insets_all(20.0), Column(rows, cross_align=CROSS_STRETCH))))
+        return DropSurface(self.drop, Overlay(SafeArea(Column(rows, cross_align=CROSS_STRETCH), minimum=insets_all(24.0))))
 
 
 class FilesPage(StatefulWidget):

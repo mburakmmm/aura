@@ -1,0 +1,48 @@
+# Aura logical keys use USB HID keyboard usage values. Text is delivered by
+# TEXT/IME events and must not be synthesized from these codes.
+KEY_A: int = 4
+KEY_C: int = 6
+KEY_V: int = 25
+KEY_X: int = 27
+KEY_Z: int = 29
+KEY_ENTER: int = 40
+KEY_ESCAPE: int = 41
+KEY_BACKSPACE: int = 42
+KEY_TAB: int = 43
+KEY_SPACE: int = 44
+KEY_HOME: int = 74
+KEY_DELETE: int = 76
+KEY_END: int = 77
+KEY_RIGHT: int = 79
+KEY_LEFT: int = 80
+KEY_DOWN: int = 81
+KEY_UP: int = 82
+
+MOD_META: int = 1
+MOD_SHIFT: int = 2
+MOD_CONTROL: int = 4
+MOD_ALT: int = 8
+
+DIRECTION_NONE: int = 0
+DIRECTION_LEFT: int = 1
+DIRECTION_RIGHT: int = 2
+DIRECTION_UP: int = 3
+DIRECTION_DOWN: int = 4
+
+
+def traversal_direction(code: int) -> int:
+    if code == KEY_LEFT or code == 123:
+        return DIRECTION_LEFT
+    if code == KEY_RIGHT or code == 124:
+        return DIRECTION_RIGHT
+    if code == KEY_UP or code == 126:
+        return DIRECTION_UP
+    if code == KEY_DOWN or code == 125:
+        return DIRECTION_DOWN
+    return DIRECTION_NONE
+
+
+def is_tab(code: int) -> bool:
+    # 48 is the legacy macOS raw keyCode, 9 is Win32 VK_TAB, and 15 is the
+    # Linux evdev Tab code. Mobile adapters always emit KEY_TAB.
+    return code == KEY_TAB or code == 48 or code == 9 or code == 15

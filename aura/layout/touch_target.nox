@@ -1,0 +1,25 @@
+from aura.core.mode import MODE_DEBUG, current_mode
+
+MIN_TOUCH_TARGET: float = 44.0
+
+_warnings: int = 0
+_reported: list[int] = []
+
+
+def touch_target_warning_count() -> int:
+    return _warnings
+
+
+def note_touch_target(node_id: int, width: float, height: float) -> None:
+    if current_mode() != MODE_DEBUG:
+        return
+    if width >= MIN_TOUCH_TARGET and height >= MIN_TOUCH_TARGET:
+        return
+    i: int = 0
+    while i < len(_reported):
+        if _reported[i] == node_id:
+            return
+        i = i + 1
+    _reported.append(node_id)
+    _warnings = _warnings + 1
+    print("touch target is below 44 logical pixels")

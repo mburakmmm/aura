@@ -1,4 +1,4 @@
-from aura.platform.bridge import listing_lock, listing_name_byte, listing_name_count, listing_name_len, listing_result_generation, listing_result_status, listing_submit, listing_unlock
+from aura.platform.bridge import documents_dir, listing_lock, listing_name_byte, listing_name_count, listing_name_len, listing_result_generation, listing_result_status, listing_submit, listing_unlock
 from aura.widgets.framework import dirty_element_id
 
 _listing_names: list[str] = []
@@ -27,6 +27,10 @@ def set_listing_root(path: str) -> None:
 
 def listing_root() -> str:
     return _root
+
+
+def documents_root() -> str:
+    return documents_dir()
 
 
 def listing_current() -> str:

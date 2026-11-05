@@ -6,7 +6,7 @@ from aura.layout.boxes import SizedBox
 from aura.layout.flex import Expanded, Row
 from aura.layout.repaint import RepaintBoundary
 from aura.layout.scrollbar import Scrollbar
-from aura.layout.virtual_list import ItemSource, ScrollController, VirtualList
+from aura.layout.virtual_list import Fling, ItemSource, ScrollController, ViewportMetrics, VirtualList, register_host
 from aura.rendering.render_object import RenderBox
 from aura.testing.tester import WidgetTester
 from aura.widgets import Element, RenderObjectWidget, Widget
@@ -27,6 +27,17 @@ class Visit(RenderObjectWidget):
 
     def create_render(self) -> RenderBox | None:
         return VisitBox()
+
+
+class Hole(ItemSource):
+    def count(self) -> int:
+        return 1
+
+    def widget_at(self, index: int) -> Widget:
+        return Visit()
+
+    def extent_at(self, index: int, width: float) -> float:
+        return 420.0
 
 
 class Many(ItemSource):
@@ -113,6 +124,44 @@ def require_root(tester: WidgetTester) -> Element:
     if root is None:
         raise Exception("missing root")
     return root
+
+
+def near(left: float, right: float, tolerance: float) -> bool:
+    difference: float = left - right
+    if difference < 0.0:
+        difference = -difference
+    return difference <= tolerance
+
+
+def fling_distance(samples: int, hz: float) -> float:
+    controller: ScrollController = ScrollController()
+    metrics: ViewportMetrics = ViewportMetrics()
+    host_id: int = register_host(controller, metrics)
+    controller.note_content(100.0, 10000.0)
+    fling: Fling = Fling()
+    fling.host_id = host_id
+    fling.velocity = 240.0
+    fling.last_time = 0.0
+    i: int = 1
+    while i <= samples:
+        fling.tick(float(i) / hz)
+        i = i + 1
+    return controller.position.pixels
+
+
+consume_controller: ScrollController = ScrollController()
+consume_controller.note_content(100.0, 130.0)
+forward_remainder: float = consume_controller.consume(50.0)
+nox.test.assert_eq_float(consume_controller.position.pixels, 30.0, "scroll consumption clamps at max extent")
+nox.test.assert_eq_float(forward_remainder, 20.0, "scroll consumption returns forward remainder")
+reverse_remainder: float = consume_controller.consume(-40.0)
+nox.test.assert_eq_float(consume_controller.position.pixels, 0.0, "reverse consumption clamps at min extent")
+nox.test.assert_eq_float(reverse_remainder, -10.0, "scroll consumption returns reverse remainder")
+fling_60: float = fling_distance(12, 60.0)
+fling_90: float = fling_distance(18, 90.0)
+fling_120: float = fling_distance(24, 120.0)
+nox.test.assert_true(near(fling_60, fling_90, 0.001), "fling distance is equivalent at 60 and 90 Hz")
+nox.test.assert_true(near(fling_90, fling_120, 0.001), "fling distance is equivalent at 90 and 120 Hz")
 
 
 def child_at(element: Element, index: int) -> Element:
@@ -218,12 +267,18 @@ bar: WidgetTester = WidgetTester()
 bar.pump_widget(Row([Expanded(bar_list), Scrollbar(bar_controller, Visit())]), 160.0, 400.0)
 bar.pump_frame()
 marker: RenderBox = require_box(bar.view().find_tag(21), "bar child")
+nox.test.assert_true(thumb_y(bar) < 0.0, "scrollbar stays hidden until the list moves")
+bar_controller.jump(24.0)
+bar.pump_frame()
 resting: float = thumb_y(bar)
 nox.test.assert_true(resting >= 0.0, "scrollbar paints a thumb")
 bar_controller.jump(bar_controller.position.max_pixels)
 bar.pump_frame()
 nox.test.assert_true(thumb_y(bar) > resting, "thumb follows the scroll position")
 nox.test.assert_eq_int(marker.paint_visit_count, 1, "scrollbar keeps its child cached")
+bar.pump.frame_time = 2.0
+bar.pump_frame()
+nox.test.assert_true(thumb_y(bar) < 0.0, "scrollbar hides after scrolling stops")
 
 fit_controller: ScrollController = ScrollController()
 fit_list: VirtualList = VirtualList(Few(), 20.0, fit_controller)
@@ -239,12 +294,17 @@ drag_list: VirtualList = VirtualList(Many(), 20.0, drag_controller)
 drag: WidgetTester = WidgetTester()
 drag.pump_widget(Row([Expanded(drag_list), Scrollbar(drag_controller)]), 160.0, 400.0)
 drag.pump_frame()
+drag.pump.pointer_down(20.0, 200.0)
+drag.pump.pointer_move(20.0, 80.0)
+drag.pump.pointer_up(20.0, 80.0)
+drag.pump_frame()
 handle: RenderBox = require_box(drag.view().find_role("scrollbar"), "drag bar")
 grip_y: float = handle.absolute_y() + 8.0
-drag.pump.pointer_down(handle.absolute_x() + 4.0, grip_y)
-drag.pump.pointer_move(handle.absolute_x() + 4.0, grip_y + 80.0)
+before_thumb: float = drag_controller.position.pixels
+drag.pump.pointer_down(handle.absolute_x() + handle.width - 4.0, grip_y)
+drag.pump.pointer_move(handle.absolute_x() + handle.width - 4.0, grip_y + 80.0)
 drag.pump_frame()
-nox.test.assert_true(drag_controller.position.pixels > 20.0, "thumb drag scrolls the list")
+nox.test.assert_true(drag_controller.position.pixels > before_thumb + 20.0, "thumb drag scrolls the list")
 nox.test.assert_true(thumb_y(drag) > 0.0, "thumb follows the drag")
 
 coast: VirtualList = VirtualList(Many(), 20.0)
@@ -276,4 +336,13 @@ short_h: float = slot_height(uneven_view, 0)
 tall_h: float = slot_height(uneven_view, 1)
 nox.test.assert_true(short_h > 0.0, "short row is mounted")
 nox.test.assert_true(tall_h > short_h, "wrapped row is taller")
+
+hole: VirtualList = VirtualList(Hole(), 40.0)
+hole_rows: WidgetTester = WidgetTester()
+hole_rows.pump_widget(hole, 160.0, 180.0)
+hole_rows.pump_frame()
+hole_rows.pump.pointer_down(24.0, 90.0)
+hole_rows.pump.pointer_move(24.0, 30.0)
+hole_rows.pump_frame()
+nox.test.assert_true(hole.controller.position.pixels > 20.0, "drag on empty scroll content moves the list")
 print("scroll ok")

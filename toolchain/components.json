@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "components": [
+    {
+      "name": "Nox",
+      "version": "2.0.0",
+      "license": "NOASSERTION",
+      "note": "Aura does not vendor Nox. The license is the Nox repository license."
+    },
+    {
+      "name": "Skia",
+      "version": "m151",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "name": "cpu-features",
+      "version": "skia-m151",
+      "license": "BSD-2-Clause"
+    },
+    {
+      "name": "freetype",
+      "version": "skia-m151",
+      "license": "FTL"
+    },
+    {
+      "name": "libjpeg",
+      "version": "skia-m151",
+      "license": "NOASSERTION",
+      "note": "Linked as libjpeg.a from the Skia m151 build. The exact upstream license is the one Skia vendors at that milestone."
+    },
+    {
+      "name": "libpng",
+      "version": "skia-m151",
+      "license": "Libpng"
+    },
+    {
+      "name": "libwebp",
+      "version": "skia-m151",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "name": "skcms",
+      "version": "skia-m151",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "name": "zlib",
+      "version": "skia-m151",
+      "license": "Zlib"
+    }
+  ]
+}

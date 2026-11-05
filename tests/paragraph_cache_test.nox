@@ -1,0 +1,65 @@
+import nox.test
+from aura.foundation.window_metrics import WindowMetrics, default_window_metrics
+from aura.rendering.render_object import RenderBox
+from aura.testing.tester import WidgetTester
+from aura.text import Text
+from aura.text.text import paragraph_measure_count
+from aura.widgets import BuildContext, State, StatefulWidget, Widget, WindowMetricsScope
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_SCALE: int = alloc_type_id()
+
+
+class ScaleState(State):
+    metrics: WindowMetrics
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.metrics = default_window_metrics(200.0, 80.0, 1.0, 1)
+        scale_holder = self
+
+    def build(self, context: BuildContext) -> Widget:
+        return WindowMetricsScope(self.metrics, Text("Ay", color=1))
+
+
+scale_holder: ScaleState | None = None
+
+
+class ScalePage(StatefulWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_SCALE, None)
+
+    def create_state(self) -> State:
+        return ScaleState()
+
+
+def require_state() -> ScaleState:
+    current: ScaleState | None = scale_holder
+    if current != None:
+        return current
+    raise Exception("missing scale state")
+
+
+def require_box(box: RenderBox | None) -> RenderBox:
+    if box != None:
+        return box
+    raise Exception("missing text")
+
+
+tester: WidgetTester = WidgetTester()
+tester.pump_widget(ScalePage(), 200.0, 80.0)
+text: RenderBox = require_box(tester.view().find_role("text"))
+first_height: float = text.height
+nox.test.assert_eq_int(paragraph_measure_count(), 1, "first layout measures once")
+text.mark_needs_layout()
+tester.pump_frame()
+nox.test.assert_eq_int(paragraph_measure_count(), 1, "same paragraph reuses its measure")
+nox.test.assert_eq_float(text.height, first_height, "cached height stays")
+scaled: WindowMetrics = default_window_metrics(200.0, 80.0, 1.0, 2)
+scaled.font_scale = 2.0
+require_state().metrics = scaled
+require_state().invalidate()
+tester.pump_frame()
+nox.test.assert_eq_int(paragraph_measure_count(), 2, "font scale drops the paragraph cache")
+nox.test.assert_true(text.height > first_height * 1.5, "larger font scale grows the paragraph")
+print("paragraph cache ok")

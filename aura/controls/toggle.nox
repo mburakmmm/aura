@@ -1,6 +1,7 @@
+from aura.layout.touch_target import note_touch_target
 from aura.rendering.layer import PaintingContext
 from aura.rendering.render_object import RenderBox
-from aura.semantics.semantics_node import SemanticsNode
+from aura.semantics.semantics_node import ACTION_TAP, SemanticsNode
 from aura.text.measure import measure_height, measure_width
 from aura.widgets.framework import Element, RenderObjectWidget
 from aura.widgets.key import Key
@@ -51,6 +52,7 @@ class RenderToggle(RenderBox):
             height = text_h
         self.width = self.constraints.constrain_width(width)
         self.height = self.constraints.constrain_height(height)
+        note_touch_target(self.node_id, self.width, self.height)
 
     def paint_self(self, context: PaintingContext) -> None:
         context.fill_rect(0.0, (self.height - 20.0) / 2.0, 36.0, 20.0, self.track)
@@ -69,7 +71,9 @@ class RenderToggle(RenderBox):
         node.value = ""
         node.enabled = True
         node.checked = self.checked
-        node.add_action("tap")
+        node.toggled = self.checked
+        node.focusable = True
+        node.add_action(ACTION_TAP)
 
 
 class Toggle(RenderObjectWidget):

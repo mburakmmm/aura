@@ -16,7 +16,11 @@ Kendi shaping algoritması Unicode'un tamamını yanlış ölçerdi. Skia paragr
 
 ## Consequences
 
-Metin ölçümü dylib ister. Penceresiz yerleşim testleri metin widget'ı kurmaz. Kaydırma, uzun bir kelimeyi kendi satırında bırakır ve `\n` ile paragraf böler.
+Metin ölçümü dylib ister. Penceresiz yerleşim testleri metin widget'ı kurmaz. Satır, boşlukta kırılır. Sığmayan kelime grapheme sınırından bölünür; birleştirici im ve emoji kümesi ortadan kesilmez. Tire eklenmez. Paragraf ayırıcıları LF, CR ve CRLF'dir. Ayırıcı satır metnine girmez.
+
+`RenderParagraph` aynı metin, punto, ağırlık, aile ve en fazla genişlik için ölçümü saklar. Bunlardan biri değişince, Dynamic Type ve `fontScale` dahil, önbellek düşer ve yeniden ölçülür. Bidi ve renkli emoji fontu bu sözleşmenin dışındadır.
+
+Görüntü yerleşimi piksel genişliğini `device_pixel_ratio` değerine böler. Metrics yoksa oran 1'dir. Bu, GPU örneklemesinden ayrı bir logical boyut sözleşmesidir.
 
 ## Migration
 

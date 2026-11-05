@@ -68,7 +68,13 @@ Bu yol haritası şunları planlamaz: web, hot reload, GUI DevTools, sliver, çi
 
 Mobil, 1.0 masaüstü sözleşmesinin üstüne eklenir. Widget, Element ve RenderObject ayrımı değişmez. Yeni işletim sistemi yeni bir kabuk kütüphanesidir. Aynı C sembol kümesi ve aynı Nox köprüsü kullanılır. Olaylar kuyruğa yazılır, `poll_events` okur.
 
+Mobil işlerin ayrıntılı görev, bağımlılık, test ve yayın kapıları
+`MOBILE_TODO.md` dosyasında izlenir. Bu bölüm sürüm yönünü, mobil TODO ise
+uygulama ve kanıt durumunu tanımlar.
+
 İlk telefon iOS’tur. Geliştirme makinesi ve mevcut Cocoa kabuğu oradadır. Android aynı sembolleri ikinci kabuk olarak uygular.
+
+Durum, 5 Kasım 2026: kabuk kaynakları `main` üzerindedir. Ayrıntı `MOBILE_TODO.md` dosyasındadır. iPhone 17 Pro’da Notes, Counter, Chat, Settings, Todo, Calculator, Files ve Dashboard development imzasıyla açıldı. Xcode projesi, imzalı IPA, TestFlight, Android cihaz, GPU, emoji ve çift yön kapalıdır. Sıradaki iş iOS paketinin Xcode hedefinden üretilmesidir. Android cihaz turu ondan sonra planlanır.
 
 Çizim komutları değişmez. 1.1–1.4 pixmap’i Skia raster üretir ve kabuk bunu yüzeye basar. GPU yüzeyi 1.5’tir ve ADR’siz seçilmez. Masaüstü blit yolu durur.
 

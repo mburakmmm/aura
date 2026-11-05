@@ -33,6 +33,8 @@ typedef struct AuraNode {
     char *label;
     char *value;
     int checked;
+    int heading;
+    int64_t node_id;
     double x;
     double y;
     double w;
@@ -55,6 +57,7 @@ void aura_ax_init(AuraAx *ax);
 void aura_ax_free(AuraAx *ax);
 int64_t aura_ax_begin_nodes(AuraAx *ax);
 int64_t aura_ax_add_node(AuraAx *ax, const char *role, const char *label, const char *value, int64_t checked, double x, double y, double w, double h, int64_t press);
+int64_t aura_ax_set_last_node(AuraAx *ax, int64_t node_id, int64_t heading);
 int64_t aura_ax_commit_nodes(AuraAx *ax);
 int64_t aura_ax_count_nodes(const AuraAx *ax);
 int64_t aura_ax_text_len_node(AuraAx *ax, int64_t index, int64_t field);

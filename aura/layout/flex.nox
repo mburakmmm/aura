@@ -1,5 +1,7 @@
 from aura.core.diagnostics import FrameworkError
 from aura.foundation.constraints import Constraints, infinity
+from aura.foundation.window_metrics import TEXT_DIRECTION_RTL, WindowMetrics
+from aura.widgets.window_metrics import window_metrics_if_present
 from aura.rendering.render_object import FLEX_LOOSE, FLEX_TIGHT, RenderBox
 from aura.widgets.framework import Element, ParentDataWidget, RenderObjectWidget, Widget
 from aura.widgets.key import Key
@@ -31,6 +33,7 @@ class RenderFlex(RenderBox):
     cross_align: int
     main_size: int
     spacing: float
+    reverse: int
 
     def __init__(self) -> None:
         super().__init__()
@@ -40,16 +43,18 @@ class RenderFlex(RenderBox):
         self.cross_align = CROSS_CENTER
         self.main_size = MAIN_MAX
         self.spacing = 0.0
+        self.reverse = 0
 
-    def set_flex_style(self, axis: int, main_align: int, cross_align: int, main_size: int, spacing: float) -> None:
+    def set_flex_style(self, axis: int, main_align: int, cross_align: int, main_size: int, spacing: float, reverse: int) -> None:
         changed: bool = False
-        if self.axis != axis or self.main_align != main_align or self.cross_align != cross_align or self.main_size != main_size or self.spacing != spacing:
+        if self.axis != axis or self.main_align != main_align or self.cross_align != cross_align or self.main_size != main_size or self.spacing != spacing or self.reverse != reverse:
             changed = True
         self.axis = axis
         self.main_align = main_align
         self.cross_align = cross_align
         self.main_size = main_size
         self.spacing = spacing
+        self.reverse = reverse
         if changed:
             self.mark_needs_layout()
 
@@ -173,6 +178,12 @@ class RenderFlex(RenderBox):
             if i < count - 1:
                 cursor = cursor + gap
             i = i + 1
+        if self.reverse != 0:
+            i = 0
+            while i < count:
+                mirrored: RenderBox = self.children[i]
+                mirrored.offset_x = self.width - mirrored.offset_x - mirrored.width
+                i = i + 1
 
 
 def _main_of(box: RenderBox, horizontal: bool) -> float:
@@ -220,7 +231,11 @@ class Flex(RenderObjectWidget):
         return self.children
 
     def sync_render(self, element: Element) -> None:
-        element.apply_flex(self.axis, self.main_align, self.cross_align, self.main_size, self.spacing)
+        reverse: int = 0
+        metrics: WindowMetrics | None = window_metrics_if_present(element)
+        if metrics is not None and metrics.text_direction == TEXT_DIRECTION_RTL:
+            reverse = 1
+        element.apply_flex(self.axis, self.main_align, self.cross_align, self.main_size, self.spacing, reverse)
 
 
 def Row(children: list[Widget], main_align: int = 0, cross_align: int = 1, main_size: int = 1, spacing: float = 0.0, key: Key | None = None) -> Flex:

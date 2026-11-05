@@ -1,7 +1,7 @@
 from aura.controls import Button
 from aura.foundation.color import COLOR_BUTTON, COLOR_BUTTON_TEXT, COLOR_FIELD, COLOR_TEXT, rgb
 from aura.foundation.insets import EdgeInsets, insets_all
-from aura.layout import ColoredBox, Column, Expanded, Padding, Row, SizedBox
+from aura.layout import ColoredBox, Column, Expanded, Padding, Row, SafeArea, SizedBox
 from aura.layout.flex import CROSS_CENTER, CROSS_STRETCH, MAIN_MIN
 from aura.layout.scrollbar import Scrollbar
 from aura.layout.virtual_list import ItemSource, ScrollController, VirtualList
@@ -90,8 +90,8 @@ class ChatState(State):
         self.invalidate()
 
     def build(self, context: BuildContext) -> Widget:
-        return Padding(insets_all(24.0), Column([
-            Text("Chat", font_size=28.0, color=COLOR_TEXT),
+        return SafeArea(Column([
+            Text("Chat", font_size=28.0),
             SizedBox(None, 16.0),
             Expanded(Row([
                 Expanded(self.listing),
@@ -102,7 +102,7 @@ class ChatState(State):
                 Expanded(TextField(draft)),
                 Button("Send", self.send, color=COLOR_BUTTON_TEXT, background=COLOR_BUTTON),
             ], spacing=12.0, cross_align=CROSS_CENTER))),
-        ], cross_align=CROSS_STRETCH))
+        ], cross_align=CROSS_STRETCH), minimum=insets_all(24.0))
 
 
 class ChatPage(StatefulWidget):

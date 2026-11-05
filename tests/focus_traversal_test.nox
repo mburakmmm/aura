@@ -1,0 +1,61 @@
+import nox.test
+from aura.input.focus import FocusManager, FocusNode
+from aura.input.keyboard import DIRECTION_DOWN, DIRECTION_LEFT, DIRECTION_RIGHT, KEY_DOWN, KEY_TAB, MOD_SHIFT
+
+
+def focused_id(manager: FocusManager) -> int:
+    node: FocusNode | None = manager.focused
+    if node is None:
+        return 0
+    return node.node_id
+
+
+manager: FocusManager = FocusManager()
+top_left: FocusNode = FocusNode()
+top_right: FocusNode = FocusNode()
+bottom_left: FocusNode = FocusNode()
+manager.attach(top_left)
+manager.attach(top_right)
+manager.attach(bottom_left)
+top_left.set_bounds(0.0, 0.0, 40.0, 40.0)
+top_right.set_bounds(100.0, 0.0, 40.0, 40.0)
+bottom_left.set_bounds(0.0, 100.0, 40.0, 40.0)
+
+nox.test.assert_true(manager.handle_traversal(KEY_TAB, 0), "Tab claims first focus")
+nox.test.assert_eq_int(focused_id(manager), top_left.node_id, "Tab starts at first traversal target")
+nox.test.assert_true(manager.handle_traversal(KEY_TAB, 0), "Tab advances")
+nox.test.assert_eq_int(focused_id(manager), top_right.node_id, "Tab follows stable attach order")
+nox.test.assert_true(manager.handle_traversal(KEY_TAB, MOD_SHIFT), "Shift-Tab reverses")
+nox.test.assert_eq_int(focused_id(manager), top_left.node_id, "Shift-Tab returns to previous target")
+nox.test.assert_true(manager.focus_direction(DIRECTION_RIGHT), "right finds visual neighbor")
+nox.test.assert_eq_int(focused_id(manager), top_right.node_id, "right uses geometry")
+nox.test.assert_true(manager.focus_direction(DIRECTION_LEFT), "left finds visual neighbor")
+nox.test.assert_eq_int(focused_id(manager), top_left.node_id, "left uses geometry")
+nox.test.assert_true(manager.handle_traversal(KEY_DOWN, 0), "down key traverses non-text target")
+nox.test.assert_eq_int(focused_id(manager), bottom_left.node_id, "down selects nearest target on primary axis")
+
+bottom_left.enabled = False
+nox.test.assert_true(manager.handle_traversal(KEY_TAB, 0), "disabled target is skipped")
+nox.test.assert_eq_int(focused_id(manager), top_left.node_id, "Tab wraps over disabled target")
+
+manager.suspend_input()
+nox.test.assert_true(not manager.handle_traversal(KEY_TAB, 0), "suspended focus rejects traversal")
+nox.test.assert_eq_int(focused_id(manager), top_left.node_id, "suspend preserves focus identity")
+manager.resume_input()
+
+manager.begin_traversal_sync()
+manager.update_bounds(top_right, 100.0, 0.0, 40.0, 40.0)
+manager.update_bounds(bottom_left, 0.0, 100.0, 40.0, 40.0)
+manager.end_traversal_sync()
+nox.test.assert_true(manager.handle_traversal(KEY_TAB, 0), "layout sync excludes hidden target")
+nox.test.assert_eq_int(focused_id(manager), top_right.node_id, "hidden retained node is not traversed")
+
+top_left.insert_target = 99
+top_left.traversable = True
+manager.focus(top_left)
+nox.test.assert_true(not manager.handle_traversal(KEY_DOWN, 0), "text target keeps arrow for caret movement")
+nox.test.assert_eq_int(focused_id(manager), top_left.node_id, "text arrow does not move focus")
+
+manager.detach(top_left)
+nox.test.assert_eq_int(focused_id(manager), 0, "detaching focused node clears focus")
+print("focus traversal ok")

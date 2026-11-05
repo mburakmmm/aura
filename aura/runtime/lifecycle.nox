@@ -1,0 +1,135 @@
+from aura.core.diagnostics import FrameworkError
+
+LIFECYCLE_DETACHED: int = 0
+LIFECYCLE_INACTIVE: int = 1
+LIFECYCLE_RESUMED: int = 2
+LIFECYCLE_PAUSED: int = 3
+LIFECYCLE_HIDDEN: int = 4
+LIFECYCLE_TERMINATED: int = 5
+
+MEMORY_PRESSURE_NONE: int = 0
+MEMORY_PRESSURE_LOW: int = 1
+MEMORY_PRESSURE_MODERATE: int = 2
+MEMORY_PRESSURE_CRITICAL: int = 3
+
+_next_lifecycle_observer_id: int = 1
+
+
+def _take_lifecycle_observer_id() -> int:
+    issued: int = _next_lifecycle_observer_id
+    _next_lifecycle_observer_id = issued + 1
+    return issued
+
+
+def _valid_lifecycle_state(state: int) -> bool:
+    return state >= LIFECYCLE_DETACHED and state <= LIFECYCLE_TERMINATED
+
+
+class LifecycleObserver:
+    observer_id: int
+
+    def __init__(self) -> None:
+        self.observer_id = _take_lifecycle_observer_id()
+
+    def did_change_lifecycle(self, state: int) -> None:
+        if state < 0:
+            return
+
+    def did_request_state_save(self) -> None:
+        pass
+
+    def did_receive_memory_pressure(self, level: int) -> None:
+        if level < 0:
+            return
+
+
+class LifecycleOwner:
+    state: int
+    observers: list[LifecycleObserver]
+    dispatching: bool
+    transition_count: int
+    save_request_count: int
+    memory_pressure_level: int
+    memory_pressure_count: int
+
+    def __init__(self, state: int = 2) -> None:
+        if not _valid_lifecycle_state(state):
+            raise FrameworkError("invalid lifecycle state")
+        self.state = state
+        self.observers = []
+        self.dispatching = False
+        self.transition_count = 0
+        self.save_request_count = 0
+        self.memory_pressure_level = MEMORY_PRESSURE_NONE
+        self.memory_pressure_count = 0
+
+    def add_observer(self, observer: LifecycleObserver) -> None:
+        i: int = 0
+        while i < len(self.observers):
+            if self.observers[i].observer_id == observer.observer_id:
+                return
+            i = i + 1
+        self.observers.append(observer)
+
+    def remove_observer(self, observer: LifecycleObserver) -> None:
+        kept: list[LifecycleObserver] = []
+        i: int = 0
+        while i < len(self.observers):
+            if self.observers[i].observer_id != observer.observer_id:
+                kept.append(self.observers[i])
+            i = i + 1
+        self.observers = kept
+
+    def transition(self, state: int) -> None:
+        if not _valid_lifecycle_state(state):
+            raise FrameworkError("invalid lifecycle state")
+        if self.dispatching:
+            raise FrameworkError("reentrant lifecycle transition")
+        if state == self.state:
+            return
+        self.state = state
+        self.transition_count = self.transition_count + 1
+        snapshot: list[LifecycleObserver] = []
+        i: int = 0
+        while i < len(self.observers):
+            snapshot.append(self.observers[i])
+            i = i + 1
+        self.dispatching = True
+        try:
+            i = 0
+            while i < len(snapshot):
+                snapshot[i].did_change_lifecycle(state)
+                i = i + 1
+            if state == LIFECYCLE_PAUSED or state == LIFECYCLE_HIDDEN or state == LIFECYCLE_TERMINATED:
+                self.save_request_count = self.save_request_count + 1
+                i = 0
+                while i < len(snapshot):
+                    snapshot[i].did_request_state_save()
+                    i = i + 1
+        except Exception as error:
+            self.dispatching = False
+            raise error
+        self.dispatching = False
+
+    def notify_memory_pressure(self, level: int) -> None:
+        snapshot: list[LifecycleObserver] = []
+        i: int = 0
+        if level < MEMORY_PRESSURE_LOW or level > MEMORY_PRESSURE_CRITICAL:
+            raise FrameworkError("invalid memory pressure level")
+        if self.dispatching:
+            raise FrameworkError("reentrant lifecycle transition")
+        self.memory_pressure_level = level
+        self.memory_pressure_count = self.memory_pressure_count + 1
+        while i < len(self.observers):
+            snapshot.append(self.observers[i])
+            i = i + 1
+        self.dispatching = True
+        try:
+            i = 0
+            while i < len(snapshot):
+                snapshot[i].did_receive_memory_pressure(level)
+                i = i + 1
+        except Exception as error:
+            self.dispatching = False
+            raise error
+        self.dispatching = False

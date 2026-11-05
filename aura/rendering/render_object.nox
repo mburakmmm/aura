@@ -5,7 +5,7 @@ from aura.foundation.constraints import BoxConstraints, Constraints
 from aura.graphics.canvas import Canvas
 from aura.rendering.layer import PaintingContext, PictureLayer, Scene
 from aura.rendering.painter import Painter
-from aura.semantics.semantics_node import SemanticsNode, SemanticsOwner
+from aura.semantics.semantics_node import ACTION_LONG_PRESS, ACTION_SCROLL_BACKWARD, ACTION_SCROLL_FORWARD, ACTION_TAP, SemanticsNode, SemanticsOwner
 
 PHASE_IDLE: int = 0
 PHASE_INPUT: int = 1
@@ -35,6 +35,16 @@ def _noop_hover() -> None:
 
 def _noop_secondary(x: float, y: float) -> None:
     if x == y:
+        return
+
+
+def _noop_pan(x: float, y: float) -> None:
+    if x == y:
+        return
+
+
+def _noop_scale(value: float) -> None:
+    if value < 0.0:
         return
 
 
@@ -138,6 +148,15 @@ class RenderBox(RenderObject):
     has_tap: bool
     on_secondary: (float, float) -> None
     has_secondary: bool
+    on_double_tap: () -> None
+    has_double_tap: bool
+    on_long_press: () -> None
+    has_long_press: bool
+    on_pan: (float, float) -> None
+    has_pan: bool
+    pan_axis: int
+    on_scale: (float) -> None
+    has_scale: bool
     on_key: (int, int) -> bool
     has_key: bool
     takes_focus: bool
@@ -146,6 +165,10 @@ class RenderBox(RenderObject):
     has_thumb: bool
     slot_index: int
     text_target: int
+    text_rtl: int
+    caret_reveal: int
+    caret_local_y: float
+    caret_local_h: float
     drag_id: int
     drop_id: int
     file_path: str
@@ -209,6 +232,15 @@ class RenderBox(RenderObject):
         self.has_tap = False
         self.on_secondary = _noop_secondary
         self.has_secondary = False
+        self.on_double_tap = _noop_tap
+        self.has_double_tap = False
+        self.on_long_press = _noop_tap
+        self.has_long_press = False
+        self.on_pan = _noop_pan
+        self.has_pan = False
+        self.pan_axis = 0
+        self.on_scale = _noop_scale
+        self.has_scale = False
         self.on_key = _noop_key
         self.has_key = False
         self.takes_focus = False
@@ -217,6 +249,10 @@ class RenderBox(RenderObject):
         self.has_thumb = False
         self.slot_index = 0
         self.text_target = 0
+        self.text_rtl = 0
+        self.caret_reveal = 0
+        self.caret_local_y = 0.0
+        self.caret_local_h = 0.0
         self.drag_id = 0
         self.drop_id = 0
         self.file_path = ""
@@ -228,7 +264,7 @@ class RenderBox(RenderObject):
     def mark_needs_layout(self) -> None:
         pipeline: PipelineOwner | None = self.pipeline
         if pipeline is not None:
-            if pipeline.phase == PHASE_PAINT:
+            if pipeline.phase == PHASE_PAINT or pipeline.phase == PHASE_COMPOSITE:
                 self.needs_layout = True
                 pipeline.defer_layout(self)
                 return
@@ -247,7 +283,7 @@ class RenderBox(RenderObject):
     def mark_needs_paint(self) -> None:
         pipeline: PipelineOwner | None = self.pipeline
         if pipeline is not None:
-            if pipeline.phase == PHASE_PAINT:
+            if pipeline.phase == PHASE_PAINT or pipeline.phase == PHASE_COMPOSITE:
                 pipeline.defer_paint(self)
                 return
         if self.needs_paint:
@@ -266,7 +302,7 @@ class RenderBox(RenderObject):
     def layout(self, constraints: Constraints) -> None:
         pipeline: PipelineOwner | None = self.pipeline
         if pipeline is not None:
-            if pipeline.phase == PHASE_PAINT:
+            if pipeline.phase == PHASE_PAINT or pipeline.phase == PHASE_COMPOSITE:
                 raise FrameworkError("layout called during paint")
         constraints.validate()
         changed: bool = False
@@ -452,6 +488,9 @@ class RenderBox(RenderObject):
     def hit_test_self(self, x: float, y: float) -> bool:
         return False
 
+    def set_heading(self, heading: int) -> None:
+        return
+
     def describe_semantics(self, node: SemanticsNode) -> None:
         node.role = self.semantics_role
         node.label = self.semantics_label
@@ -474,6 +513,40 @@ class RenderBox(RenderObject):
     def clear_secondary(self) -> None:
         self.on_secondary = _noop_secondary
         self.has_secondary = False
+
+    def set_double_tap(self, handler: () -> None) -> None:
+        self.on_double_tap = handler
+        self.has_double_tap = True
+
+    def clear_double_tap(self) -> None:
+        self.on_double_tap = _noop_tap
+        self.has_double_tap = False
+
+    def set_long_press(self, handler: () -> None) -> None:
+        self.on_long_press = handler
+        self.has_long_press = True
+
+    def clear_long_press(self) -> None:
+        self.on_long_press = _noop_tap
+        self.has_long_press = False
+
+    def set_pan(self, handler: (float, float) -> None, axis: int) -> None:
+        self.on_pan = handler
+        self.has_pan = True
+        self.pan_axis = axis
+
+    def clear_pan(self) -> None:
+        self.on_pan = _noop_pan
+        self.has_pan = False
+        self.pan_axis = 0
+
+    def set_scale(self, handler: (float) -> None) -> None:
+        self.on_scale = handler
+        self.has_scale = True
+
+    def clear_scale(self) -> None:
+        self.on_scale = _noop_scale
+        self.has_scale = False
 
     def set_file_drag(self, path: str, handler: (str) -> None) -> None:
         self.file_path = path
@@ -593,8 +666,15 @@ class RenderBox(RenderObject):
     def set_scroll(self, pixels: float, max_pixels: float, viewport: float, content: float) -> None:
         raise FrameworkError("set_scroll on a non-scrollbar render object")
 
+    def set_grip(self, grip: float) -> None:
+        raise FrameworkError("set_grip on a non-scrollbar render object")
+
     def scroll_by(self, delta: float) -> None:
         pass
+
+    def consume_scroll(self, delta: float) -> float:
+        self.scroll_by(delta)
+        return 0.0
 
     def place_thumb(self, local_y: float) -> None:
         pass
@@ -602,10 +682,13 @@ class RenderBox(RenderObject):
     def drag_thumb(self, local_y: float) -> None:
         pass
 
+    def release_thumb(self) -> None:
+        pass
+
     def set_active_index(self, index: int) -> None:
         pass
 
-    def set_text_field(self, value: str, composing: str, cursor: int, anchor: int, multiline: int, edge: int) -> None:
+    def set_text_field(self, value: str, composing_start: int, composing_end: int, cursor: int, anchor: int, multiline: int, edge: int, reveal: int, rtl: int, label: str) -> None:
         pass
 
     def set_text_colors(self, fill: int, ink: int) -> None:
@@ -617,6 +700,9 @@ class RenderBox(RenderObject):
     def set_image(self, handle: int) -> None:
         raise FrameworkError("set_image on a non-image render object")
 
+    def set_pixel_ratio(self, ratio: float) -> None:
+        pass
+
     def set_drag(self, drag_id: int, x: float, y: float) -> None:
         raise FrameworkError("set_drag on a non-drag render object")
 
@@ -626,8 +712,17 @@ class RenderBox(RenderObject):
     def set_modal(self, mode: int, x: float, y: float, dim: int) -> None:
         raise FrameworkError("set_modal on a non-modal render object")
 
-    def set_flex_style(self, axis: int, main_align: int, cross_align: int, main_size: int, spacing: float) -> None:
+    def set_flex_style(self, axis: int, main_align: int, cross_align: int, main_size: int, spacing: float, reverse: int) -> None:
         raise FrameworkError("set_flex_style on a non-flex render object")
+
+    def begin_interactive_pop(self) -> int:
+        return 0
+
+    def update_interactive_pop(self, progress: float) -> None:
+        pass
+
+    def end_interactive_pop(self) -> None:
+        pass
 
     def absolute_x(self) -> float:
         x: float = self.offset_x
@@ -644,6 +739,35 @@ class RenderBox(RenderObject):
             y = y + p.offset_y
             p = p.parent
         return y
+
+    def keyboard_reveal_shift(self, visible_bottom: float) -> float:
+        found: float = 0.0
+        if self.caret_reveal != 0:
+            top: float = self.absolute_y() + self.caret_local_y
+            bottom: float = top + self.caret_local_h
+            overflow: float = bottom - visible_bottom
+            if overflow < 0.0:
+                overflow = 0.0
+            if top - overflow < 0.0:
+                overflow = top
+            if overflow < 0.0:
+                overflow = 0.0
+            found = overflow
+        only: RenderBox | None = self.only_child
+        if only is not None:
+            nested: float = only.keyboard_reveal_shift(visible_bottom)
+            if nested > found:
+                found = nested
+        i: int = 0
+        while i < len(self.children):
+            child_shift: float = self.children[i].keyboard_reveal_shift(visible_bottom)
+            if child_shift > found:
+                found = child_shift
+            i = i + 1
+        return found
+
+    def sync_text_geometry(self) -> None:
+        pass
 
     def find_role(self, role: str) -> RenderBox | None:
         if self.semantics_role == role:
@@ -704,34 +828,92 @@ class RenderBox(RenderObject):
             self.children[i].reset_paint_marks()
             i = i + 1
 
-    def collect_semantics(self, parent: SemanticsNode, origin_x: float, origin_y: float) -> None:
+    def semantics_action(self, action: str, text: str, amount: float) -> int:
+        if action == ACTION_TAP and self.has_tap:
+            self.on_tap()
+            return 1
+        if action == ACTION_LONG_PRESS and self.has_long_press:
+            self.on_long_press()
+            return 1
+        if action == ACTION_SCROLL_FORWARD and self.has_scroll:
+            self.scroll_by(amount)
+            return 1
+        if action == ACTION_SCROLL_BACKWARD and self.has_scroll:
+            self.scroll_by(0.0 - amount)
+            return 1
+        return 0
+
+    def collect_semantics(self, parent: SemanticsNode, origin_x: float, origin_y: float, clip: int, clip_l: float, clip_t: float, clip_r: float, clip_b: float, group_id: int) -> None:
         node: SemanticsNode = SemanticsNode()
+        node.node_id = self.node_id
+        node.group_id = group_id
         self.describe_semantics(node)
-        node.press_id = -1
-        if self.has_tap:
-            node.press_id = note_press_box(self)
+        if node.hidden:
+            return
         node.x = origin_x + self.offset_x
         node.y = origin_y + self.offset_y
         node.width = self.width
         node.height = self.height
+        if clip == 1:
+            right: float = node.x + node.width
+            bottom: float = node.y + node.height
+            if right <= clip_l or node.x >= clip_r or bottom <= clip_t or node.y >= clip_b:
+                return
+        node.press_id = -1
+        if self.has_tap:
+            node.press_id = note_press_box(self)
+        if node.focusable:
+            node.focus_order = _take_focus_order()
         parent.add_child(node)
-        next_x: float = origin_x + self.offset_x
-        next_y: float = origin_y + self.offset_y
+        if node.role != "":
+            note_semantics_box(self)
+        child_group: int = group_id
+        if node.role != "":
+            child_group = self.node_id
+        next_clip: int = clip
+        next_l: float = clip_l
+        next_t: float = clip_t
+        next_r: float = clip_r
+        next_b: float = clip_b
+        if self.clip_contents == 1 or (self.has_scroll and self.multi_child):
+            left: float = node.x
+            top: float = node.y
+            far_x: float = node.x + node.width
+            far_y: float = node.y + node.height
+            if clip == 1:
+                if left < clip_l:
+                    left = clip_l
+                if top < clip_t:
+                    top = clip_t
+                if far_x > clip_r:
+                    far_x = clip_r
+                if far_y > clip_b:
+                    far_y = clip_b
+            next_clip = 1
+            next_l = left
+            next_t = top
+            next_r = far_x
+            next_b = far_y
+        next_x: float = node.x
+        next_y: float = node.y
         only: RenderBox | None = self.only_child
         if only is not None:
-            only.collect_semantics(node, next_x, next_y)
+            only.collect_semantics(node, next_x, next_y, next_clip, next_l, next_t, next_r, next_b, child_group)
         i: int = 0
         while i < len(self.children):
-            self.children[i].collect_semantics(node, next_x, next_y)
+            self.children[i].collect_semantics(node, next_x, next_y, next_clip, next_l, next_t, next_r, next_b, child_group)
             i = i + 1
 
 
 class RenderView(RenderBox):
+    keyboard_inset: float
+
     def __init__(self) -> None:
         super().__init__()
         self.force_boundary = True
         self.is_relayout_boundary = True
         self.is_repaint_boundary = True
+        self.keyboard_inset = 0.0
 
     def perform_layout(self) -> None:
         self.width = self.constraints.constrain_width(self.constraints.max_width)
@@ -741,6 +923,14 @@ class RenderView(RenderBox):
             child.layout(BoxConstraints(0.0, self.width, 0.0, self.height))
             child.offset_x = 0.0
             child.offset_y = 0.0
+            inset: float = self.keyboard_inset
+            if inset < 0.0:
+                inset = 0.0
+            if inset > 0.0:
+                shift: float = child.keyboard_reveal_shift(self.height - inset)
+                if shift > inset:
+                    shift = inset
+                child.offset_y = -shift
 
     def hit_test_self(self, x: float, y: float) -> bool:
         return False
@@ -758,6 +948,8 @@ class PipelineOwner:
     objects_laid_out: int
     objects_painted: int
     layers_submitted: int
+    layout_depth: int
+    paint_depth: int
 
     def __init__(self) -> None:
         self.phase = PHASE_IDLE
@@ -768,6 +960,8 @@ class PipelineOwner:
         self.deferred_paint = []
         self.semantics = SemanticsOwner()
         self.frame_serial = 0
+        self.layout_depth = 0
+        self.paint_depth = 0
         self.objects_laid_out = 0
         self.objects_painted = 0
         self.layers_submitted = 0
@@ -798,6 +992,11 @@ class PipelineOwner:
         self.deferred_paint.append(box)
 
     def flush_layout(self) -> None:
+        if self.phase == PHASE_PAINT or self.phase == PHASE_COMPOSITE or self.paint_depth != 0:
+            raise FrameworkError("illegal pipeline transition: layout during paint")
+        if self.layout_depth != 0:
+            raise FrameworkError("illegal pipeline transition: layout during layout")
+        self.layout_depth = 1
         pending: list[RenderBox] = self.deferred_layout
         self.deferred_layout = []
         i: int = 0
@@ -809,6 +1008,8 @@ class PipelineOwner:
         while len(self.layout_queue) > 0:
             guard = guard + 1
             if guard > 32:
+                self.layout_depth = 0
+                self.phase = PHASE_IDLE
                 raise FrameworkError("cyclic build dependency")
             batch: list[RenderBox] = self.layout_queue
             self.layout_queue = []
@@ -821,6 +1022,7 @@ class PipelineOwner:
                 node.layout(node.constraints)
                 self.objects_laid_out = self.objects_laid_out + 1
                 j = j + 1
+        self.layout_depth = 0
         self.phase = PHASE_IDLE
 
     def flush_paint(self, canvas: Canvas) -> None:
@@ -828,6 +1030,11 @@ class PipelineOwner:
         canvas.present()
 
     def flush_scene(self, canvas: Canvas) -> None:
+        if self.phase == PHASE_LAYOUT or self.layout_depth != 0:
+            raise FrameworkError("illegal pipeline transition: paint during layout")
+        if self.paint_depth != 0 or self.phase == PHASE_PAINT or self.phase == PHASE_COMPOSITE:
+            raise FrameworkError("illegal pipeline transition: paint during paint")
+        self.paint_depth = 1
         self.frame_serial = self.frame_serial + 1
         self.objects_painted = 0
         self.layers_submitted = 0
@@ -844,15 +1051,19 @@ class PipelineOwner:
         if current_mode() == MODE_DEBUG:
             _debug_overlay(canvas, root, self.frame_serial)
         self.paint_queue = []
+        self.paint_depth = 0
         self.phase = PHASE_IDLE
         self.collect_semantics()
 
     def collect_semantics(self) -> None:
+        built: SemanticsNode = SemanticsNode()
         clear_press_boxes()
-        self.semantics.reset()
+        clear_semantics_targets()
+        _reset_focus_order()
         root: RenderBox | None = self.root
         if root is not None:
-            root.collect_semantics(self.semantics.root, 0.0, 0.0)
+            root.collect_semantics(built, 0.0, 0.0, 0, 0.0, 0.0, 0.0, 0.0, 0)
+        self.semantics.commit(built)
 
 
 def constraints_width(constraints: Constraints) -> float:
@@ -877,6 +1088,9 @@ def _depth(box: RenderBox) -> int:
 
 
 _press_boxes: list[RenderBox] = []
+_sem_ids: list[int] = []
+_sem_boxes: list[RenderBox] = []
+_focus_serial: int = 0
 _ax_handles: list[int] = []
 _ax_slots: list[int] = []
 _ax_targets: list[RenderBox] = []
@@ -884,6 +1098,34 @@ _ax_targets: list[RenderBox] = []
 
 def clear_press_boxes() -> None:
     _press_boxes = []
+
+
+def clear_semantics_targets() -> None:
+    _sem_ids = []
+    _sem_boxes = []
+
+
+def _reset_focus_order() -> None:
+    _focus_serial = 0
+
+
+def _take_focus_order() -> int:
+    _focus_serial = _focus_serial + 1
+    return _focus_serial
+
+
+def note_semantics_box(box: RenderBox) -> None:
+    _sem_ids.append(box.node_id)
+    _sem_boxes.append(box)
+
+
+def dispatch_semantics_action(node_id: int, action: str, text: str, amount: float) -> int:
+    i: int = 0
+    while i < len(_sem_ids):
+        if _sem_ids[i] == node_id:
+            return _sem_boxes[i].semantics_action(action, text, amount)
+        i = i + 1
+    return 0
 
 
 def note_press_box(box: RenderBox) -> int:
@@ -938,13 +1180,16 @@ def _debug_overlay(canvas: Canvas, root: RenderBox | None, serial: int) -> None:
 def _debug_walk(canvas: Canvas, box: RenderBox, serial: int) -> None:
     x: float = box.absolute_x()
     y: float = box.absolute_y()
-    if box.painted_serial == serial and box.width > 0.0 and box.height > 0.0:
-        canvas.fill_rect(x, y, box.width, box.height, DEBUG_REPAINT)
+    ink: int = DEBUG_BOUNDS
+    if serial < 0:
+        return
+    if box.paint_mark_count > 0:
+        ink = DEBUG_REPAINT
     if box.width > 1.0 and box.height > 1.0:
-        canvas.fill_rect(x, y, box.width, 1.0, DEBUG_BOUNDS)
-        canvas.fill_rect(x, y + box.height - 1.0, box.width, 1.0, DEBUG_BOUNDS)
-        canvas.fill_rect(x, y, 1.0, box.height, DEBUG_BOUNDS)
-        canvas.fill_rect(x + box.width - 1.0, y, 1.0, box.height, DEBUG_BOUNDS)
+        canvas.fill_rect(x, y, box.width, 1.0, ink)
+        canvas.fill_rect(x, y + box.height - 1.0, box.width, 1.0, ink)
+        canvas.fill_rect(x, y, 1.0, box.height, ink)
+        canvas.fill_rect(x + box.width - 1.0, y, 1.0, box.height, ink)
     only: RenderBox | None = box.only_child
     if only is not None:
         _debug_walk(canvas, only, serial)

@@ -4,10 +4,27 @@ from aura.widgets.key import Key
 from aura.widgets.type_ids import alloc_type_id
 
 TYPE_GESTURE: int = alloc_type_id()
+PAN_FREE: int = 0
+PAN_HORIZONTAL: int = 1
+PAN_VERTICAL: int = 2
 
 
 def _quiet_secondary(x: float, y: float) -> None:
     if x == 0.0 and y == 0.0:
+        return
+
+
+def _quiet_tap() -> None:
+    pass
+
+
+def _quiet_pan(x: float, y: float) -> None:
+    if x == y:
+        return
+
+
+def _quiet_scale(value: float) -> None:
+    if value < 0.0:
         return
 
 
@@ -36,6 +53,15 @@ class GestureDetector(RenderObjectWidget):
     on_tap: () -> None
     on_secondary: (float, float) -> None
     has_secondary: int
+    on_double_tap: () -> None
+    has_double_tap: int
+    on_long_press: () -> None
+    has_long_press: int
+    on_pan: (float, float) -> None
+    has_pan: int
+    pan_axis: int
+    on_scale: (float) -> None
+    has_scale: int
     label: str
 
     def __init__(self, child: Widget, on_tap: () -> None, label: str = "", key: Key | None = None) -> None:
@@ -44,11 +70,41 @@ class GestureDetector(RenderObjectWidget):
         self.on_tap = on_tap
         self.on_secondary = _quiet_secondary
         self.has_secondary = 0
+        self.on_double_tap = _quiet_tap
+        self.has_double_tap = 0
+        self.on_long_press = _quiet_tap
+        self.has_long_press = 0
+        self.on_pan = _quiet_pan
+        self.has_pan = 0
+        self.pan_axis = PAN_FREE
+        self.on_scale = _quiet_scale
+        self.has_scale = 0
         self.label = label
 
     def listen_secondary(self, handler: (float, float) -> None) -> None:
         self.on_secondary = handler
         self.has_secondary = 1
+
+    def with_double_tap(self, handler: () -> None) -> GestureDetector:
+        self.on_double_tap = handler
+        self.has_double_tap = 1
+        return self
+
+    def with_long_press(self, handler: () -> None) -> GestureDetector:
+        self.on_long_press = handler
+        self.has_long_press = 1
+        return self
+
+    def with_pan(self, handler: (float, float) -> None, axis: int = 0) -> GestureDetector:
+        self.on_pan = handler
+        self.has_pan = 1
+        self.pan_axis = axis
+        return self
+
+    def with_scale(self, handler: (float) -> None) -> GestureDetector:
+        self.on_scale = handler
+        self.has_scale = 1
+        return self
 
     def create_render(self) -> RenderBox | None:
         return RenderGestureDetector()
@@ -67,3 +123,19 @@ class GestureDetector(RenderObjectWidget):
             box.set_secondary(self.on_secondary)
         else:
             box.clear_secondary()
+        if self.has_double_tap == 1:
+            box.set_double_tap(self.on_double_tap)
+        else:
+            box.clear_double_tap()
+        if self.has_long_press == 1:
+            box.set_long_press(self.on_long_press)
+        else:
+            box.clear_long_press()
+        if self.has_pan == 1:
+            box.set_pan(self.on_pan, self.pan_axis)
+        else:
+            box.clear_pan()
+        if self.has_scale == 1:
+            box.set_scale(self.on_scale)
+        else:
+            box.clear_scale()

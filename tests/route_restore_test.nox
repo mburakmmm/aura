@@ -1,0 +1,119 @@
+import nox.test
+from aura.controls import Button
+from aura.layout import Column
+from aura.runtime.lifecycle import LIFECYCLE_PAUSED, LIFECYCLE_RESUMED
+from aura.text import Text
+from aura.testing.tester import WidgetTester
+from aura.runtime.route_store import clear_route_snapshot, note_lifecycle_state, persist_route_snapshot, persisted_route_snapshot, set_route_save_hook
+from aura.widgets import BuildContext, Element, Navigator, Route, RouteStackSnapshot, State, StatefulWidget, StatelessWidget, Widget, decode_route_stack, navigator_handle
+from aura.widgets.navigator import save_mounted_navigators
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_HOME: int = alloc_type_id()
+TYPE_APP: int = alloc_type_id()
+holder: HomeState | None = None
+save_calls: int = 0
+
+
+def resolve_restored_route(name: str) -> Widget | None:
+    if name == "detail":
+        return Text("Detail")
+    return None
+
+
+def count_saves() -> None:
+    save_calls = save_calls + 1
+
+
+class HomeState(State):
+    def __init__(self) -> None:
+        super().__init__()
+        holder = self
+
+    def open(self) -> None:
+        current: Element | None = self.element
+        if current is None:
+            return
+        navigator_handle(BuildContext(current)).push(Route("detail", Text("Detail")))
+
+    def build(self, context: BuildContext) -> Widget:
+        return Column([
+            Text("Home"),
+            Button("Open", self.open),
+        ])
+
+
+class HomePage(StatefulWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_HOME, None)
+
+    def create_state(self) -> State:
+        return HomeState()
+
+
+class RestoreApp(StatelessWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_APP, None)
+
+    def build(self, context: BuildContext) -> Widget:
+        return Navigator(HomePage()).with_restoration(resolve_restored_route)
+
+
+def require_home() -> HomeState:
+    current: HomeState | None = holder
+    if current is None:
+        raise Exception("home state missing")
+    return current
+
+
+def painted(tester: WidgetTester, value: str) -> int:
+    i: int = 0
+    while i < len(tester.canvas.texts):
+        if tester.canvas.texts[i] == value:
+            return 1
+        i = i + 1
+    return 0
+
+
+clear_route_snapshot()
+first: WidgetTester = WidgetTester()
+first.pump_widget(RestoreApp(), 240.0, 200.0)
+nox.test.assert_eq_int(painted(first, "Home"), 1, "fresh navigator paints home")
+require_home().open()
+first.pump_frame()
+nox.test.assert_eq_int(painted(first, "Detail"), 1, "pushed route paints before save")
+note_lifecycle_state(LIFECYCLE_PAUSED)
+saved: str = persisted_route_snapshot()
+decoded: RouteStackSnapshot = decode_route_stack(saved)
+nox.test.assert_eq_int(len(decoded.routes), 2, "pause writes the live route stack")
+nox.test.assert_eq_str(decoded.routes[1], "detail", "pause keeps the pushed route name")
+note_lifecycle_state(LIFECYCLE_RESUMED)
+nox.test.assert_eq_str(persisted_route_snapshot(), saved, "resume leaves the saved stack in place")
+
+second: WidgetTester = WidgetTester()
+second.pump_widget(RestoreApp(), 240.0, 200.0)
+nox.test.assert_eq_int(painted(second, "Detail"), 1, "new process view restores the pushed route")
+nox.test.assert_eq_int(painted(second, "Home"), 0, "restored stack shows the top route")
+
+clear_route_snapshot()
+nox.test.assert_eq_str(persisted_route_snapshot(), "", "cleared snapshot is empty")
+third: WidgetTester = WidgetTester()
+third.pump_widget(RestoreApp(), 240.0, 200.0)
+nox.test.assert_eq_int(painted(third, "Home"), 1, "missing snapshot keeps the initial route")
+nox.test.assert_eq_int(painted(third, "Detail"), 0, "missing snapshot does not invent a route")
+
+persist_route_snapshot("AURA-RS:1:2:4:home7:missing")
+fourth: WidgetTester = WidgetTester()
+fourth.pump_widget(RestoreApp(), 240.0, 200.0)
+nox.test.assert_eq_int(painted(fourth, "Home"), 1, "unknown route leaves the initial stack")
+nox.test.assert_eq_int(painted(fourth, "Detail"), 0, "unknown route is not partially applied")
+
+set_route_save_hook(count_saves)
+save_calls = 0
+note_lifecycle_state(LIFECYCLE_RESUMED)
+nox.test.assert_eq_int(save_calls, 0, "resume does not request a route save")
+note_lifecycle_state(LIFECYCLE_PAUSED)
+nox.test.assert_eq_int(save_calls, 1, "pause requests a route save")
+set_route_save_hook(save_mounted_navigators)
+clear_route_snapshot()
+print("route restore ok")

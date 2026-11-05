@@ -1,23 +1,62 @@
 import nox.test
 from aura.controls import Button
-from aura.layout import Column
+from aura.input.events import BACK_PHASE_CANCEL, BACK_PHASE_COMMIT, BACK_PHASE_START, BACK_PHASE_UPDATE, EVENT_SYSTEM_BACK, POINTER_KIND_TOUCH
+from aura.input.keyboard import KEY_TAB
+from aura.layout import Column, SizedBox
 from aura.testing.tester import WidgetTester
 from aura.text import Text
-from aura.widgets import BuildContext, Element, Navigator, NavigatorHandle, Route, State, StatefulWidget, StatelessWidget, Widget, navigator_handle
+from aura.widgets import PLATFORM_ROUTE_APP_LINK, PLATFORM_ROUTE_INTENT, BuildContext, DialogResult, Element, Navigator, NavigatorHandle, Overlay, PlatformRouteRequest, Route, RouteStackSnapshot, State, StatefulWidget, StatelessWidget, Widget, decode_route_stack, navigator_handle, show_dialog
 from aura.widgets.type_ids import alloc_type_id
 
 TYPE_HOME: int = alloc_type_id()
 TYPE_APP: int = alloc_type_id()
+TYPE_INNER: int = alloc_type_id()
 created: int = 0
 holder: HomeState | None = None
+inner_holder: InnerState | None = None
+platform_location: str = ""
+platform_source: int = 0
+
+
+def resolve_platform_route(request: PlatformRouteRequest) -> Widget | None:
+    platform_location = request.location
+    platform_source = request.source
+    if request.location == "https://example.test/linked":
+        return Text("Linked")
+    return None
+
+
+class InnerState(State):
+    def __init__(self) -> None:
+        super().__init__()
+        inner_holder = self
+
+    def open(self) -> None:
+        current: Element | None = self.element
+        if current is None:
+            return
+        navigator_handle(BuildContext(current)).push(Route("inner-detail", Text("InnerDetail")))
+
+    def build(self, context: BuildContext) -> Widget:
+        return Text("InnerHome")
+
+
+class InnerPage(StatefulWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_INNER, None)
+
+    def create_state(self) -> State:
+        return InnerState()
 
 
 class HomeState(State):
     count: int
+    dialog: DialogResult
 
     def __init__(self) -> None:
         super().__init__()
         self.count = 0
+        self.dialog = DialogResult()
         created = created + 1
         holder = self
 
@@ -26,6 +65,7 @@ class HomeState(State):
             Text("Home"),
             Text(str(self.count)),
             Button("Open", self.open),
+            SizedBox(200.0, 40.0, Navigator(InnerPage())),
         ])
 
     def open(self) -> None:
@@ -33,6 +73,13 @@ class HomeState(State):
         if current is None:
             return
         navigator_handle(BuildContext(current)).push(Route("detail", Text("Detail")))
+
+    def open_dialog(self) -> None:
+        current: Element | None = self.element
+        if current is None:
+            return
+        self.dialog = DialogResult()
+        show_dialog(BuildContext(current), "Confirm", "Leave route?", self.dialog)
 
 
 class HomePage(StatefulWidget):
@@ -48,13 +95,20 @@ class AppPage(StatelessWidget):
         super().__init__(TYPE_APP, None)
 
     def build(self, context: BuildContext) -> Widget:
-        return Navigator(HomePage())
+        return Overlay(Navigator(HomePage()).with_platform_routes(resolve_platform_route))
 
 
 def require_state() -> HomeState:
     current: HomeState | None = holder
     if current is None:
         raise Exception("missing home state")
+    return current
+
+
+def require_inner_state() -> InnerState:
+    current: InnerState | None = inner_holder
+    if current is None:
+        raise Exception("missing inner state")
     return current
 
 
@@ -67,6 +121,21 @@ def require_element(state: HomeState) -> Element:
 
 def handle_of(state: HomeState) -> NavigatorHandle:
     return navigator_handle(BuildContext(require_element(state)))
+
+
+def inner_handle() -> NavigatorHandle:
+    state: InnerState = require_inner_state()
+    current: Element | None = state.element
+    if current is None:
+        raise Exception("missing inner element")
+    return navigator_handle(BuildContext(current))
+
+
+def root_element(tester: WidgetTester) -> Element:
+    root: Element | None = tester.pump.root
+    if root is None:
+        raise Exception("missing root element")
+    return root
 
 
 def painted(tester: WidgetTester, value: str) -> int:
@@ -86,10 +155,13 @@ nox.test.assert_true(not handle_of(require_state()).can_pop(), "single route can
 require_state().count = 1
 require_state().invalidate()
 tester.pump_frame()
+tester.pump.key_down(KEY_TAB)
+nox.test.assert_true(tester.pump.focus.focused is not None, "active home button enters focus traversal")
 require_state().open()
 tester.pump_frame()
 nox.test.assert_eq_int(painted(tester, "Detail"), 1, "detail is painted")
 nox.test.assert_eq_int(painted(tester, "Home"), 0, "home is not painted")
+nox.test.assert_true(tester.pump.focus.focused is None, "focus does not remain in retained hidden route")
 nox.test.assert_true(handle_of(require_state()).can_pop(), "stacked route can pop")
 handle_of(require_state()).replace(Route("other", Text("Other")))
 tester.pump_frame()
@@ -101,4 +173,113 @@ nox.test.assert_eq_int(created, 1, "pop does not recreate home state")
 nox.test.assert_eq_int(require_state().count, 1, "home count survived")
 nox.test.assert_eq_int(painted(tester, "Home"), 1, "home painted again")
 nox.test.assert_true(not handle_of(require_state()).can_pop(), "pop returns to the root")
+
+require_state().open()
+tester.pump_frame()
+nox.test.assert_eq_int(painted(tester, "Detail"), 1, "system back fixture starts on detail")
+tester.pump.dispatch(EVENT_SYSTEM_BACK, 0.0, 0.0, BACK_PHASE_START, "")
+tester.pump.dispatch(EVENT_SYSTEM_BACK, 0.5, 0.0, BACK_PHASE_UPDATE, "")
+nox.test.assert_true(tester.pump.system_back_active, "predictive back progress is tracked")
+nox.test.assert_eq_float(tester.pump.system_back_progress, 0.5, "predictive back progress is normalized")
+nox.test.assert_true(handle_of(require_state()).can_pop(), "predictive progress does not mutate route")
+tester.pump.dispatch(EVENT_SYSTEM_BACK, 0.0, 0.0, BACK_PHASE_CANCEL, "")
+nox.test.assert_true(not tester.pump.system_back_active, "predictive back cancel clears preview state")
+nox.test.assert_true(handle_of(require_state()).can_pop(), "predictive cancel preserves route")
+root: Element = root_element(tester)
+nox.test.assert_eq_int(root.can_begin_interactive_route(), 1, "active route offers interactive pop")
+nox.test.assert_eq_int(root.begin_interactive_route(), 1, "interactive pop transaction begins")
+nox.test.assert_eq_int(root.update_interactive_route(0.5), 1, "interactive progress reaches active navigator")
+tester.pump_frame()
+nox.test.assert_eq_int(painted(tester, "Home"), 1, "interactive preview paints previous route")
+nox.test.assert_eq_int(painted(tester, "Detail"), 1, "interactive preview keeps active route")
+nox.test.assert_true(handle_of(require_state()).can_pop(), "preview does not mutate route stack")
+nox.test.assert_eq_int(root.finish_interactive_route(0), 1, "interactive cancel is consumed")
+tester.pump_frame()
+nox.test.assert_eq_int(painted(tester, "Home"), 0, "cancel hides previous route preview")
+nox.test.assert_eq_int(painted(tester, "Detail"), 1, "cancel preserves active route")
+nox.test.assert_eq_int(root.begin_interactive_route(), 1, "interactive commit fixture begins")
+nox.test.assert_eq_int(root.update_interactive_route(0.75), 1, "interactive commit fixture advances")
+nox.test.assert_eq_int(root.finish_interactive_route(1), 1, "interactive commit is consumed")
+nox.test.assert_eq_int(painted(tester, "Detail"), 1, "interactive commit waits for build phase")
+tester.pump_frame()
+nox.test.assert_eq_int(painted(tester, "Home"), 1, "interactive commit pops on next frame")
+require_state().open()
+tester.pump_frame()
+tester.pump.configure_interactive_back(True)
+tester.pump.pointer_down(1.0, 100.0, 1, 39, 0.5, 2)
+nox.test.assert_true(not tester.pump.interactive_back_candidate, "mouse edge drag is not iOS route navigation")
+tester.pump.pointer_cancel(39)
+tester.pump.pointer_down(1.0, 100.0, 1, 40, 0.6, POINTER_KIND_TOUCH)
+tester.pump.pointer_move(4.0, 140.0, 40, 0.7)
+nox.test.assert_true(not tester.pump.interactive_back_candidate, "vertical edge intent stays with content gestures")
+tester.pump.pointer_up(4.0, 140.0, 40, 0.8)
+nox.test.assert_true(handle_of(require_state()).can_pop(), "rejected edge intent preserves route")
+tester.pump.pointer_down(1.0, 100.0, 1, 41, 1.0, POINTER_KIND_TOUCH)
+tester.pump.pointer_move(70.0, 100.0, 41, 1.1)
+nox.test.assert_true(tester.pump.interactive_back_won, "iOS edge gesture wins after horizontal slop")
+tester.pump.pointer_down(2.0, 120.0, 1, 42, 1.11, POINTER_KIND_TOUCH)
+nox.test.assert_eq_int(tester.pump.arena.active_pointer_count, 0, "second pointer cannot steal interactive back")
+tester.pump_frame()
+nox.test.assert_eq_int(painted(tester, "Home"), 1, "edge gesture paints retained previous route")
+tester.pump.pointer_cancel(41)
+nox.test.assert_true(not tester.pump.interactive_back_won, "pointer cancel ends interactive back")
+tester.pump_frame()
+nox.test.assert_eq_int(painted(tester, "Detail"), 1, "edge cancel preserves active route")
+tester.pump.pointer_down(1.0, 100.0, 1, 43, 2.0, POINTER_KIND_TOUCH)
+tester.pump.pointer_move(80.0, 100.0, 43, 2.1)
+tester.pump.pointer_up(170.0, 100.0, 43, 2.2)
+nox.test.assert_true(not handle_of(require_state()).can_pop(), "edge commit mutates stack once")
+nox.test.assert_eq_int(painted(tester, "Detail"), 1, "edge commit remains batched")
+tester.pump_frame()
+nox.test.assert_eq_int(painted(tester, "Home"), 1, "edge commit reconciles on next frame")
+require_state().open()
+tester.pump_frame()
+require_state().open_dialog()
+tester.pump_frame()
+nox.test.assert_eq_int(painted(tester, "Confirm"), 1, "overlay is visible above route")
+tester.pump.pointer_down(1.0, 100.0, 1, 44, 3.0, POINTER_KIND_TOUCH)
+nox.test.assert_true(not tester.pump.interactive_back_candidate, "dismissible overlay blocks route edge-back")
+tester.pump.pointer_cancel(44)
+tester.pump.dispatch(EVENT_SYSTEM_BACK, 1.0, 0.0, BACK_PHASE_COMMIT, "")
+nox.test.assert_true(tester.pump.last_system_back_handled, "overlay consumes system back")
+nox.test.assert_true(handle_of(require_state()).can_pop(), "overlay back does not pop route")
+nox.test.assert_eq_int(require_state().dialog.chosen, 1, "dialog back records a result")
+nox.test.assert_eq_int(require_state().dialog.code, 0, "dialog back records cancellation")
+nox.test.assert_eq_int(painted(tester, "Confirm"), 1, "back mutation waits for build phase")
+tester.pump_frame()
+nox.test.assert_eq_int(painted(tester, "Confirm"), 0, "overlay is removed on next frame")
+nox.test.assert_eq_int(painted(tester, "Detail"), 1, "route remains after overlay back")
+tester.pump.dispatch(EVENT_SYSTEM_BACK, 1.0, 0.0, BACK_PHASE_COMMIT, "")
+nox.test.assert_true(tester.pump.last_system_back_handled, "navigator consumes system back")
+nox.test.assert_eq_int(painted(tester, "Detail"), 1, "route pop waits for build phase")
+tester.pump_frame()
+nox.test.assert_eq_int(painted(tester, "Home"), 1, "system back returns to home")
+tester.pump.dispatch(EVENT_SYSTEM_BACK, 0.0, 0.0, 0, "")
+nox.test.assert_true(not tester.pump.last_system_back_handled, "root route rejects system back")
+
+require_inner_state().open()
+tester.pump_frame()
+nox.test.assert_eq_int(painted(tester, "InnerDetail"), 1, "nested navigator opens on active home route")
+require_state().open()
+tester.pump_frame()
+nox.test.assert_eq_int(painted(tester, "Detail"), 1, "parent detail hides nested navigator")
+tester.pump.dispatch(EVENT_SYSTEM_BACK, 1.0, 0.0, BACK_PHASE_COMMIT, "")
+tester.pump_frame()
+nox.test.assert_eq_int(painted(tester, "InnerDetail"), 1, "back returns to retained parent page")
+nox.test.assert_true(inner_handle().can_pop(), "hidden retained navigator did not consume parent back")
+nox.test.assert_true(tester.pump.platform_route("https://example.test/linked", PLATFORM_ROUTE_APP_LINK), "typed app link is handled")
+nox.test.assert_eq_str(platform_location, "https://example.test/linked", "resolver receives exact URI")
+nox.test.assert_eq_int(platform_source, PLATFORM_ROUTE_APP_LINK, "resolver receives typed source")
+nox.test.assert_eq_int(painted(tester, "InnerDetail"), 1, "platform route push waits for build phase")
+tester.pump_frame()
+nox.test.assert_eq_int(painted(tester, "Linked"), 1, "platform route enters active navigator")
+route_snapshot: RouteStackSnapshot = handle_of(require_state()).snapshot()
+nox.test.assert_eq_int(len(route_snapshot.routes), 2, "Navigator snapshot captures retained route count")
+nox.test.assert_eq_str(route_snapshot.routes[0], "home", "Navigator snapshot keeps root route")
+nox.test.assert_eq_str(route_snapshot.routes[1], "https://example.test/linked", "Navigator snapshot keeps link route")
+decoded_snapshot: RouteStackSnapshot = decode_route_stack(route_snapshot.encode())
+nox.test.assert_eq_str(decoded_snapshot.routes[1], "https://example.test/linked", "Navigator snapshot uses versioned codec")
+nox.test.assert_true(not tester.pump.platform_route("aura://unknown", PLATFORM_ROUTE_INTENT), "unresolved intent remains unhandled")
+tester.pump_frame()
+nox.test.assert_eq_int(painted(tester, "Linked"), 1, "unhandled route leaves stack unchanged")
 print("navigator ok")

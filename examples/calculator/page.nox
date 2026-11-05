@@ -1,5 +1,7 @@
 from aura.controls import Button
-from aura.layout import Center, Column, Row
+from aura.foundation.insets import insets_all
+from aura.layout import Center, Column, Row, SafeArea
+from aura.layout.flex import MAIN_MIN
 from aura.text import Text
 from aura.widgets import BuildContext, State, StatefulWidget, Widget
 from aura.widgets.type_ids import alloc_type_id
@@ -48,7 +50,7 @@ class CalcState(State):
         self.invalidate()
 
     def build(self, context: BuildContext) -> Widget:
-        return Center(Column([
+        return SafeArea(Center(Column([
             Text(str(self.display), font_size=32.0),
             Row([
                 Button("1", self.press_one),
@@ -56,7 +58,7 @@ class CalcState(State):
                 Button("2", self.press_two),
                 Button("=", self.press_eq),
             ], spacing=8.0),
-        ], spacing=16.0))
+        ], spacing=16.0, main_size=MAIN_MIN)), minimum=insets_all(24.0))
 
 
 class CalculatorPage(StatefulWidget):

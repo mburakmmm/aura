@@ -1,13 +1,17 @@
-from aura.foundation.color import COLOR_ACCENT, COLOR_FIELD, COLOR_TEXT, rgba
+from aura.foundation.color import COLOR_ACCENT, COLOR_FIELD, COLOR_TEXT, rgb, rgba
 from aura.input.focus import FocusManager, FocusNode
-from aura.platform.bridge import sync_text_input
+from aura.platform.bridge import add_text_geometry_boundary, begin_text_geometry_snapshot, end_text_geometry_snapshot, sync_text_configuration, sync_text_geometry, sync_text_input
 from aura.rendering.layer import PaintingContext
 from aura.rendering.render_object import RenderBox
-from aura.semantics.semantics_node import SemanticsNode
-from aura.text.editing import TextEditingController, display_text, remember_field_metrics, to_display
+from aura.semantics.semantics_node import ACTION_SET_TEXT, ACTION_TAP, SemanticsNode
+from aura.text.editing import TextEditingController, TextEditingValue, apply_semantics_text, begin_text_session, end_text_session, remember_field_metrics
 from aura.text.measure import TextLine, layout_lines, line_for_offset, measure_height, measure_width
+from aura.text.input_configuration import TextInputConfiguration
+from aura.text.grapheme import next_grapheme_boundary
 from aura.widgets.framework import Element, RenderObjectWidget
-from aura.widgets.theme import theme_for_element
+from aura.foundation.window_metrics import BRIGHTNESS_DARK, TEXT_DIRECTION_RTL, WindowMetrics
+from aura.widgets.theme import ThemeData, resolved_theme
+from aura.widgets.window_metrics import window_metrics_if_present
 from aura.widgets.key import Key
 from aura.widgets.type_ids import alloc_type_id
 
@@ -15,6 +19,11 @@ TYPE_FIELD: int = alloc_type_id()
 
 
 SELECTION: int = rgba(196, 122, 74, 90)
+
+
+def _quiet_action(action: int) -> None:
+    if action < 0:
+        return
 
 _paint_ids: list[int] = []
 _paint_rows: list[int] = []
@@ -24,6 +33,8 @@ _paint_text: list[str] = []
 class RenderTextField(RenderBox):
     value: str
     composing: str
+    composing_start: int
+    composing_end: int
     cursor: int
     anchor: int
     multiline: int
@@ -33,11 +44,15 @@ class RenderTextField(RenderBox):
     line_height: float
     fill: int
     ink: int
+    geometry_revision: int
+    accessibility_label: str
 
     def __init__(self) -> None:
         super().__init__()
         self.value = ""
         self.composing = ""
+        self.composing_start = -1
+        self.composing_end = -1
         self.cursor = 0
         self.anchor = 0
         self.multiline = 0
@@ -48,21 +63,44 @@ class RenderTextField(RenderBox):
         self.line_height = 16.0
         self.fill = COLOR_FIELD
         self.ink = COLOR_TEXT
+        self.geometry_revision = 1
+        self.accessibility_label = ""
         self.semantics_role = "text-field"
+        self.text_rtl = 0
+        self.caret_reveal = 0
 
-    def set_text_field(self, value: str, composing: str, cursor: int, anchor: int, multiline: int, edge: int) -> None:
-        changed: bool = False
-        if self.value != value or self.composing != composing or self.cursor != cursor or self.anchor != anchor or self.multiline != multiline or self.edge != edge:
-            changed = True
+    def _line_x(self, line_width: float) -> float:
+        if self.text_rtl != 0:
+            return self.width - 8.0 - line_width
+        return 8.0
+
+    def _caret_x(self, prefix: float) -> float:
+        if self.text_rtl != 0:
+            return self.width - 8.0 - prefix
+        return 8.0 + prefix
+
+    def set_text_field(self, value: str, composing_start: int, composing_end: int, cursor: int, anchor: int, multiline: int, edge: int, reveal: int, rtl: int, label: str) -> None:
+        layout_changed: bool = self.value != value or self.multiline != multiline or self.text_rtl != rtl
+        reveal_changed: bool = self.caret_reveal != reveal or (reveal != 0 and (self.cursor != cursor or self.anchor != anchor))
+        paint_changed: bool = layout_changed or reveal_changed or self.composing_start != composing_start or self.composing_end != composing_end or self.cursor != cursor or self.anchor != anchor or self.edge != edge
+        self.caret_reveal = reveal
+        self.text_rtl = rtl
         self.value = value
-        self.composing = composing
+        self.composing_start = composing_start
+        self.composing_end = composing_end
+        if composing_start >= 0 and composing_end >= composing_start:
+            self.composing = value[composing_start:composing_end]
+        else:
+            self.composing = ""
         self.cursor = cursor
         self.anchor = anchor
         self.multiline = multiline
         self.edge = edge
+        self.accessibility_label = label
         self.semantics_label = value
-        if changed:
+        if layout_changed or reveal_changed:
             self.mark_needs_layout()
+        elif paint_changed:
             self.mark_needs_paint()
 
     def set_text_colors(self, fill: int, ink: int) -> None:
@@ -75,8 +113,9 @@ class RenderTextField(RenderBox):
             self.mark_needs_paint()
 
     def perform_layout(self) -> None:
+        self.geometry_revision = self.geometry_revision + 1
         self.line_height = measure_height(16.0, 400, "")
-        shown: str = display_text(self.value, self.cursor, self.composing)
+        shown: str = self.value
         content: float = self.constraints.max_width - 16.0
         if content < 1.0:
             content = 1.0
@@ -95,6 +134,11 @@ class RenderTextField(RenderBox):
             n = n + 1
         self.lines = texts
         self.width = self.constraints.constrain_width(self.constraints.max_width)
+        caret_row: int = 0
+        if len(self.mapped) > 0:
+            caret_row = line_for_offset(self.mapped, self.cursor, self.edge)
+        self.caret_local_y = 8.0 + float(caret_row) * self.line_height
+        self.caret_local_h = self.line_height
         if self.multiline == 0:
             self.height = self.constraints.constrain_height(self.line_height + 16.0)
         else:
@@ -108,8 +152,8 @@ class RenderTextField(RenderBox):
         if start > end:
             start = self.anchor
             end = self.cursor
-        sel_a: int = to_display(start, self.cursor, len(self.composing))
-        sel_b: int = to_display(end, self.cursor, len(self.composing))
+        sel_a: int = start
+        sel_b: int = end
         rows: int = 0
         i: int = 0
         while i < len(self.mapped):
@@ -123,22 +167,43 @@ class RenderTextField(RenderBox):
             if start != end and left_i < right_i:
                 local_l: int = left_i - line.start
                 local_r: int = right_i - line.start
-                x0: float = 8.0 + measure_width(line.text[0:local_l], 16.0, 400, "")
-                x1: float = 8.0 + measure_width(line.text[0:local_r], 16.0, 400, "")
+                x0: float = self._caret_x(measure_width(line.text[0:local_l], 16.0, 400, ""))
+                x1: float = self._caret_x(measure_width(line.text[0:local_r], 16.0, 400, ""))
+                if x1 < x0:
+                    swap_x: float = x0
+                    x0 = x1
+                    x1 = swap_x
                 if x1 > x0:
                     y: float = 8.0 + float(i) * self.line_height
                     context.fill_rect(x0, y, x1 - x0, self.line_height, SELECTION)
                     rows = rows + 1
+            comp_l: int = self.composing_start
+            comp_r: int = self.composing_end
+            if comp_l < line.start:
+                comp_l = line.start
+            if comp_r > line.end:
+                comp_r = line.end
+            if self.composing_start >= 0 and comp_l < comp_r:
+                comp_local_l: int = comp_l - line.start
+                comp_local_r: int = comp_r - line.start
+                comp_x0: float = self._caret_x(measure_width(line.text[0:comp_local_l], 16.0, 400, ""))
+                comp_x1: float = self._caret_x(measure_width(line.text[0:comp_local_r], 16.0, 400, ""))
+                if comp_x1 < comp_x0:
+                    swap_comp: float = comp_x0
+                    comp_x0 = comp_x1
+                    comp_x1 = swap_comp
+                context.fill_rect(comp_x0, 8.0 + float(i + 1) * self.line_height - 1.0, comp_x1 - comp_x0, 1.0, COLOR_ACCENT)
             i = i + 1
         i = 0
         while i < len(self.lines):
-            context.fill_text(8.0, 8.0 + float(i) * self.line_height, self.lines[i], 16.0, 400, self.ink, "")
+            line_width: float = measure_width(self.lines[i], 16.0, 400, "")
+            context.fill_text(self._line_x(line_width), 8.0 + float(i) * self.line_height, self.lines[i], 16.0, 400, self.ink, "")
             i = i + 1
         if len(self.mapped) == 0:
-            context.fill_rect(8.0, 8.0, 1.0, self.line_height, COLOR_ACCENT)
+            context.fill_rect(self._caret_x(0.0), 8.0, 1.0, self.line_height, COLOR_ACCENT)
             _store_paint(self.text_target, rows, _join_lines(self.lines))
             return
-        caret_index: int = self.cursor + len(self.composing)
+        caret_index: int = self.cursor
         caret_row: int = line_for_offset(self.mapped, caret_index, self.edge)
         caret_line: TextLine = self.mapped[caret_row]
         local: int = caret_index - caret_line.start
@@ -146,7 +211,7 @@ class RenderTextField(RenderBox):
             local = 0
         if local > len(caret_line.text):
             local = len(caret_line.text)
-        caret_x: float = 8.0 + measure_width(caret_line.text[0:local], 16.0, 400, "")
+        caret_x: float = self._caret_x(measure_width(caret_line.text[0:local], 16.0, 400, ""))
         caret_y: float = 8.0 + float(caret_row) * self.line_height
         context.fill_rect(caret_x, caret_y, 1.0, self.line_height, COLOR_ACCENT)
         _store_paint(self.text_target, rows, _join_lines(self.lines))
@@ -154,40 +219,131 @@ class RenderTextField(RenderBox):
     def hit_test_self(self, x: float, y: float) -> bool:
         return True
 
+    def sync_text_geometry(self) -> None:
+        caret_index: int = self.cursor
+        caret_x: float = 8.0
+        caret_y: float = 8.0
+        if len(self.mapped) > 0:
+            caret_row: int = line_for_offset(self.mapped, caret_index, self.edge)
+            caret_line: TextLine = self.mapped[caret_row]
+            local: int = caret_index - caret_line.start
+            if local < 0:
+                local = 0
+            if local > len(caret_line.text):
+                local = len(caret_line.text)
+            caret_x = self._caret_x(measure_width(caret_line.text[0:local], 16.0, 400, ""))
+            caret_y = caret_y + float(caret_row) * self.line_height
+        origin_x: float = self.absolute_x()
+        origin_y: float = self.absolute_y()
+        sync_text_geometry(origin_x + caret_x, origin_y + caret_y, 1.0, self.line_height, origin_x, origin_y, self.width, self.height)
+        boundary_count: int = 1
+        boundary_offset: int = 0
+        while boundary_offset < len(self.value):
+            boundary_offset = next_grapheme_boundary(self.value, boundary_offset)
+            boundary_count = boundary_count + 1
+        if not begin_text_geometry_snapshot(self.text_target, self.geometry_revision, boundary_count):
+            return
+        boundary_offset = 0
+        boundary_index: int = 0
+        while True:
+            boundary_row: int = 0
+            boundary_x: float = 8.0
+            boundary_y: float = 8.0
+            if len(self.mapped) > 0:
+                boundary_row = line_for_offset(self.mapped, boundary_offset, 1)
+                boundary_line: TextLine = self.mapped[boundary_row]
+                boundary_local: int = boundary_offset - boundary_line.start
+                if boundary_local < 0:
+                    boundary_local = 0
+                if boundary_local > len(boundary_line.text):
+                    boundary_local = len(boundary_line.text)
+                boundary_x = self._caret_x(measure_width(boundary_line.text[0:boundary_local], 16.0, 400, ""))
+                boundary_y = boundary_y + float(boundary_row) * self.line_height
+            add_text_geometry_boundary(self.text_target, self.geometry_revision, boundary_index, boundary_offset, boundary_x, boundary_y, self.line_height)
+            if boundary_offset >= len(self.value):
+                break
+            boundary_offset = next_grapheme_boundary(self.value, boundary_offset)
+            boundary_index = boundary_index + 1
+        end_text_geometry_snapshot(self.text_target, self.geometry_revision)
+
     def describe_semantics(self, node: SemanticsNode) -> None:
         node.role = "text-field"
-        node.label = ""
+        node.label = self.accessibility_label
         node.value = self.value
         node.enabled = True
         node.checked = False
+        node.focusable = True
+        node.selection_base = self.anchor
+        node.selection_extent = self.cursor
+        node.add_action(ACTION_TAP)
+        node.add_action(ACTION_SET_TEXT)
+
+    def semantics_action(self, action: str, text: str, amount: float) -> int:
+        if action == ACTION_SET_TEXT:
+            return apply_semantics_text(self.text_target, text)
+        return super().semantics_action(action, text, amount)
 
 
 class TextField(RenderObjectWidget):
     controller: TextEditingController
     multiline: int
+    label: str
+    configuration: TextInputConfiguration
+    on_action: (int) -> None
+    has_action: int
 
-    def __init__(self, controller: TextEditingController, multiline: int = 0, key: Key | None = None) -> None:
+    def __init__(self, controller: TextEditingController, multiline: int = 0, key: Key | None = None, configuration: TextInputConfiguration | None = None, label: str = "") -> None:
         super().__init__(TYPE_FIELD, key)
         self.controller = controller
-        self.multiline = multiline
+        if configuration is None:
+            self.configuration = TextInputConfiguration(multiline=multiline)
+        else:
+            self.configuration = configuration
+        self.multiline = self.configuration.multiline
+        self.label = label
+        self.on_action = _quiet_action
+        self.has_action = 0
+
+    def with_action(self, handler: (int) -> None) -> TextField:
+        self.on_action = handler
+        self.has_action = 1
+        return self
 
     def create_render(self) -> RenderBox | None:
         return RenderTextField()
 
     def sync_render(self, element: Element) -> None:
         self.controller.bind(element.element_id)
+        self.controller.configure_action(self.configuration.action, self.multiline, self.on_action, self.has_action)
         _ensure_focus(element, self.controller.target_id)
         box: RenderBox | None = element.render
         if box is None:
             return
         box.set_tap(element.focus_field)
+        controller: TextEditingController = self.controller
+        def select_word() -> None:
+            controller.select_word_at(controller.cursor)
+        box.set_double_tap(select_word)
+        box.set_long_press(select_word)
         box.set_text_target(self.controller.target_id)
-        box.set_text_field(self.controller.text, self.controller.composing, self.controller.cursor, self.controller.anchor, self.multiline, self.controller.edge)
-        box.set_text_colors(COLOR_FIELD, theme_for_element(element).scheme.text)
+        value: TextEditingValue = self.controller.editing_value()
+        reveal: int = 0
+        rtl: int = 0
+        metrics: WindowMetrics | None = window_metrics_if_present(element)
         if _field_is_focused(element):
-            start: int = self.controller.sel_start()
-            length: int = self.controller.sel_end() - start
-            sync_text_input(self.controller.text, start, length)
+            reveal = 1
+        if metrics is not None and metrics.text_direction == TEXT_DIRECTION_RTL:
+            rtl = 1
+        box.set_text_field(value.text, value.composing.start, value.composing.end, value.selection.extent_offset, value.selection.base_offset, self.multiline, self.controller.edge, reveal, rtl, self.label)
+        theme: ThemeData = resolved_theme(element)
+        fill: int = COLOR_FIELD
+        if theme.brightness != BRIGHTNESS_DARK:
+            fill = rgb(255, 255, 255)
+        box.set_text_colors(fill, theme.scheme.text)
+        if _field_is_focused(element):
+            config: TextInputConfiguration = self.configuration
+            sync_text_configuration(config.input_type, config.action, config.multiline, config.secure, config.autocorrect, config.capitalization, config.autofill_payload())
+            sync_text_input(value.text, value.generation, value.revision, value.selection.base_offset, value.selection.extent_offset, value.composing.start, value.composing.end)
 
 
 def selection_row_count(target_id: int) -> int:
@@ -253,6 +409,8 @@ def _ensure_focus(element: Element, target_id: int) -> None:
     if node is None:
         created: FocusNode = FocusNode()
         created.insert_target = target_id
+        created.on_focus = _focus_begin(target_id)
+        created.on_blur = _focus_end(target_id)
         element.focus_node = created
         manager.attach(created)
         focused: FocusNode | None = manager.focused
@@ -264,3 +422,15 @@ def _ensure_focus(element: Element, target_id: int) -> None:
             manager.focus(created)
         return
     node.insert_target = target_id
+
+
+def _focus_begin(target_id: int) -> () -> None:
+    def begin() -> None:
+        begin_text_session(target_id)
+    return begin
+
+
+def _focus_end(target_id: int) -> () -> None:
+    def end() -> None:
+        end_text_session(target_id)
+    return end

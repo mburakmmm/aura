@@ -18,7 +18,8 @@ enum {
     AURA_TEXT = 9,
     AURA_WINDOW_FOCUS = 13,
     AURA_FILE_DROP = 14,
-    AURA_AX_ACTION = 15
+    AURA_AX_ACTION = 15,
+    AURA_PLATFORM_ROUTE = 24
 };
 
 typedef struct AuraEvent {
@@ -35,6 +36,8 @@ typedef struct AuraWindow AuraWindow;
 @interface AuraAXNode : NSAccessibilityElement
 @property (nonatomic, assign) AuraWindow *owner;
 @property (nonatomic, assign) int64_t action;
+@property (nonatomic, assign) int64_t nodeId;
+@property (nonatomic, assign) int heading;
 @property (nonatomic, copy) NSString *labelText;
 @property (nonatomic, copy) NSString *valueText;
 @property (nonatomic, copy) NSString *roleKey;
@@ -287,6 +290,11 @@ static void copy_frame_pixels(AuraWindow *window) {
 
 @implementation AuraAXNode
 - (NSAccessibilityRole)accessibilityRole {
+    if (self.heading != 0) {
+        if (@available(macOS 26.0, *)) {
+            return NSAccessibilityHeadingRole;
+        }
+    }
     if (self.roleName == nil) {
         return NSAccessibilityUnknownRole;
     }
@@ -859,6 +867,85 @@ int64_t aura_window_event_button(int64_t handle, int64_t index) {
     return window->events[index].button;
 }
 
+int64_t aura_window_event_modifiers(int64_t handle, int64_t index) {
+    return aura_window_event_button(handle, index);
+}
+
+int64_t aura_window_event_device_id(int64_t handle, int64_t index) { (void)handle; (void)index; return 0; }
+int64_t aura_window_event_pointer_id(int64_t handle, int64_t index) { (void)handle; (void)index; return 0; }
+int64_t aura_window_event_pointer_kind(int64_t handle, int64_t index) { (void)handle; (void)index; return 0; }
+int64_t aura_window_event_timestamp_ns(int64_t handle, int64_t index) { (void)handle; (void)index; return 0; }
+
+double aura_window_event_metrics_value(int64_t handle, int64_t index, int64_t field) {
+    (void)handle;
+    (void)index;
+    (void)field;
+    return 0.0;
+}
+
+int64_t aura_window_event_lifecycle_state(int64_t handle, int64_t index) {
+    (void)handle;
+    (void)index;
+    return 0;
+}
+
+int64_t aura_window_event_lifecycle_reason(int64_t handle, int64_t index) {
+    (void)handle;
+    (void)index;
+    return 0;
+}
+
+double aura_window_event_cutout_value(int64_t handle, int64_t index, int64_t rect_index, int64_t field) {
+    (void)handle;
+    (void)index;
+    (void)rect_index;
+    (void)field;
+    return 0.0;
+}
+
+double aura_window_event_environment_value(int64_t handle, int64_t index, int64_t field) {
+    (void)handle;
+    (void)index;
+    (void)field;
+    return 0.0;
+}
+
+int64_t aura_window_event_memory_level(int64_t handle, int64_t index) {
+    (void)handle;
+    (void)index;
+    return 0;
+}
+
+int64_t aura_window_event_surface_value(int64_t handle, int64_t index, int64_t field) {
+    (void)handle;
+    (void)index;
+    (void)field;
+    return 0;
+}
+
+int64_t aura_window_event_text_edit_value(int64_t handle, int64_t index, int64_t field) {
+    (void)handle;
+    (void)index;
+    (void)field;
+    return 0;
+}
+
+int64_t aura_window_surface_available(int64_t handle) {
+    (void)handle;
+    return 1;
+}
+
+int64_t aura_window_system_back_result(int64_t handle, int64_t handled) {
+    (void)handle;
+    (void)handled;
+    return 0;
+}
+
+int64_t aura_window_capabilities(int64_t handle) {
+    (void)handle;
+    return 0;
+}
+
 int64_t aura_window_events_clear(int64_t handle) {
     AuraWindow *window = window_get(handle, 1);
     if (window == NULL) {
@@ -941,6 +1028,79 @@ int64_t aura_text_caret(int64_t handle, double x, double y, double height) {
     window->caret_x = x;
     window->caret_y = y;
     window->caret_h = height;
+    return 0;
+}
+
+int64_t aura_text_editing_state(int64_t handle, const char *text, int64_t generation, int64_t revision, int64_t selection_start, int64_t selection_end, int64_t composing_start, int64_t composing_end) {
+    int64_t start = selection_start;
+    int64_t length = selection_end - selection_start;
+    (void)generation;
+    (void)revision;
+    (void)composing_start;
+    (void)composing_end;
+    if (length < 0) {
+        start = selection_end;
+        length = selection_start - selection_end;
+    }
+    if (aura_text_contents(handle, text) < 0) {
+        return -1;
+    }
+    return aura_text_selection(handle, start, length);
+}
+
+int64_t aura_text_geometry(int64_t handle, double caret_x, double caret_y, double caret_width, double caret_height, double editable_x, double editable_y, double editable_width, double editable_height) {
+    (void)caret_width;
+    (void)editable_x;
+    (void)editable_y;
+    (void)editable_width;
+    (void)editable_height;
+    return aura_text_caret(handle, caret_x, caret_y, caret_height);
+}
+
+int64_t aura_text_geometry_begin(int64_t handle, int64_t target, int64_t revision, int64_t count) {
+    (void)target;
+    (void)revision;
+    (void)count;
+    return window_get(handle, 1) != nil ? 0 : -1;
+}
+
+int64_t aura_text_geometry_boundary(int64_t handle, int64_t target, int64_t revision, int64_t index, int64_t offset, double x, double y, double height) {
+    (void)target;
+    (void)revision;
+    (void)index;
+    (void)offset;
+    (void)x;
+    (void)y;
+    (void)height;
+    return window_get(handle, 1) != nil ? 0 : -1;
+}
+
+int64_t aura_text_geometry_end(int64_t handle, int64_t target, int64_t revision) {
+    (void)target;
+    (void)revision;
+    return window_get(handle, 1) != nil ? 0 : -1;
+}
+
+int64_t aura_text_configuration(int64_t handle, int64_t input_type, int64_t action, int64_t multiline, int64_t secure, int64_t autocorrect, int64_t capitalization, const char *autofill_hints) {
+    (void)input_type;
+    (void)action;
+    (void)multiline;
+    (void)secure;
+    (void)autocorrect;
+    (void)capitalization;
+    (void)autofill_hints;
+    return window_get(handle, 1) != NULL ? 0 : -1;
+}
+
+int64_t aura_post_platform_route(int64_t handle, int64_t source, const char *location) {
+    AuraWindow *window = window_get(handle, 1);
+    if (window == NULL || location == NULL || location[0] == 0) {
+        return -1;
+    }
+    aura_push_text(window, AURA_PLATFORM_ROUTE, location);
+    if (window->event_count > 0) {
+        window->events[window->event_count - 1].key = source;
+    }
     return 0;
 }
 
@@ -1439,6 +1599,21 @@ int64_t aura_ax_add(int64_t handle, const char *role, const char *label, const c
     [(NSMutableArray *)window->ax_nodes addObject:node];
     [node release];
     window->ax_count += 1;
+    return 0;
+}
+
+int64_t aura_ax_set_node(int64_t handle, int64_t node_id, int64_t heading) {
+    AuraWindow *window = window_get(handle, 1);
+    AuraAXNode *node = nil;
+    if (window == NULL || window->ax_nodes == NULL || window->ax_count <= 0) {
+        return -1;
+    }
+    node = [(NSArray *)window->ax_nodes lastObject];
+    if (node == nil) {
+        return -1;
+    }
+    node.nodeId = node_id;
+    node.heading = heading != 0 ? 1 : 0;
     return 0;
 }
 

@@ -1,7 +1,10 @@
+import nox.mathx
 from aura.core.diagnostics import FrameworkError
 from aura.foundation.constraints import Constraints
+from aura.foundation.gesture_metrics import FLING_DECAY_PER_S, MIN_FLING_START_LOGICAL_PER_S, MIN_FLING_STOP_LOGICAL_PER_S, has_scroll_remainder
 from aura.rendering.layer import PaintingContext
 from aura.rendering.render_object import HitTestResult, RenderBox
+from aura.semantics.semantics_node import ACTION_SCROLL_BACKWARD, ACTION_SCROLL_FORWARD, SemanticsNode
 from aura.widgets.framework import BuildContext, Element, ParentDataWidget, RenderObjectWidget, StatelessWidget, Widget, dirty_element_id
 from aura.widgets.scheduler import Scheduler, Ticker
 from aura.widgets.key import IntValueKey, Key
@@ -43,6 +46,12 @@ class ScrollController:
     bound: int
     bar_element: int
     follow_end: int
+    shown: int
+    held: int
+    activity: float
+    seen: float
+    primed: int
+    fade_on: int
 
     def __init__(self) -> None:
         self.position = ScrollPosition()
@@ -50,6 +59,12 @@ class ScrollController:
         self.bound = 0
         self.bar_element = 0
         self.follow_end = 0
+        self.shown = 0
+        self.held = 0
+        self.activity = -1.0
+        self.seen = 0.0
+        self.primed = 0
+        self.fade_on = 0
 
     def watch(self, element_id: int) -> None:
         self.bar_element = element_id
@@ -62,13 +77,17 @@ class ScrollController:
         self.move(pixels - self.position.pixels)
 
     def move(self, delta: float) -> None:
+        self.consume(delta)
+
+    def consume(self, delta: float) -> float:
+        previous: float = self.position.pixels
         nxt: float = self.position.pixels + delta
         if nxt < self.position.min_pixels:
             nxt = self.position.min_pixels
         if nxt > self.position.max_pixels:
             nxt = self.position.max_pixels
         if nxt == self.position.pixels:
-            return
+            return delta
         self.position.pixels = nxt
         if self.position.max_pixels > 0.0:
             if nxt >= self.position.max_pixels:
@@ -78,6 +97,10 @@ class ScrollController:
         self._dirty()
         if self.bar_element != 0:
             dirty_element_id(self.bar_element)
+        remaining: float = delta - (nxt - previous)
+        if not has_scroll_remainder(remaining):
+            return 0.0
+        return remaining
 
     def note_viewport(self, metrics: ViewportMetrics, width: float, height: float) -> None:
         if metrics.width == width and metrics.height == height:
@@ -162,11 +185,11 @@ def report_host(host_id: int, width: float, height: float, content: float) -> No
     _host_controllers[index].note_viewport(_host_metrics[index], width, height)
 
 
-def scroll_host(host_id: int, delta: float) -> None:
+def scroll_host(host_id: int, delta: float) -> float:
     index: int = _host_index(host_id)
     if index < 0:
-        return
-    _host_controllers[index].move(delta)
+        return delta
+    return _host_controllers[index].consume(delta)
 
 
 class RenderViewport(RenderBox):
@@ -200,8 +223,17 @@ class RenderViewport(RenderBox):
     def set_host_id(self, host_id: int) -> None:
         self.host_id = host_id
 
+    def describe_semantics(self, node: SemanticsNode) -> None:
+        node.role = "scroll-view"
+        node.enabled = True
+        node.add_action(ACTION_SCROLL_FORWARD)
+        node.add_action(ACTION_SCROLL_BACKWARD)
+
     def scroll_by(self, delta: float) -> None:
         scroll_host(self.host_id, delta)
+
+    def consume_scroll(self, delta: float) -> float:
+        return scroll_host(self.host_id, delta)
 
     def perform_layout(self) -> None:
         self.width = self.constraints.constrain_width(self.constraints.max_width)
@@ -240,6 +272,9 @@ class RenderViewport(RenderBox):
                 self.paint_child(context, child)
             i = i + 1
         context.pop_clip()
+
+    def hit_test_self(self, x: float, y: float) -> bool:
+        return True
 
     def hit_test_children(self, result: HitTestResult, x: float, y: float) -> bool:
         i: int = len(self.children) - 1
@@ -427,14 +462,25 @@ class Fling(Ticker):
         if dt <= 0.0:
             return
         self.last_time = time_s
-        scroll_host(self.host_id, self.velocity * dt)
-        decay: float = 1.0 - dt * 3.0
-        if decay < 0.0:
-            decay = 0.0
-        self.velocity = self.velocity * decay
-        if self.velocity < 24.0 and self.velocity > -24.0:
+        decay: float = nox.mathx.exp(-FLING_DECAY_PER_S * dt)
+        requested: float = self.velocity * (1.0 - decay) / FLING_DECAY_PER_S
+        remaining: float = scroll_host(self.host_id, requested)
+        if has_scroll_remainder(remaining):
             self.alive = 0
             self.velocity = 0.0
+            return
+        self.velocity = self.velocity * decay
+        if self.velocity < MIN_FLING_STOP_LOGICAL_PER_S and self.velocity > -MIN_FLING_STOP_LOGICAL_PER_S:
+            self.alive = 0
+            self.velocity = 0.0
+
+    def rebase(self, delta_s: float) -> None:
+        if self.alive == 1:
+            self.last_time = self.last_time + delta_s
+
+    def apply_reduce_motion(self) -> None:
+        self.alive = 0
+        self.velocity = 0.0
 
 
 _flings: list[Fling] = []
@@ -443,7 +489,7 @@ _flings: list[Fling] = []
 def begin_fling(scheduler: Scheduler, host_id: int, velocity: float, time_s: float) -> None:
     if host_id == 0:
         return
-    if velocity < 40.0 and velocity > -40.0:
+    if velocity < MIN_FLING_START_LOGICAL_PER_S and velocity > -MIN_FLING_START_LOGICAL_PER_S:
         return
     i: int = 0
     while i < len(_flings):

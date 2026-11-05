@@ -2,9 +2,9 @@ from aura.app import run_app
 from aura.core.mode import MODE_PROFILE, MODE_RELEASE, set_mode
 from aura.devtools.performance import format_frame
 from aura.foundation.color import COLOR_ACCENT, COLOR_BACKGROUND, COLOR_BUTTON
-from aura.platform.macos import sample_pixel
 from aura.rendering.render_object import RenderBox
 from aura.runtime.binding import Binding
+from aura.testing.host import sample_pixel
 from examples.dashboard.page import BAR_GROWN, BAR_REST, DashboardPage
 from nox.os import arg, arg_count
 

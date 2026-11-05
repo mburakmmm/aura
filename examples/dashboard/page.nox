@@ -2,10 +2,11 @@ from aura.animation import AnimatedOpacity, AnimatedPosition, AnimatedSize
 from aura.controls.button import BUTTON_ALIGN_START, Button
 from aura.foundation.color import COLOR_ACCENT, COLOR_BACKGROUND, COLOR_BUTTON, COLOR_BUTTON_TEXT, COLOR_TEXT
 from aura.foundation.insets import insets_all
-from aura.layout import ColoredBox, Column, Padding, RepaintBoundary, Row, SizedBox
+from aura.layout import ColoredBox, Column, Padding, RepaintBoundary, Row, SafeArea, SizedBox
 from aura.layout.flex import CROSS_START, MAIN_MIN
 from aura.text import Text
 from aura.widgets import BuildContext, State, StatefulWidget, Widget
+from aura.widgets.window_metrics import window_metrics_of
 from aura.widgets.type_ids import alloc_type_id
 
 TYPE_DASHBOARD: int = alloc_type_id()
@@ -31,8 +32,8 @@ def card_ink(lane: int, which: int) -> int:
     return COLOR_TEXT
 
 
-def lane_card(title: str, tag: int, lane: int, which: int, handler: () -> None) -> Widget:
-    return RepaintBoundary(SizedBox(260.0, 120.0, Button(title, handler, font_size=20.0, color=card_ink(lane, which), background=card_background(lane, which), text_align=BUTTON_ALIGN_START), tag))
+def lane_card(title: str, tag: int, lane: int, which: int, handler: () -> None, width: float) -> Widget:
+    return RepaintBoundary(SizedBox(width, 120.0, Button(title, handler, font_size=20.0, color=card_ink(lane, which), background=card_background(lane, which), text_align=BUTTON_ALIGN_START), tag))
 
 
 class DashboardState(State):
@@ -72,13 +73,26 @@ class DashboardState(State):
         if self.lane == LANE_IDLE:
             title = "Idle"
             detail = "Queue is waiting."
-        return ColoredBox(COLOR_BACKGROUND, Padding(insets_all(24.0), Column([
+        span: float = window_metrics_of(context).logical_width - 48.0
+        card_width: float = 260.0
+        lanes: Widget = Row([
+            lane_card("Open", 4, self.lane, LANE_OPEN, self.show_open, card_width),
+            lane_card("Idle", 5, self.lane, LANE_IDLE, self.show_idle, card_width),
+        ], cross_align=CROSS_START, main_size=MAIN_MIN, spacing=16.0)
+        if span > PANEL_WIDTH:
+            span = PANEL_WIDTH
+        if span < 160.0:
+            span = 160.0
+        if span < PANEL_WIDTH:
+            card_width = span
+            lanes = Column([
+                lane_card("Open", 4, self.lane, LANE_OPEN, self.show_open, card_width),
+                lane_card("Idle", 5, self.lane, LANE_IDLE, self.show_idle, card_width),
+            ], cross_align=CROSS_START, main_size=MAIN_MIN, spacing=16.0)
+        return ColoredBox(COLOR_BACKGROUND, SafeArea(Column([
             Text(str(self.count), font_size=40.0, color=COLOR_TEXT),
-            Row([
-                lane_card("Open", 4, self.lane, LANE_OPEN, self.show_open),
-                lane_card("Idle", 5, self.lane, LANE_IDLE, self.show_idle),
-            ], cross_align=CROSS_START, main_size=MAIN_MIN, spacing=16.0),
-            AnimatedSize(PANEL_WIDTH, bar, 0.5, ColoredBox(COLOR_BUTTON, Padding(insets_all(16.0), Column([
+            lanes,
+            AnimatedSize(span, bar, 0.5, ColoredBox(COLOR_BUTTON, Padding(insets_all(16.0), Column([
                 Text(title, font_size=22.0, color=COLOR_BUTTON_TEXT),
                 SizedBox(None, 8.0),
                 Text(detail, font_size=16.0, color=COLOR_BUTTON_TEXT),
@@ -86,7 +100,7 @@ class DashboardState(State):
                 AnimatedOpacity(opacity, 0.5, AnimatedPosition(shift, 0.0, 0.5, SizedBox(96.0, 32.0, ColoredBox(COLOR_ACCENT, Padding(insets_all(6.0), Text(title, font_size=16.0, color=COLOR_TEXT)))))),
             ], cross_align=CROSS_START, main_size=MAIN_MIN))), 9),
             Button("Refresh", self.refresh, color=COLOR_BUTTON_TEXT, background=COLOR_BUTTON),
-        ], spacing=16.0, cross_align=CROSS_START, main_size=MAIN_MIN)))
+        ], spacing=16.0, cross_align=CROSS_START, main_size=MAIN_MIN), minimum=insets_all(24.0)))
 
 
 class DashboardPage(StatefulWidget):

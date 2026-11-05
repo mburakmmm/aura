@@ -1,0 +1,76 @@
+from aura.semantics.semantics_node import ACTION_DECREMENT, ACTION_INCREMENT, ACTION_LONG_PRESS, ACTION_SCROLL_BACKWARD, ACTION_SCROLL_FORWARD, ACTION_SET_TEXT, ACTION_TAP, SemanticsNode
+
+ANDROID_ACTION_CLICK: int = 16
+ANDROID_ACTION_LONG_CLICK: int = 32
+ANDROID_ACTION_SCROLL_FORWARD: int = 4096
+ANDROID_ACTION_SCROLL_BACKWARD: int = 8192
+ANDROID_ACTION_SET_TEXT: int = 2097152
+
+
+class SemanticsPlatformNames:
+    ios_element: str
+    ios_trait: str
+    android_class: str
+
+    def __init__(self, ios_element: str, ios_trait: str, android_class: str) -> None:
+        self.ios_element = ios_element
+        self.ios_trait = ios_trait
+        self.android_class = android_class
+
+
+def platform_names(role: str, heading: int) -> SemanticsPlatformNames:
+    if role == "button":
+        return SemanticsPlatformNames("UIButton", "button", "android.widget.Button")
+    if role == "toggle":
+        return SemanticsPlatformNames("UISwitch", "button", "android.widget.Switch")
+    if role == "text" and heading != 0:
+        return SemanticsPlatformNames("UIAccessibilityElement", "header", "android.widget.TextView")
+    if role == "text":
+        return SemanticsPlatformNames("UILabel", "static-text", "android.widget.TextView")
+    if role == "text-field":
+        return SemanticsPlatformNames("UITextField", "text-field", "android.widget.EditText")
+    if role == "image":
+        return SemanticsPlatformNames("UIImageView", "image", "android.widget.ImageView")
+    if role == "scroll-view":
+        return SemanticsPlatformNames("UIScrollView", "none", "android.widget.ScrollView")
+    if role == "adjustable":
+        return SemanticsPlatformNames("UISlider", "adjustable", "android.widget.SeekBar")
+    return SemanticsPlatformNames("UIAccessibilityElement", "none", "android.view.View")
+
+
+def aura_action_for_ios(node: SemanticsNode, name: str) -> str:
+    if name == "activate" and node.has_action(ACTION_TAP):
+        return ACTION_TAP
+    if name == "long-press" and node.has_action(ACTION_LONG_PRESS):
+        return ACTION_LONG_PRESS
+    if name == "increment" and node.has_action(ACTION_INCREMENT):
+        return ACTION_INCREMENT
+    if name == "decrement" and node.has_action(ACTION_DECREMENT):
+        return ACTION_DECREMENT
+    if name == "scroll-forward" and node.has_action(ACTION_SCROLL_FORWARD):
+        return ACTION_SCROLL_FORWARD
+    if name == "scroll-backward" and node.has_action(ACTION_SCROLL_BACKWARD):
+        return ACTION_SCROLL_BACKWARD
+    if name == "set-text" and node.has_action(ACTION_SET_TEXT):
+        return ACTION_SET_TEXT
+    return ""
+
+
+def aura_action_for_android(node: SemanticsNode, action_id: int) -> str:
+    if action_id == ANDROID_ACTION_CLICK and node.has_action(ACTION_TAP):
+        return ACTION_TAP
+    if action_id == ANDROID_ACTION_LONG_CLICK and node.has_action(ACTION_LONG_PRESS):
+        return ACTION_LONG_PRESS
+    if action_id == ANDROID_ACTION_SET_TEXT and node.has_action(ACTION_SET_TEXT):
+        return ACTION_SET_TEXT
+    if action_id == ANDROID_ACTION_SCROLL_FORWARD:
+        if node.has_action(ACTION_INCREMENT):
+            return ACTION_INCREMENT
+        if node.has_action(ACTION_SCROLL_FORWARD):
+            return ACTION_SCROLL_FORWARD
+    if action_id == ANDROID_ACTION_SCROLL_BACKWARD:
+        if node.has_action(ACTION_DECREMENT):
+            return ACTION_DECREMENT
+        if node.has_action(ACTION_SCROLL_BACKWARD):
+            return ACTION_SCROLL_BACKWARD
+    return ""

@@ -2,6 +2,16 @@
 
 Bu dosya yayımlanan sürümleri tutar. Sürüm numarası `nox.json` ile, git etiketi `v` önekiyle aynıdır. Sonraki teslimatların sırası [roadmap.md](roadmap.md) dosyasındadır.
 
+## Yayınlanmamış
+
+Mobil kabuk `main` üzerinde izlenir. Sürüm numarası `1.0.0` kalır. Etiket, TestFlight ve Play bu kayda girmez.
+
+- iOS ve Android aynı C sembol kümesini kullanır. Olaylar sürümlü kuyruğa yazılır. Widget katmanı UIKit, JNI ve `extern def` görmez. Çizim Skia raster tamponudur. GPU seçilmedi.
+- Güvenli alan, klavye payı, yaşam döngüsü, metin düzenleme, anlam ağacı ve Documents kökü kabuktan çerçeveye iner. Kararlar `adr/015`–`adr/033` arasındadır.
+- `examples/mobile/app.json` paket kimliğini taşır. Üretilen IPA, APK, uygulama paketi ve imza dosyası depoya girmez.
+- 5 Kasım 2026’da iPhone 17 Pro’da Notes, Counter, Chat, Settings, Todo, Calculator, Files ve Dashboard development imzasıyla açıldı. Entitlements ve kurulum elle yapıldı. VoiceOver yalnız Notes’ta kısmi görüldü. Düzenlenen metin süreç ölünce durmuyor.
+- Açık kalan kapı: Xcode hedefi, ikon, açılış ekranı, gizlilik bildirimi, dSYM, `.xcarchive` ve imzalı IPA. Android cihaz turu bundan sonra planlanır.
+
 ## 1.0.0
 
 Dondurma. Genel adlar bu sürümde donar. Kırılması ana sürüm ister. Kapı `scripts/certify.sh` ve GitHub Actions’tır: macOS, gizli Win32, X11 ve Wayland. Etiket bu sürüm notunun parçası değildir.

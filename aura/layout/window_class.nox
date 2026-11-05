@@ -1,0 +1,7 @@
+from aura.foundation.window_class import window_class_for_width
+from aura.widgets.framework import BuildContext
+from aura.widgets.window_metrics import window_metrics_of
+
+
+def window_class_of(context: BuildContext) -> int:
+    return window_class_for_width(window_metrics_of(context).logical_width)

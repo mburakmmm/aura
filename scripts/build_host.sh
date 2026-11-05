@@ -20,13 +20,15 @@ case "$OS" in
     clang -fno-objc-arc -c -I "$ROOT/native/skia" -I "$ROOT/native/host" -o "$ROOT/native/macos/aura_macos.o" "$ROOT/native/macos/aura_macos.m"
     clang -c -I "$ROOT/native/host" -o "$ROOT/native/host/plugin.o" "$ROOT/native/host/plugin.c"
     clang -c -I "$ROOT/native/host" -o "$ROOT/native/host/listing.o" "$ROOT/native/host/listing.c"
-    clang++ -std=c++17 -c -I "$SKIA" -I "$ROOT/native/skia" -o "$ROOT/native/skia/paint.o" "$ROOT/native/skia/paint.cc"
+    clang++ -std=c++17 -c -I "$SKIA" -I "$ROOT/native/skia" -I "$ROOT/native/mobile" -o "$ROOT/native/skia/paint.o" "$ROOT/native/skia/paint.cc"
+    clang -c -I "$ROOT/native/mobile" -o "$ROOT/native/mobile/storage.o" "$ROOT/native/mobile/storage.c"
     clang++ -fno-objc-arc -dynamiclib \
       -framework Cocoa -framework CoreGraphics -framework CoreVideo -framework CoreText -framework Metal -framework Foundation -framework QuartzCore \
       -install_name "$OUT" \
       -o "$OUT" \
       "$ROOT/native/macos/aura_macos.o" \
       "$ROOT/native/skia/paint.o" \
+      "$ROOT/native/mobile/storage.o" \
       "$ROOT/native/host/plugin.o" \
       "$ROOT/native/host/listing.o" \
       "$LIBDIR/libskia.a" \
@@ -63,7 +65,8 @@ case "$OS" in
       -I "$SKIA" -I "$ROOT/native/skia" -I "$ROOT/native/host" -I "$ROOT/native/linux" \
       $WL_CFLAGS \
       -o "$ROOT/native/linux/aura_linux.o" "$ROOT/native/linux/aura_linux.cc"
-    clang++ -std=c++17 -fPIC -c -I "$SKIA" -I "$ROOT/native/skia" -o "$ROOT/native/skia/paint.o" "$ROOT/native/skia/paint.cc"
+    clang++ -std=c++17 -fPIC -c -I "$SKIA" -I "$ROOT/native/skia" -I "$ROOT/native/mobile" -o "$ROOT/native/skia/paint.o" "$ROOT/native/skia/paint.cc"
+    clang -fPIC -c -I "$ROOT/native/mobile" -o "$ROOT/native/mobile/storage.o" "$ROOT/native/mobile/storage.c"
     # shellcheck disable=SC2086
     clang++ -fPIC -shared \
       -o "$OUT" \
@@ -71,6 +74,7 @@ case "$OS" in
       "$ROOT/native/linux/xdg-shell-protocol.o" \
       "$ROOT/native/linux/text-input-unstable-v3-protocol.o" \
       "$ROOT/native/skia/paint.o" \
+      "$ROOT/native/mobile/storage.o" \
       "$ROOT/native/host/plugin.o" \
       "$ROOT/native/host/listing.o" \
       "$ROOT/native/host/queue.o" \
@@ -130,10 +134,11 @@ case "$OS" in
       return 1
     }
     cl /nologo /std:c++20 /EHsc /MT /LD /utf-8 \
-      "/I$WSKIA" "/I$WROOT/native/skia" "/I$WROOT/native/host" \
+      "/I$WSKIA" "/I$WROOT/native/skia" "/I$WROOT/native/host" "/I$WROOT/native/mobile" \
       "/Fo$WBUILD" "/Fe$WOUT" \
       "$WROOT/native/windows/aura_windows.cc" \
       "$WROOT/native/skia/paint.cc" \
+      "$WROOT/native/mobile/storage.c" \
       "$WROOT/native/host/plugin.c" \
       "$WROOT/native/host/listing.c" \
       "$WROOT/native/host/queue.c" \

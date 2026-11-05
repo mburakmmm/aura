@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+cmd=${1:-}
+if [ "$cmd" != "doctor" ]; then
+  echo "usage: scripts/aura doctor" >&2
+  exit 2
+fi
+python=python3
+if ! command -v python3 >/dev/null 2>&1; then
+  python=python
+fi
+exec "$python" "$root/scripts/mobile_package.py" doctor --root "$root"

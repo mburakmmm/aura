@@ -1,4 +1,4 @@
-from aura.platform.bridge import ax_add, ax_begin, ax_commit
+from aura.platform.bridge import ax_add, ax_begin, ax_commit, ax_set_node
 from aura.rendering.render_object import bind_press_window
 from aura.semantics.semantics_node import SemanticsNode, SemanticsOwner
 
@@ -52,11 +52,14 @@ def _sig_piece(left: str, right: str) -> str:
 
 def _signature(node: SemanticsNode) -> str:
     checked: str = "0"
+    heading: str = "0"
     text: str = ""
     i: int = 0
     if node.checked:
         checked = "1"
-    text = node.role + "|" + node.label + "|" + node.value + "|" + checked + "|" + str(node.x) + "|" + str(node.y) + "|" + str(node.width) + "|" + str(node.height)
+    if node.heading:
+        heading = "1"
+    text = node.role + "|" + node.label + "|" + node.value + "|" + checked + "|" + heading + "|" + str(node.x) + "|" + str(node.y) + "|" + str(node.width) + "|" + str(node.height)
     while i < len(node.children):
         text = _sig_piece(_sig_piece(text, "/"), _signature(node.children[i]))
         i = i + 1
@@ -66,9 +69,13 @@ def _signature(node: SemanticsNode) -> str:
 def _walk(handle: int, node: SemanticsNode) -> None:
     if node.role != "":
         checked: int = 0
+        heading: int = 0
         if node.checked:
             checked = 1
+        if node.heading:
+            heading = 1
         ax_add(handle, node.role, node.label, node.value, checked, node.x, node.y, node.width, node.height, node.press_id)
+        ax_set_node(handle, node.node_id, heading)
     i: int = 0
     while i < len(node.children):
         _walk(handle, node.children[i])

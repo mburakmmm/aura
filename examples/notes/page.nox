@@ -1,9 +1,11 @@
 from aura.foundation.insets import insets_all
-from aura.layout import Column, Expanded, Padding
+from aura.layout import Column, Expanded, SafeArea
 from aura.layout.flex import CROSS_STRETCH
 from aura.text import Text, TextEditingController, TextField
 from aura.widgets import BuildContext, StatelessWidget, Widget
+from aura.widgets.theme import platform_theme
 from aura.widgets.type_ids import alloc_type_id
+from aura.widgets.window_metrics import window_metrics_of
 
 TYPE_NOTES: int = alloc_type_id()
 
@@ -20,7 +22,7 @@ class NotesPage(StatelessWidget):
         super().__init__(TYPE_NOTES, None)
 
     def build(self, context: BuildContext) -> Widget:
-        return Padding(insets_all(32.0), Column([
-            Text("Notes", font_size=32.0),
+        return SafeArea(Column([
+            Text("Notes", font_size=32.0, color=platform_theme(window_metrics_of(context)).scheme.text).as_heading(),
             Expanded(TextField(document, multiline=1)),
-        ], spacing=20.0, cross_align=CROSS_STRETCH))
+        ], spacing=20.0, cross_align=CROSS_STRETCH), minimum=insets_all(32.0))

@@ -7,8 +7,26 @@ extern def aura_window_event_x(handle: int, index: int) -> float from "native/li
 extern def aura_window_event_y(handle: int, index: int) -> float from "native/libaura_host.dylib"
 extern def aura_window_event_key(handle: int, index: int) -> int from "native/libaura_host.dylib"
 extern def aura_window_event_button(handle: int, index: int) -> int from "native/libaura_host.dylib"
+extern def aura_window_event_modifiers(handle: int, index: int) -> int from "native/libaura_host.dylib"
+extern def aura_window_event_device_id(handle: int, index: int) -> int from "native/libaura_host.dylib"
+extern def aura_window_event_pointer_id(handle: int, index: int) -> int from "native/libaura_host.dylib"
+extern def aura_window_event_pointer_kind(handle: int, index: int) -> int from "native/libaura_host.dylib"
+extern def aura_window_event_timestamp_ns(handle: int, index: int) -> int from "native/libaura_host.dylib"
+extern def aura_window_event_metrics_value(handle: int, index: int, field: int) -> float from "native/libaura_host.dylib"
+extern def aura_window_event_lifecycle_state(handle: int, index: int) -> int from "native/libaura_host.dylib"
+extern def aura_window_event_lifecycle_reason(handle: int, index: int) -> int from "native/libaura_host.dylib"
+extern def aura_window_event_environment_value(handle: int, index: int, field: int) -> float from "native/libaura_host.dylib"
+extern def aura_window_event_memory_level(handle: int, index: int) -> int from "native/libaura_host.dylib"
+extern def aura_window_event_cutout_value(handle: int, index: int, rect_index: int, field: int) -> float from "native/libaura_host.dylib"
+extern def aura_window_event_surface_value(handle: int, index: int, field: int) -> int from "native/libaura_host.dylib"
+extern def aura_window_event_text_edit_value(handle: int, index: int, field: int) -> int from "native/libaura_host.dylib"
+extern def aura_window_surface_available(handle: int) -> int from "native/libaura_host.dylib"
+extern def aura_window_capabilities(handle: int) -> int from "native/libaura_host.dylib"
+extern def aura_window_system_back_result(handle: int, handled: int) -> int from "native/libaura_host.dylib"
 extern def aura_window_events_clear(handle: int) -> int from "native/libaura_host.dylib"
 extern def aura_window_should_close(handle: int) -> int from "native/libaura_host.dylib"
+extern def aura_storage_documents_len() -> int from "native/libaura_host.dylib"
+extern def aura_storage_documents_byte(offset: int) -> int from "native/libaura_host.dylib"
 extern def aura_window_width(handle: int) -> float from "native/libaura_host.dylib"
 extern def aura_window_height(handle: int) -> float from "native/libaura_host.dylib"
 extern def aura_window_scale(handle: int) -> float from "native/libaura_host.dylib"
@@ -47,7 +65,14 @@ extern def aura_text_focus(handle: int, enabled: int) -> int from "native/libaur
 extern def aura_text_selection(handle: int, start: int, length: int) -> int from "native/libaura_host.dylib"
 extern def aura_text_contents(handle: int, text: str) -> int from "native/libaura_host.dylib"
 extern def aura_text_caret(handle: int, x: float, y: float, height: float) -> int from "native/libaura_host.dylib"
+extern def aura_text_editing_state(handle: int, text: str, generation: int, revision: int, selection_start: int, selection_end: int, composing_start: int, composing_end: int) -> int from "native/libaura_host.dylib"
+extern def aura_text_geometry(handle: int, caret_x: float, caret_y: float, caret_width: float, caret_height: float, editable_x: float, editable_y: float, editable_width: float, editable_height: float) -> int from "native/libaura_host.dylib"
+extern def aura_text_geometry_begin(handle: int, target: int, revision: int, count: int) -> int from "native/libaura_host.dylib"
+extern def aura_text_geometry_boundary(handle: int, target: int, revision: int, index: int, offset: int, x: float, y: float, height: float) -> int from "native/libaura_host.dylib"
+extern def aura_text_geometry_end(handle: int, target: int, revision: int) -> int from "native/libaura_host.dylib"
+extern def aura_text_configuration(handle: int, input_type: int, action: int, multiline: int, secure: int, autocorrect: int, capitalization: int, autofill_hints: str) -> int from "native/libaura_host.dylib"
 extern def aura_post_text(handle: int, text: str) -> int from "native/libaura_host.dylib"
+extern def aura_post_platform_route(handle: int, source: int, location: str) -> int from "native/libaura_host.dylib"
 extern def aura_post_drop(handle: int, x: float, y: float, path: str) -> int from "native/libaura_host.dylib"
 extern def aura_drag_file(handle: int, path: str) -> int from "native/libaura_host.dylib"
 extern def aura_clipboard_set(text: str) -> int from "native/libaura_host.dylib"
@@ -67,6 +92,7 @@ extern def aura_image_dispose(handle: int) -> int from "native/libaura_host.dyli
 extern def aura_cmd_image(handle: int, image: int, x: float, y: float, w: float, h: float) -> int from "native/libaura_host.dylib"
 extern def aura_ax_begin(handle: int) -> int from "native/libaura_host.dylib"
 extern def aura_ax_add(handle: int, role: str, label: str, value: str, checked: int, x: float, y: float, w: float, h: float, press: int) -> int from "native/libaura_host.dylib"
+extern def aura_ax_set_node(handle: int, node_id: int, heading: int) -> int from "native/libaura_host.dylib"
 extern def aura_ax_commit(handle: int) -> int from "native/libaura_host.dylib"
 extern def aura_ax_count(handle: int) -> int from "native/libaura_host.dylib"
 extern def aura_ax_text_len(handle: int, index: int, field: int) -> int from "native/libaura_host.dylib"
@@ -78,6 +104,10 @@ extern def aura_ax_y(handle: int, index: int) -> float from "native/libaura_host
 extern def aura_ax_w(handle: int, index: int) -> float from "native/libaura_host.dylib"
 extern def aura_ax_h(handle: int, index: int) -> float from "native/libaura_host.dylib"
 extern def aura_post_ax(handle: int, index: int) -> int from "native/libaura_host.dylib"
+extern def aura_route_snapshot_save(text: str) -> int from "native/libaura_host.dylib"
+extern def aura_route_snapshot_load_len() -> int from "native/libaura_host.dylib"
+extern def aura_route_snapshot_load_byte(index: int) -> int from "native/libaura_host.dylib"
+extern def aura_route_snapshot_clear() -> int from "native/libaura_host.dylib"
 
 extern def aura_mono_time() -> float from "native/libaura_host.dylib"
 extern def aura_sample(handle: int, x: float, y: float) -> int from "native/libaura_host.dylib"
@@ -98,6 +128,8 @@ extern def aura_listing_remove_dir(path: str) -> int from "native/libaura_host.d
 
 from aura.core.diagnostics import FrameworkError
 
+CAPABILITY_INTERACTIVE_EDGE_BACK: int = 1
+
 _active_window: int = 0
 
 
@@ -117,6 +149,18 @@ def poll_events(handle: int) -> int:
     if count < 0:
         raise FrameworkError("use after close")
     return count
+
+
+def system_back_result(handle: int, handled: bool) -> None:
+    value: int = 0
+    if handled:
+        value = 1
+    if aura_window_system_back_result(handle, value) < 0:
+        raise FrameworkError("use after close")
+
+
+def capabilities(handle: int) -> int:
+    return aura_window_capabilities(handle)
 
 
 def event_count(handle: int) -> int:
@@ -144,6 +188,62 @@ def event_key(handle: int, index: int) -> int:
 
 def event_button(handle: int, index: int) -> int:
     return aura_window_event_button(handle, index)
+
+
+def event_modifiers(handle: int, index: int) -> int:
+    return aura_window_event_modifiers(handle, index)
+
+
+def event_device_id(handle: int, index: int) -> int:
+    return aura_window_event_device_id(handle, index)
+
+
+def event_pointer_id(handle: int, index: int) -> int:
+    return aura_window_event_pointer_id(handle, index)
+
+
+def event_pointer_kind(handle: int, index: int) -> int:
+    return aura_window_event_pointer_kind(handle, index)
+
+
+def event_timestamp_ns(handle: int, index: int) -> int:
+    return aura_window_event_timestamp_ns(handle, index)
+
+
+def event_metrics_value(handle: int, index: int, field: int) -> float:
+    return aura_window_event_metrics_value(handle, index, field)
+
+
+def event_lifecycle_state(handle: int, index: int) -> int:
+    return aura_window_event_lifecycle_state(handle, index)
+
+
+def event_lifecycle_reason(handle: int, index: int) -> int:
+    return aura_window_event_lifecycle_reason(handle, index)
+
+
+def event_environment_value(handle: int, index: int, field: int) -> float:
+    return aura_window_event_environment_value(handle, index, field)
+
+
+def event_memory_level(handle: int, index: int) -> int:
+    return aura_window_event_memory_level(handle, index)
+
+
+def event_cutout_value(handle: int, index: int, rect_index: int, field: int) -> float:
+    return aura_window_event_cutout_value(handle, index, rect_index, field)
+
+
+def event_surface_value(handle: int, index: int, field: int) -> int:
+    return aura_window_event_surface_value(handle, index, field)
+
+
+def event_text_edit_value(handle: int, index: int, field: int) -> int:
+    return aura_window_event_text_edit_value(handle, index, field)
+
+
+def surface_available(handle: int) -> bool:
+    return aura_window_surface_available(handle) != 0
 
 
 def clear_events(handle: int) -> None:
@@ -348,6 +448,39 @@ def post_mouse(handle: int, kind: int, x: float, y: float, button: int = 1) -> N
         raise FrameworkError("use after close")
 
 
+def documents_dir() -> str:
+    count: int = aura_storage_documents_len()
+    text: str = ""
+    i: int = 0
+    while i < count:
+        b0: int = aura_storage_documents_byte(i)
+        b1: int = 0
+        b2: int = 0
+        b3: int = 0
+        if b0 < 128:
+            text = text + chr(b0)
+            i = i + 1
+        elif b0 < 224 and i + 1 < count:
+            b1 = aura_storage_documents_byte(i + 1)
+            text = text + chr(((b0 & 31) << 6) | (b1 & 63))
+            i = i + 2
+        elif b0 < 240 and i + 2 < count:
+            b1 = aura_storage_documents_byte(i + 1)
+            b2 = aura_storage_documents_byte(i + 2)
+            text = text + chr(((b0 & 15) << 12) | ((b1 & 63) << 6) | (b2 & 63))
+            i = i + 3
+        elif i + 3 < count:
+            b1 = aura_storage_documents_byte(i + 1)
+            b2 = aura_storage_documents_byte(i + 2)
+            b3 = aura_storage_documents_byte(i + 3)
+            text = text + chr(((b0 & 7) << 18) | ((b1 & 63) << 12) | ((b2 & 63) << 6) | (b3 & 63))
+            i = i + 4
+        else:
+            text = text + chr(b0)
+            i = i + 1
+    return text
+
+
 def event_text(handle: int, index: int) -> str:
     count: int = aura_window_event_text_len(handle, index)
     text: str = ""
@@ -398,13 +531,53 @@ def text_input_active(enabled: int) -> None:
         raise FrameworkError("use after close")
 
 
-def sync_text_input(text: str, start: int, length: int) -> None:
+def sync_text_input(text: str, generation: int, revision: int, selection_start: int, selection_end: int, composing_start: int, composing_end: int) -> None:
     handle: int = _active_window
     if handle == 0:
         return
-    if aura_text_contents(handle, text) < 0:
+    if aura_text_editing_state(handle, text, generation, revision, selection_start, selection_end, composing_start, composing_end) < 0:
         raise FrameworkError("use after close")
-    if aura_text_selection(handle, start, length) < 0:
+
+
+def sync_text_geometry(caret_x: float, caret_y: float, caret_width: float, caret_height: float, editable_x: float, editable_y: float, editable_width: float, editable_height: float) -> None:
+    handle: int = _active_window
+    if handle == 0:
+        return
+    if aura_text_geometry(handle, caret_x, caret_y, caret_width, caret_height, editable_x, editable_y, editable_width, editable_height) < 0:
+        raise FrameworkError("use after close")
+
+
+def begin_text_geometry_snapshot(target: int, revision: int, count: int) -> bool:
+    handle: int = _active_window
+    if handle == 0:
+        return False
+    code: int = aura_text_geometry_begin(handle, target, revision, count)
+    if code < 0:
+        raise FrameworkError("invalid text geometry snapshot")
+    return code > 0
+
+
+def add_text_geometry_boundary(target: int, revision: int, index: int, offset: int, x: float, y: float, height: float) -> None:
+    handle: int = _active_window
+    if handle == 0:
+        return
+    if aura_text_geometry_boundary(handle, target, revision, index, offset, x, y, height) < 0:
+        raise FrameworkError("invalid text geometry boundary")
+
+
+def end_text_geometry_snapshot(target: int, revision: int) -> None:
+    handle: int = _active_window
+    if handle == 0:
+        return
+    if aura_text_geometry_end(handle, target, revision) < 0:
+        raise FrameworkError("incomplete text geometry snapshot")
+
+
+def sync_text_configuration(input_type: int, action: int, multiline: int, secure: int, autocorrect: int, capitalization: int, autofill_hints: str) -> None:
+    handle: int = _active_window
+    if handle == 0:
+        return
+    if aura_text_configuration(handle, input_type, action, multiline, secure, autocorrect, capitalization, autofill_hints) < 0:
         raise FrameworkError("use after close")
 
 
@@ -416,7 +589,7 @@ def clipboard_set(text: str) -> None:
 def clipboard_get() -> str:
     count: int = aura_clipboard_len()
     if count < 0:
-        return ""
+        raise FrameworkError("clipboard read failed")
     text: str = ""
     i: int = 0
     while i < count:
@@ -568,6 +741,14 @@ def post_text(handle: int, text: str) -> None:
         raise FrameworkError("use after close")
 
 
+def post_platform_route(handle: int, source: int, location: str) -> None:
+    if location == "":
+        raise FrameworkError("platform route location is empty")
+    code: int = aura_post_platform_route(handle, source, location)
+    if code < 0:
+        raise FrameworkError("use after close")
+
+
 def ax_begin(handle: int) -> None:
     if aura_ax_begin(handle) < 0:
         raise FrameworkError("use after close")
@@ -575,6 +756,11 @@ def ax_begin(handle: int) -> None:
 
 def ax_add(handle: int, role: str, label: str, value: str, checked: int, x: float, y: float, w: float, h: float, press: int) -> None:
     if aura_ax_add(handle, role, label, value, checked, x, y, w, h, press) < 0:
+        raise FrameworkError("use after close")
+
+
+def ax_set_node(handle: int, node_id: int, heading: int) -> None:
+    if aura_ax_set_node(handle, node_id, heading) < 0:
         raise FrameworkError("use after close")
 
 
@@ -700,3 +886,46 @@ def listing_name_byte(index: int, offset: int) -> int:
 
 def remove_empty_dir(path: str) -> int:
     return aura_listing_remove_dir(path)
+
+
+def route_snapshot_save(text: str) -> int:
+    return aura_route_snapshot_save(text)
+
+
+def route_snapshot_clear() -> int:
+    return aura_route_snapshot_clear()
+
+
+def route_snapshot_load() -> str:
+    count: int = aura_route_snapshot_load_len()
+    text: str = ""
+    i: int = 0
+    while i < count:
+        b0: int = aura_route_snapshot_load_byte(i)
+        b1: int = 0
+        b2: int = 0
+        b3: int = 0
+        if b0 < 0:
+            return text
+        if b0 < 128:
+            text = text + chr(b0)
+            i = i + 1
+        elif b0 < 224 and i + 1 < count:
+            b1 = aura_route_snapshot_load_byte(i + 1)
+            text = text + chr(((b0 & 31) << 6) | (b1 & 63))
+            i = i + 2
+        elif b0 < 240 and i + 2 < count:
+            b1 = aura_route_snapshot_load_byte(i + 1)
+            b2 = aura_route_snapshot_load_byte(i + 2)
+            text = text + chr(((b0 & 15) << 12) | ((b1 & 63) << 6) | (b2 & 63))
+            i = i + 3
+        elif i + 3 < count:
+            b1 = aura_route_snapshot_load_byte(i + 1)
+            b2 = aura_route_snapshot_load_byte(i + 2)
+            b3 = aura_route_snapshot_load_byte(i + 3)
+            text = text + chr(((b0 & 7) << 18) | ((b1 & 63) << 12) | ((b2 & 63) << 6) | (b3 & 63))
+            i = i + 4
+        else:
+            text = text + chr(b0)
+            i = i + 1
+    return text

@@ -1,4 +1,5 @@
 from aura.platform.bridge import text_input_active
+from aura.input.keyboard import DIRECTION_DOWN, DIRECTION_LEFT, DIRECTION_NONE, DIRECTION_RIGHT, DIRECTION_UP, MOD_SHIFT, is_tab, traversal_direction
 
 _next_focus_id: int = 1
 
@@ -16,6 +17,10 @@ def _noop_text(code: int) -> None:
     pass
 
 
+def _noop_focus_change() -> None:
+    pass
+
+
 class FocusNode:
     node_id: int
     enabled: bool
@@ -29,6 +34,15 @@ class FocusNode:
     last_down: int
     last_text: int
     insert_target: int
+    traversal_order: int
+    bounds_x: float
+    bounds_y: float
+    bounds_width: float
+    bounds_height: float
+    has_bounds: bool
+    traversable: bool
+    on_focus: () -> None
+    on_blur: () -> None
 
     def __init__(self) -> None:
         self.node_id = _alloc_focus_id()
@@ -43,17 +57,42 @@ class FocusNode:
         self.last_down = 0
         self.last_text = 0
         self.insert_target = 0
+        self.traversal_order = 0
+        self.bounds_x = 0.0
+        self.bounds_y = 0.0
+        self.bounds_width = 0.0
+        self.bounds_height = 0.0
+        self.has_bounds = False
+        self.traversable = True
+        self.on_focus = _noop_focus_change
+        self.on_blur = _noop_focus_change
+
+    def set_bounds(self, x: float, y: float, width: float, height: float) -> None:
+        self.bounds_x = x
+        self.bounds_y = y
+        self.bounds_width = width
+        self.bounds_height = height
+        self.has_bounds = width > 0.0 and height > 0.0
 
 
 class FocusManager:
     root: FocusNode
     focused: FocusNode | None
+    input_suspended: bool
+    next_order: int
+    sync_order: int
 
     def __init__(self) -> None:
         self.root = FocusNode()
         self.focused = None
+        self.input_suspended = False
+        self.next_order = 1
+        self.sync_order = 1
 
     def attach(self, node: FocusNode) -> None:
+        if node.traversal_order == 0:
+            node.traversal_order = self.next_order
+            self.next_order = self.next_order + 1
         node.parent = self.root
         self.root.children.append(node)
 
@@ -61,6 +100,7 @@ class FocusManager:
         focused: FocusNode | None = self.focused
         if focused is not None:
             if focused.node_id == node.node_id:
+                focused.on_blur()
                 self.focused = None
         kept: list[FocusNode] = []
         i: int = 0
@@ -70,16 +110,67 @@ class FocusManager:
             i = i + 1
         self.root.children = kept
         node.parent = None
+        node.has_bounds = False
+        node.traversable = False
 
     def focus(self, node: FocusNode) -> None:
-        if node.enabled:
+        if node.enabled and node.traversable and node.parent is not None:
+            previous: FocusNode | None = self.focused
+            if previous is not None:
+                if previous.node_id == node.node_id:
+                    if node.insert_target != 0 and not self.input_suspended:
+                        text_input_active(1)
+                    return
+                previous.on_blur()
             self.focused = node
-            if node.insert_target != 0:
+            node.on_focus()
+            if node.insert_target != 0 and not self.input_suspended:
                 text_input_active(1)
             else:
                 text_input_active(0)
 
+    def suspend_input(self) -> None:
+        if self.input_suspended:
+            return
+        self.input_suspended = True
+        focused: FocusNode | None = self.focused
+        if focused is not None:
+            focused.on_blur()
+        text_input_active(0)
+
+    def resume_input(self) -> None:
+        if not self.input_suspended:
+            return
+        self.input_suspended = False
+        focused: FocusNode | None = self.focused
+        if focused is not None and focused.enabled:
+            focused.on_focus()
+        if focused is not None and focused.enabled and focused.insert_target != 0:
+            text_input_active(1)
+
+    def begin_traversal_sync(self) -> None:
+        self.sync_order = 1
+        i: int = 0
+        while i < len(self.root.children):
+            self.root.children[i].traversable = False
+            i = i + 1
+
+    def update_bounds(self, node: FocusNode, x: float, y: float, width: float, height: float) -> None:
+        node.set_bounds(x, y, width, height)
+        node.traversal_order = self.sync_order
+        node.traversable = node.has_bounds
+        self.sync_order = self.sync_order + 1
+
+    def end_traversal_sync(self) -> None:
+        focused: FocusNode | None = self.focused
+        if focused is not None and not focused.traversable:
+            focused.on_blur()
+            self.focused = None
+            text_input_active(0)
+
     def dispatch_key(self, code: int, is_down: int) -> bool:
+        if self.input_suspended:
+            return False
         focused: FocusNode | None = self.focused
         if focused is None:
             return False
@@ -91,10 +182,117 @@ class FocusManager:
             return False
         return focused.on_key(code, is_down)
 
+    def handle_traversal(self, code: int, modifiers: int) -> bool:
+        if self.input_suspended:
+            return False
+        if is_tab(code):
+            if (modifiers & MOD_SHIFT) != 0:
+                return self.focus_previous()
+            return self.focus_next()
+        direction: int = traversal_direction(code)
+        if direction == DIRECTION_NONE:
+            return False
+        focused: FocusNode | None = self.focused
+        if focused is not None and focused.insert_target != 0:
+            return False
+        return self.focus_direction(direction)
+
+    def focus_next(self) -> bool:
+        return self._focus_ordered(1)
+
+    def focus_previous(self) -> bool:
+        return self._focus_ordered(-1)
+
+    def _focus_ordered(self, step: int) -> bool:
+        count: int = len(self.root.children)
+        if count == 0:
+            return False
+        current_order: int = -1
+        if step < 0:
+            current_order = 2147483647
+        focused: FocusNode | None = self.focused
+        if focused is not None:
+            current_order = focused.traversal_order
+        best: FocusNode | None = None
+        wrapped: FocusNode | None = None
+        i: int = 0
+        while i < count:
+            node: FocusNode = self.root.children[i]
+            if node.enabled and node.traversable:
+                if step > 0:
+                    if wrapped is None or node.traversal_order < wrapped.traversal_order:
+                        wrapped = node
+                    if node.traversal_order > current_order:
+                        if best is None or node.traversal_order < best.traversal_order:
+                            best = node
+                else:
+                    if wrapped is None or node.traversal_order > wrapped.traversal_order:
+                        wrapped = node
+                    if node.traversal_order < current_order:
+                        if best is None or node.traversal_order > best.traversal_order:
+                            best = node
+            i = i + 1
+        if best is None:
+            best = wrapped
+        if best is None:
+            return False
+        self.focus(best)
+        return True
+
+    def focus_direction(self, direction: int) -> bool:
+        focused: FocusNode | None = self.focused
+        if focused is None or not focused.has_bounds:
+            return self.focus_next()
+        from_x: float = focused.bounds_x + focused.bounds_width / 2.0
+        from_y: float = focused.bounds_y + focused.bounds_height / 2.0
+        best: FocusNode | None = None
+        best_primary: float = 0.0
+        best_secondary: float = 0.0
+        i: int = 0
+        while i < len(self.root.children):
+            node: FocusNode = self.root.children[i]
+            if node.node_id != focused.node_id and node.enabled and node.traversable and node.has_bounds:
+                to_x: float = node.bounds_x + node.bounds_width / 2.0
+                to_y: float = node.bounds_y + node.bounds_height / 2.0
+                dx: float = to_x - from_x
+                dy: float = to_y - from_y
+                primary: float = -1.0
+                secondary: float = 0.0
+                if direction == DIRECTION_LEFT and dx < 0.0:
+                    primary = -dx
+                    secondary = _absolute(dy)
+                elif direction == DIRECTION_RIGHT and dx > 0.0:
+                    primary = dx
+                    secondary = _absolute(dy)
+                elif direction == DIRECTION_UP and dy < 0.0:
+                    primary = -dy
+                    secondary = _absolute(dx)
+                elif direction == DIRECTION_DOWN and dy > 0.0:
+                    primary = dy
+                    secondary = _absolute(dx)
+                if primary >= 0.0:
+                    if best is None or primary < best_primary or (primary == best_primary and secondary < best_secondary):
+                        best = node
+                        best_primary = primary
+                        best_secondary = secondary
+            i = i + 1
+        if best is None:
+            return False
+        self.focus(best)
+        return True
+
     def dispatch_text(self, code: int) -> None:
+        if self.input_suspended:
+            return
         focused: FocusNode | None = self.focused
         if focused is None:
             return
         focused.last_text = code
         if focused.has_text:
             focused.on_text(code)
+
+
+def _absolute(value: float) -> float:
+    if value < 0.0:
+        return -value
+    return value

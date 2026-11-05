@@ -1,19 +1,67 @@
 from aura.input.focus import FocusManager, FocusNode
 from aura.platform.bridge import clipboard_get, clipboard_set
 from aura.text.measure import TextLine, layout_lines, line_for_offset, measure_height, measure_width
+from aura.text.grapheme import ceil_grapheme_boundary, floor_grapheme_boundary, nearest_grapheme_boundary, next_grapheme_boundary, previous_grapheme_boundary
 from aura.widgets.framework import dirty_element_id
+from aura.input.keyboard import KEY_A, KEY_C, KEY_DOWN, KEY_ENTER, KEY_LEFT, KEY_RIGHT, KEY_UP, KEY_V, KEY_X, MOD_META, MOD_SHIFT
 
-KEY_LEFT: int = 123
-KEY_RIGHT: int = 124
-KEY_DOWN_ARROW: int = 125
-KEY_UP_ARROW: int = 126
-KEY_C: int = 8
-KEY_V: int = 9
-KEY_X: int = 7
-MOD_COMMAND: int = 1
-MOD_SHIFT: int = 2
+# Compatibility exports for existing applications. New code should import the
+# platform-independent names from aura.input.keyboard.
+KEY_DOWN_ARROW: int = KEY_DOWN
+KEY_UP_ARROW: int = KEY_UP
+MOD_COMMAND: int = MOD_META
 
 _next_target: int = 1
+
+TEXT_EDIT_COMMIT: int = 1
+TEXT_EDIT_SET_COMPOSING: int = 2
+TEXT_EDIT_FINISH_COMPOSING: int = 3
+TEXT_EDIT_SET_SELECTION: int = 4
+TEXT_EDIT_DELETE_SURROUNDING: int = 5
+TEXT_EDIT_SET_COMPOSING_REGION: int = 6
+TEXT_EDIT_REPLACE_RANGE: int = 7
+TEXT_EDIT_PERFORM_ACTION: int = 8
+
+
+def _quiet_action(action: int) -> None:
+    if action < 0:
+        return
+
+
+class TextRange:
+    start: int
+    end: int
+
+    def __init__(self, start: int, end: int) -> None:
+        self.start = start
+        self.end = end
+
+    def is_valid(self) -> bool:
+        return self.start >= 0 and self.end >= self.start
+
+
+class TextSelection:
+    base_offset: int
+    extent_offset: int
+
+    def __init__(self, base_offset: int, extent_offset: int) -> None:
+        self.base_offset = base_offset
+        self.extent_offset = extent_offset
+
+
+class TextEditingValue:
+    text: str
+    selection: TextSelection
+    composing: TextRange
+    revision: int
+    generation: int
+
+    def __init__(self, text: str, selection: TextSelection, composing: TextRange, revision: int, generation: int) -> None:
+        self.text = text
+        self.selection = selection
+        self.composing = composing
+        self.revision = revision
+        self.generation = generation
 
 
 class TextEditingController:
@@ -21,6 +69,10 @@ class TextEditingController:
     cursor: int
     anchor: int
     composing: str
+    editing_buffer: str
+    has_composing: bool
+    composing_start: int
+    composing_end: int
     target_id: int
     element_id: int
     bound: int
@@ -28,12 +80,23 @@ class TextEditingController:
     multiline: int
     goal_x: float
     edge: int
+    revision: int
+    generation: int
+    last_platform_revision: int
+    session_active: bool
+    input_action: int
+    action_handler: (int) -> None
+    has_action_handler: int
 
     def __init__(self, text: str) -> None:
         self.text = text
         self.cursor = len(text)
         self.anchor = len(text)
         self.composing = ""
+        self.editing_buffer = text
+        self.has_composing = False
+        self.composing_start = -1
+        self.composing_end = -1
         self.target_id = _remember(self)
         self.element_id = 0
         self.bound = 0
@@ -41,10 +104,99 @@ class TextEditingController:
         self.multiline = 0
         self.goal_x = 0.0
         self.edge = 1
+        self.revision = 1
+        self.generation = 0
+        self.last_platform_revision = 0
+        self.session_active = False
+        self.input_action = 0
+        self.action_handler = _quiet_action
+        self.has_action_handler = 0
 
     def bind(self, element_id: int) -> None:
         self.element_id = element_id
         self.bound = 1
+
+    def configure_action(self, action: int, multiline: int, handler: (int) -> None, enabled: int) -> None:
+        self.input_action = action
+        self.multiline = multiline
+        self.action_handler = handler
+        self.has_action_handler = enabled
+
+    def perform_action(self, action: int) -> None:
+        effective: int = action
+        if effective < 0 or effective > 6:
+            return
+        if effective == 0:
+            effective = self.input_action
+        if effective == 6 or (effective == 0 and self.multiline != 0):
+            self.insert("\n")
+        if self.has_action_handler != 0:
+            self.action_handler(effective)
+
+    def begin_session(self) -> None:
+        if self.session_active:
+            return
+        self.generation = self.generation + 1
+        self.session_active = True
+        self.editing_buffer = self.text
+        self.has_composing = False
+        self.composing = ""
+        self.composing_start = -1
+        self.composing_end = -1
+        self.last_platform_revision = self.revision
+        self._notify()
+
+    def end_session(self) -> None:
+        if not self.session_active:
+            return
+        self.session_active = False
+        self._discard_composing()
+        self._notify()
+
+    def editing_value(self) -> TextEditingValue:
+        buffer: str = self._current_text()
+        selection: TextSelection = TextSelection(self.anchor, self.cursor)
+        composing_range: TextRange = TextRange(-1, -1)
+        if self.has_composing:
+            composing_range = TextRange(self.composing_start, self.composing_end)
+        return TextEditingValue(buffer, selection, composing_range, self.revision, self.generation)
+
+    def _current_text(self) -> str:
+        if self.has_composing:
+            return self.editing_buffer
+        return self.text
+
+    def _discard_composing(self) -> None:
+        if not self.has_composing:
+            self.editing_buffer = self.text
+            self.composing = ""
+            return
+        point: int = self.composing_start
+        self.has_composing = False
+        self.composing = ""
+        self.composing_start = -1
+        self.composing_end = -1
+        self.editing_buffer = self.text
+        self.cursor = nearest_grapheme_boundary(self.text, _clamp(point, len(self.text)))
+        self.anchor = self.cursor
+
+    def _finish_composing(self) -> None:
+        if not self.has_composing:
+            return
+        self.text = self.editing_buffer
+        self.has_composing = False
+        self.composing = ""
+        self.composing_start = -1
+        self.composing_end = -1
+        self.editing_buffer = self.text
+
+    def accepts_platform_revision(self, generation: int, revision: int) -> bool:
+        if not self.session_active or generation != self.generation:
+            return False
+        if revision <= self.last_platform_revision:
+            return False
+        self.last_platform_revision = revision
+        return True
 
     def sel_start(self) -> int:
         if self.anchor < self.cursor:
@@ -57,16 +209,67 @@ class TextEditingController:
         return self.cursor
 
     def selected_text(self) -> str:
-        return self.text[self.sel_start():self.sel_end()]
+        value: str = self._current_text()
+        return value[self.sel_start():self.sel_end()]
 
     def collapse(self, index: int) -> None:
-        self.cursor = _clamp(index, len(self.text))
+        value: str = self._current_text()
+        self.cursor = nearest_grapheme_boundary(value, _clamp(index, len(value)))
         self.anchor = self.cursor
         self._notify()
 
     def extend_to(self, index: int) -> None:
-        self.cursor = _clamp(index, len(self.text))
+        value: str = self._current_text()
+        self.cursor = nearest_grapheme_boundary(value, _clamp(index, len(value)))
         self._notify()
+
+    def set_selection(self, base: int, extent: int) -> None:
+        value: str = self._current_text()
+        self.anchor = nearest_grapheme_boundary(value, _clamp(base, len(value)))
+        self.cursor = nearest_grapheme_boundary(value, _clamp(extent, len(value)))
+        self._notify()
+        self._follow_caret()
+
+    def select_word_at(self, index: int) -> None:
+        if len(self.text) == 0:
+            self.set_selection(0, 0)
+            return
+        point: int = floor_grapheme_boundary(self.text, _clamp(index, len(self.text)))
+        if point == len(self.text):
+            point = previous_grapheme_boundary(self.text, point)
+        end: int = next_grapheme_boundary(self.text, point)
+        kind: int = _word_kind(self.text[point:end])
+        start: int = point
+        before: int = previous_grapheme_boundary(self.text, start)
+        while start > 0 and _word_kind(self.text[before:start]) == kind:
+            start = before
+            before = previous_grapheme_boundary(self.text, start)
+        after: int = next_grapheme_boundary(self.text, end)
+        while end < len(self.text) and _word_kind(self.text[end:after]) == kind:
+            end = after
+            after = next_grapheme_boundary(self.text, end)
+        self.set_selection(start, end)
+
+    def select_line_at(self, index: int) -> None:
+        point: int = floor_grapheme_boundary(self.text, _clamp(index, len(self.text)))
+        start: int = point
+        while start > 0:
+            before: int = previous_grapheme_boundary(self.text, start)
+            previous: str = self.text[before:start]
+            if previous == "\n" or previous == "\r" or previous == "\r\n":
+                break
+            start = before
+        end: int = point
+        while end < len(self.text):
+            after: int = next_grapheme_boundary(self.text, end)
+            current: str = self.text[end:after]
+            if current == "\n" or current == "\r" or current == "\r\n":
+                break
+            end = after
+        self.set_selection(start, end)
+
+    def select_all(self) -> None:
+        self.set_selection(0, len(self.text))
 
     def move_by(self, delta: int, extend: int) -> None:
         if extend == 0 and self.anchor != self.cursor:
@@ -76,7 +279,12 @@ class TextEditingController:
                 self.collapse(self.sel_end())
             self._follow_caret()
             return
-        index: int = self.cursor + delta
+        value: str = self._current_text()
+        index: int = self.cursor
+        if delta < 0:
+            index = previous_grapheme_boundary(value, self.cursor)
+        elif delta > 0:
+            index = next_grapheme_boundary(value, self.cursor)
         if extend == 1:
             self.extend_to(index)
         else:
@@ -84,9 +292,9 @@ class TextEditingController:
         self._follow_caret()
 
     def move_line(self, delta: int, extend: int) -> None:
-        shown: str = display_text(self.text, self.cursor, self.composing)
+        shown: str = self._current_text()
         lines: list[TextLine] = self._visual_lines(shown)
-        display_index: int = self.cursor + len(self.composing)
+        display_index: int = self.cursor
         row: int = line_for_offset(lines, display_index, self.edge)
         next_row: int = row + delta
         if next_row < 0:
@@ -101,7 +309,7 @@ class TextEditingController:
             self.edge = 0
         else:
             self.edge = 1
-        hit: int = from_display(line.start + inner, self.cursor, len(self.composing))
+        hit: int = line.start + inner
         kept: float = self.goal_x
         if extend == 1:
             self.extend_to(hit)
@@ -110,29 +318,71 @@ class TextEditingController:
         self.goal_x = kept
 
     def insert(self, value: str) -> None:
-        self._delete_selection()
-        head: str = self.text[0:self.cursor]
-        tail: str = self.text[self.cursor:len(self.text)]
-        self.text = head + value + tail
-        self.cursor = self.cursor + len(value)
+        buffer: str = self._current_text()
+        start: int = self.sel_start()
+        end: int = self.sel_end()
+        if self.has_composing:
+            start = self.composing_start
+            end = self.composing_end
+        self.text = buffer[0:start] + value + buffer[end:len(buffer)]
+        self.cursor = start + len(value)
         self.anchor = self.cursor
+        self.has_composing = False
         self.composing = ""
+        self.composing_start = -1
+        self.composing_end = -1
+        self.editing_buffer = self.text
         self._notify()
         self._follow_caret()
 
     def backspace(self) -> None:
+        if self.has_composing:
+            point: int = self.composing_start
+            self._discard_composing()
+            self.cursor = point
+            self.anchor = point
         if self._delete_selection() == 1:
+            self.editing_buffer = self.text
             self.composing = ""
             self._notify()
             self._follow_caret()
             return
         if self.cursor <= 0:
             return
-        head: str = self.text[0:self.cursor - 1]
+        previous: int = previous_grapheme_boundary(self.text, self.cursor)
+        head: str = self.text[0:previous]
         tail: str = self.text[self.cursor:len(self.text)]
         self.text = head + tail
-        self.cursor = self.cursor - 1
+        self.cursor = previous
         self.anchor = self.cursor
+        self.editing_buffer = self.text
+        self.composing = ""
+        self._notify()
+        self._follow_caret()
+
+    def delete_surrounding(self, before: int, after: int) -> None:
+        if before < 0 or after < 0:
+            return
+        if self.has_composing:
+            self.text = self.editing_buffer
+            self.has_composing = False
+            self.composing = ""
+            self.composing_start = -1
+            self.composing_end = -1
+        if self._delete_selection() == 1:
+            self.editing_buffer = self.text
+            self.composing = ""
+            self._notify()
+            self._follow_caret()
+            return
+        start: int = floor_grapheme_boundary(self.text, _clamp(self.cursor - before, len(self.text)))
+        end: int = ceil_grapheme_boundary(self.text, _clamp(self.cursor + after, len(self.text)))
+        if start == end:
+            return
+        self.text = self.text[0:start] + self.text[end:len(self.text)]
+        self.editing_buffer = self.text
+        self.cursor = start
+        self.anchor = start
         self.composing = ""
         self._notify()
         self._follow_caret()
@@ -141,7 +391,21 @@ class TextEditingController:
         if self.sel_start() == self.sel_end():
             return
         clipboard_set(self.selected_text())
-        self._delete_selection()
+        if self.has_composing:
+            buffer: str = self.editing_buffer
+            start: int = self.sel_start()
+            end: int = self.sel_end()
+            self.text = buffer[0:start] + buffer[end:len(buffer)]
+            self.cursor = start
+            self.anchor = start
+            self.has_composing = False
+            self.composing = ""
+            self.composing_start = -1
+            self.composing_end = -1
+            self.editing_buffer = self.text
+        else:
+            self._delete_selection()
+            self.editing_buffer = self.text
         self._notify()
         self._follow_caret()
 
@@ -154,7 +418,7 @@ class TextEditingController:
         self.insert(clipboard_get())
 
     def offset_at(self, local_x: float, local_y: float) -> int:
-        shown: str = display_text(self.text, self.cursor, self.composing)
+        shown: str = self._current_text()
         lines: list[TextLine] = self._visual_lines(shown)
         if len(lines) == 0:
             return 0
@@ -165,7 +429,8 @@ class TextEditingController:
             self.edge = 0
         else:
             self.edge = 1
-        return from_display(line.start + inner, self.cursor, len(self.composing))
+        hit: int = line.start + inner
+        return nearest_grapheme_boundary(shown, hit)
 
     def _visual_lines(self, shown: str) -> list[TextLine]:
         if self.multiline == 0:
@@ -178,9 +443,9 @@ class TextEditingController:
         return layout_lines(shown, width, 16.0, 400, "")
 
     def _follow_caret(self) -> None:
-        shown: str = display_text(self.text, self.cursor, self.composing)
+        shown: str = self._current_text()
         lines: list[TextLine] = self._visual_lines(shown)
-        display_index: int = self.cursor + len(self.composing)
+        display_index: int = self.cursor
         self.goal_x = _caret_x(lines, display_index, self.edge)
         self.edge = 1
 
@@ -194,13 +459,73 @@ class TextEditingController:
         self.anchor = start
         return 1
 
-    def set_composing(self, value: str) -> None:
-        if self.composing == value:
-            return
+    def set_composing(self, value: str, new_cursor_position: int = 1) -> None:
+        buffer: str = self._current_text()
+        start: int = self.sel_start()
+        end: int = self.sel_end()
+        if self.has_composing:
+            start = self.composing_start
+            end = self.composing_end
+        self.editing_buffer = buffer[0:start] + value + buffer[end:len(buffer)]
         self.composing = value
+        self.has_composing = True
+        self.composing_start = start
+        self.composing_end = start + len(value)
+        desired: int = self.composing_start + new_cursor_position
+        if new_cursor_position > 0:
+            desired = self.composing_end + new_cursor_position - 1
+        self.cursor = nearest_grapheme_boundary(self.editing_buffer, _clamp(desired, len(self.editing_buffer)))
+        self.anchor = self.cursor
         self._notify()
 
+    def set_composing_region(self, start: int, end: int) -> None:
+        buffer: str = self._current_text()
+        left: int = floor_grapheme_boundary(buffer, _clamp(start, len(buffer)))
+        right: int = ceil_grapheme_boundary(buffer, _clamp(end, len(buffer)))
+        if right < left:
+            swap: int = left
+            left = right
+            right = swap
+        self.editing_buffer = buffer
+        self.has_composing = True
+        self.composing_start = left
+        self.composing_end = right
+        self.composing = buffer[left:right]
+        self.cursor = right
+        self.anchor = right
+        self._notify()
+
+    def finish_composing(self) -> None:
+        if not self.has_composing:
+            return
+        self._finish_composing()
+        self._notify()
+        self._follow_caret()
+
+    def replace_all(self, value: str) -> None:
+        self.replace_range(0, len(self._current_text()), value)
+
+    def replace_range(self, start: int, end: int, value: str) -> None:
+        buffer: str = self._current_text()
+        left: int = floor_grapheme_boundary(buffer, _clamp(start, len(buffer)))
+        right: int = ceil_grapheme_boundary(buffer, _clamp(end, len(buffer)))
+        if right < left:
+            swap: int = left
+            left = right
+            right = swap
+        self.text = buffer[0:left] + value + buffer[right:len(buffer)]
+        self.editing_buffer = self.text
+        self.has_composing = False
+        self.composing = ""
+        self.composing_start = -1
+        self.composing_end = -1
+        self.cursor = left + len(value)
+        self.anchor = self.cursor
+        self._notify()
+        self._follow_caret()
+
     def _notify(self) -> None:
+        self.revision = self.revision + 1
         if self.bound == 1:
             dirty_element_id(self.element_id)
 
@@ -228,12 +553,32 @@ def _find(target_id: int) -> TextEditingController | None:
     return None
 
 
+def apply_semantics_text(target_id: int, value: str) -> int:
+    controller: TextEditingController | None = _find(target_id)
+    if controller is None:
+        return 0
+    controller.replace_all(value)
+    return 1
+
+
 def remember_field_metrics(target_id: int, wrap_width: float, multiline: int) -> None:
     controller: TextEditingController | None = _find(target_id)
     if controller is None:
         return
     controller.wrap_width = wrap_width
     controller.multiline = multiline
+
+
+def begin_text_session(target_id: int) -> None:
+    controller: TextEditingController | None = _find(target_id)
+    if controller is not None:
+        controller.begin_session()
+
+
+def end_text_session(target_id: int) -> None:
+    controller: TextEditingController | None = _find(target_id)
+    if controller is not None:
+        controller.end_session()
 
 
 def _focused_target(manager: FocusManager) -> TextEditingController | None:
@@ -264,6 +609,41 @@ def deliver_mark(manager: FocusManager, text: str) -> None:
     controller.set_composing(text)
 
 
+def deliver_text_edit(manager: FocusManager, operation: int, text: str, generation: int, revision: int, first: int, second: int) -> bool:
+    controller: TextEditingController | None = _focused_target(manager)
+    if controller is None:
+        return False
+    if operation < TEXT_EDIT_COMMIT or operation > TEXT_EDIT_PERFORM_ACTION:
+        return False
+    if not controller.accepts_platform_revision(generation, revision):
+        return False
+    if operation == TEXT_EDIT_COMMIT:
+        controller.insert(text)
+        return True
+    if operation == TEXT_EDIT_SET_COMPOSING:
+        controller.set_composing(text, first)
+        return True
+    if operation == TEXT_EDIT_FINISH_COMPOSING:
+        controller.finish_composing()
+        return True
+    if operation == TEXT_EDIT_SET_SELECTION:
+        controller.set_selection(first, second)
+        return True
+    if operation == TEXT_EDIT_DELETE_SURROUNDING:
+        controller.delete_surrounding(first, second)
+        return True
+    if operation == TEXT_EDIT_SET_COMPOSING_REGION:
+        controller.set_composing_region(first, second)
+        return True
+    if operation == TEXT_EDIT_REPLACE_RANGE:
+        controller.replace_range(first, second, text)
+        return True
+    if operation == TEXT_EDIT_PERFORM_ACTION:
+        controller.perform_action(first)
+        return True
+    return False
+
+
 def deliver_key(manager: FocusManager, code: int, mods: int) -> None:
     controller: TextEditingController | None = _focused_target(manager)
     if controller is None:
@@ -271,20 +651,24 @@ def deliver_key(manager: FocusManager, code: int, mods: int) -> None:
     extend: int = 0
     if (mods & MOD_SHIFT) != 0:
         extend = 1
-    if (mods & MOD_COMMAND) != 0 and code == KEY_X:
+    if (mods & MOD_META) != 0 and (code == KEY_X or code == 7):
         controller.cut()
-    elif (mods & MOD_COMMAND) != 0 and code == KEY_C:
+    elif (mods & MOD_META) != 0 and code == KEY_A:
+        controller.select_all()
+    elif (mods & MOD_META) != 0 and (code == KEY_C or code == 8):
         controller.copy()
-    elif (mods & MOD_COMMAND) != 0 and code == KEY_V:
+    elif (mods & MOD_META) != 0 and (code == KEY_V or code == 9):
         controller.paste()
-    elif code == KEY_LEFT:
+    elif code == KEY_LEFT or code == 123:
         controller.move_by(-1, extend)
-    elif code == KEY_RIGHT:
+    elif code == KEY_RIGHT or code == 124:
         controller.move_by(1, extend)
-    elif code == KEY_UP_ARROW:
+    elif code == KEY_UP or code == 126:
         controller.move_line(-1, extend)
-    elif code == KEY_DOWN_ARROW:
+    elif code == KEY_DOWN or code == 125:
         controller.move_line(1, extend)
+    elif code == KEY_ENTER:
+        controller.perform_action(controller.input_action)
 
 
 def _clamp(index: int, count: int) -> int:
@@ -293,6 +677,17 @@ def _clamp(index: int, count: int) -> int:
     if index > count:
         return count
     return index
+
+
+def _word_kind(cluster: str) -> int:
+    if cluster == "":
+        return 0
+    first: str = cluster[0:1]
+    if first.isspace():
+        return 0
+    if first.isalnum() or first == "_":
+        return 1
+    return 2
 
 
 def display_text(value: str, cursor: int, composing: str) -> str:
@@ -362,6 +757,12 @@ def index_at(text: str, local_x: float) -> int:
             return i
         i = i + 1
     return count
+
+
+def pointer_local_x(origin_x: float, width: float, rtl: int, x: float) -> float:
+    if rtl != 0:
+        return origin_x + width - 8.0 - x
+    return x - origin_x - 8.0
 
 
 def pointer_text_down(target_id: int, local_x: float, local_y: float, content_width: float) -> None:

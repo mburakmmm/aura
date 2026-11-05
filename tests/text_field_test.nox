@@ -1,12 +1,22 @@
 import nox.test
 from aura.input.events import EVENT_IME_DELETE, EVENT_IME_INSERT, EVENT_IME_MARK, EVENT_KEY_DOWN
+from aura.input.focus import FocusManager, FocusNode
 from aura.platform.macos import clipboard_get, clipboard_set, set_cursor
 from aura.rendering.render_object import RenderBox
 from aura.runtime.binding import Binding
-from aura.text.editing import KEY_C, KEY_DOWN_ARROW, KEY_LEFT, KEY_RIGHT, KEY_UP_ARROW, KEY_V, KEY_X, MOD_COMMAND, MOD_SHIFT, TextEditingController
+from aura.input.keyboard import KEY_A, KEY_ENTER
+from aura.text.editing import KEY_C, KEY_DOWN_ARROW, KEY_LEFT, KEY_RIGHT, KEY_UP_ARROW, KEY_V, KEY_X, MOD_COMMAND, MOD_SHIFT, TEXT_EDIT_COMMIT, TEXT_EDIT_DELETE_SURROUNDING, TEXT_EDIT_FINISH_COMPOSING, TEXT_EDIT_PERFORM_ACTION, TEXT_EDIT_SET_COMPOSING, TEXT_EDIT_SET_SELECTION, TextEditingController, TextEditingValue, deliver_key, deliver_text_edit
 from aura.text.measure import measure_height, measure_width
+from aura.text.input_configuration import CAPITALIZATION_WORDS, TEXT_ACTION_NEWLINE, TEXT_ACTION_SEND, TEXT_INPUT_EMAIL, TextInputConfiguration
 from aura.testing.tester import WidgetTester
 from aura.text.field import TextField
+
+
+performed_action: int = -1
+
+
+def note_action(action: int) -> None:
+    performed_action = action
 
 
 def require_box(box: RenderBox | None, name: str) -> RenderBox:
@@ -16,6 +26,11 @@ def require_box(box: RenderBox | None, name: str) -> RenderBox:
 
 
 plain: TextEditingController = TextEditingController("hi")
+config: TextInputConfiguration = TextInputConfiguration(TEXT_INPUT_EMAIL, TEXT_ACTION_SEND, 0, 1, 0, CAPITALIZATION_WORDS, ["username", "emailAddress"])
+nox.test.assert_eq_int(config.input_type, TEXT_INPUT_EMAIL, "typed input config keeps input type")
+nox.test.assert_eq_int(config.action, TEXT_ACTION_SEND, "typed input config keeps action")
+nox.test.assert_eq_int(config.secure, 1, "typed input config keeps secure policy")
+nox.test.assert_eq_str(config.autofill_payload(), "username\nemailAddress", "autofill hints use bounded ABI payload")
 plain.insert("!")
 nox.test.assert_eq_str(plain.text, "hi!", "insert appends")
 nox.test.assert_eq_int(plain.cursor, 3, "cursor follows insert")
@@ -26,10 +41,91 @@ plain.backspace()
 plain.backspace()
 nox.test.assert_eq_str(plain.text, "", "backspace stops at the start")
 
+session: TextEditingController = TextEditingController("abcd")
+session.begin_session()
+first_generation: int = session.generation
+initial: TextEditingValue = session.editing_value()
+nox.test.assert_eq_int(first_generation, 1, "first text session gets a generation")
+nox.test.assert_eq_str(initial.text, "abcd", "editing value exposes committed text")
+nox.test.assert_true(not initial.composing.is_valid(), "editing value starts without composition")
+session_focus: FocusManager = FocusManager()
+session_node: FocusNode = FocusNode()
+session_node.insert_target = session.target_id
+session_focus.attach(session_node)
+session_focus.focus(session_node)
+deliver_key(session_focus, KEY_A, MOD_COMMAND)
+nox.test.assert_eq_str(session.selected_text(), "abcd", "select-all keyboard action selects committed text")
+session.collapse(len(session.text))
+platform_revision: int = session.editing_value().revision + 1
+nox.test.assert_true(deliver_text_edit(session_focus, TEXT_EDIT_SET_COMPOSING, "xy", first_generation, platform_revision, 0, 0), "current composing revision is accepted")
+composed: TextEditingValue = session.editing_value()
+nox.test.assert_eq_str(session.text, "abcd", "composition does not mutate committed text")
+nox.test.assert_eq_str(composed.text, "abcdxy", "editing buffer includes composition")
+nox.test.assert_eq_int(composed.composing.start, 4, "composition range starts at caret")
+nox.test.assert_eq_int(composed.composing.end, 6, "composition range covers marked text")
+nox.test.assert_true(not deliver_text_edit(session_focus, TEXT_EDIT_COMMIT, "!", first_generation, platform_revision, 0, 0), "duplicate platform revision is rejected")
+nox.test.assert_true(not deliver_text_edit(session_focus, TEXT_EDIT_COMMIT, "!", first_generation + 1, platform_revision + 1, 0, 0), "wrong generation is rejected")
+nox.test.assert_true(not deliver_text_edit(session_focus, 99, "", first_generation, platform_revision + 1, 0, 0), "unknown operation is rejected")
+nox.test.assert_true(deliver_text_edit(session_focus, TEXT_EDIT_FINISH_COMPOSING, "", first_generation, platform_revision + 1, 0, 0), "unknown operation does not consume revision")
+nox.test.assert_eq_str(session.text, "abcdxy", "finishing composition commits marked text")
+nox.test.assert_true(deliver_text_edit(session_focus, TEXT_EDIT_SET_SELECTION, "", first_generation, platform_revision + 2, 1, 3), "selection edit is accepted")
+nox.test.assert_eq_int(session.sel_start(), 1, "platform selection start is applied")
+nox.test.assert_eq_int(session.sel_end(), 3, "platform selection end is applied")
+nox.test.assert_true(deliver_text_edit(session_focus, TEXT_EDIT_DELETE_SURROUNDING, "", first_generation, platform_revision + 3, 1, 1), "surrounding delete is accepted")
+nox.test.assert_eq_str(session.text, "adxy", "surrounding delete first removes active selection")
+session.end_session()
+session.begin_session()
+nox.test.assert_eq_int(session.generation, first_generation + 1, "new focus session invalidates old callbacks")
+nox.test.assert_true(not deliver_text_edit(session_focus, TEXT_EDIT_COMMIT, "old", first_generation, platform_revision + 20, 0, 0), "late callback from old session is rejected")
+
+regional: TextEditingController = TextEditingController("hello")
+regional.begin_session()
+regional.set_composing_region(1, 4)
+regional_marked: TextEditingValue = regional.editing_value()
+nox.test.assert_eq_str(regional.text, "hello", "marking an existing range keeps committed model text")
+nox.test.assert_eq_str(regional_marked.text, "hello", "marked range starts from the editing buffer")
+nox.test.assert_eq_int(regional_marked.composing.start, 1, "marked range start is retained")
+nox.test.assert_eq_int(regional_marked.composing.end, 4, "marked range end is retained")
+regional.set_composing("ipp")
+nox.test.assert_eq_str(regional.editing_value().text, "hippo", "composing text replaces the marked editing range")
+nox.test.assert_eq_str(regional.text, "hello", "replacement stays outside committed model until finish")
+regional.finish_composing()
+nox.test.assert_eq_str(regional.text, "hippo", "finish composition commits the editing buffer")
+regional.set_composing_region(1, 4)
+regional.set_composing("ey")
+regional.end_session()
+nox.test.assert_eq_str(regional.text, "hippo", "closing a session discards unfinished composition")
+regional.replace_range(1, 4, "ey")
+nox.test.assert_eq_str(regional.text, "heyo", "replace range commits a deterministic buffer edit")
+
+action_controller: TextEditingController = TextEditingController("draft")
+action_tester: WidgetTester = WidgetTester()
+action_tester.pump_widget(TextField(action_controller, configuration=TextInputConfiguration(action=TEXT_ACTION_SEND)).with_action(note_action), 240.0, 80.0)
+action_revision: int = action_controller.editing_value().revision + 1
+nox.test.assert_true(deliver_text_edit(action_tester.pump.focus, TEXT_EDIT_PERFORM_ACTION, "", action_controller.generation, action_revision, TEXT_ACTION_SEND, 0), "platform editor action is accepted")
+nox.test.assert_eq_int(performed_action, TEXT_ACTION_SEND, "platform editor action reaches the field callback")
+nox.test.assert_eq_str(action_controller.text, "draft", "non-newline action does not mutate text")
+deliver_key(action_tester.pump.focus, KEY_ENTER, 0)
+nox.test.assert_eq_int(performed_action, TEXT_ACTION_SEND, "hardware enter uses the configured action")
+
+newline_controller: TextEditingController = TextEditingController("line")
+newline_tester: WidgetTester = WidgetTester()
+newline_tester.pump_widget(TextField(newline_controller, configuration=TextInputConfiguration(action=TEXT_ACTION_NEWLINE, multiline=1)), 240.0, 160.0)
+newline_revision: int = newline_controller.editing_value().revision + 1
+nox.test.assert_true(deliver_text_edit(newline_tester.pump.focus, TEXT_EDIT_PERFORM_ACTION, "", newline_controller.generation, newline_revision, TEXT_ACTION_NEWLINE, 0), "newline editor action is accepted")
+nox.test.assert_eq_str(newline_controller.text, "line\n", "newline action inserts text through the controller")
+
 field: TextEditingController = TextEditingController("")
 tester: WidgetTester = WidgetTester()
 tester.pump_widget(TextField(field), 240.0, 80.0)
 nox.test.assert_eq_str(field.text, "", "field starts empty")
+nox.test.assert_true(field.session_active, "focused field owns an active text session")
+field_generation: int = field.generation
+tester.pump.focus.suspend_input()
+nox.test.assert_true(not field.session_active, "background closes the text session")
+tester.pump.focus.resume_input()
+nox.test.assert_true(field.session_active, "foreground recreates the focused text session")
+nox.test.assert_eq_int(field.generation, field_generation + 1, "recreated session gets a fresh generation")
 tester.pump.dispatch(EVENT_IME_INSERT, 0.0, 0.0, 0, "ab")
 tester.pump_frame()
 nox.test.assert_eq_str(field.text, "ab", "insert event updates the controller")
@@ -128,6 +224,17 @@ arrows.pump.dispatch(EVENT_KEY_DOWN, 0.0, 0.0, KEY_DOWN_ARROW, "", MOD_SHIFT)
 arrows.pump_frame()
 nox.test.assert_eq_int(edited.sel_start(), 0, "shift down keeps the anchor")
 nox.test.assert_true(edited.sel_end() > edited.sel_start(), "shift down extends onto the next line")
+blank: TextEditingController = TextEditingController("The harbor is quiet")
+blank_ui: WidgetTester = WidgetTester()
+blank_ui.pump_widget(TextField(blank, multiline=1), 280.0, 240.0)
+blank_box: RenderBox = require_box(blank_ui.view().only_child, "blank")
+blank_ui.pump.pointer_down(blank_box.absolute_x() + 80.0, blank_box.absolute_y() + blank_box.height - 8.0, 1, 801, 20.0)
+blank_ui.pump.arena.tick(20.2)
+nox.test.assert_eq_int(blank.anchor, blank.cursor, "a tap in the empty field does not select")
+blank_ui.pump.arena.tick(20.6)
+nox.test.assert_true(blank.sel_end() > blank.sel_start(), "a hold selects the word at the caret")
+nox.test.assert_true(blank.sel_end() - blank.sel_start() < len(blank.text), "a hold does not select the whole note")
+blank_ui.pump.pointer_up(blank_box.absolute_x() + 80.0, blank_box.absolute_y() + blank_box.height - 8.0, 801, 20.7)
 set_cursor(1)
 set_cursor(0)
 clipboard_set(kept)

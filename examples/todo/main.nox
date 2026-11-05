@@ -1,10 +1,10 @@
 from aura.app import run_app
-from aura.platform.macos import image_dispose
+from aura.image.image import image_dispose
 from aura.rendering.render_object import RenderBox
 from aura.runtime.binding import Binding
 from aura.runtime.host import AppHost, bind_host
 from examples.todo.book import notes
-from examples.todo.page import TodoApp
+from examples.todo.page import PICTURE_EDGE, TodoApp
 from nox.os import arg, arg_count
 
 
@@ -111,9 +111,11 @@ def self_check() -> None:
     if picture is None:
         raise Exception("picture window missing")
     image: RenderBox = require_box(find_role(picture.pump.view, "image"), "note image")
-    if image.width != 1.0 or image.height != 1.0:
+    if image.width != PICTURE_EDGE or image.height != PICTURE_EDGE:
         raise Exception("note image did not use its measured size")
-    host.close_window(host.ids[1])
+    if find_label(picture.pump.view, "Picture") is None:
+        raise Exception("picture page has no heading")
+    click(host, picture, require_box(find_label(picture.pump.view, "Close"), "Close"))
     if notes.picture != 0:
         image_dispose(notes.picture)
         notes.picture = 0

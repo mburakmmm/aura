@@ -1,10 +1,13 @@
 from aura.foundation.color import COLOR_BUTTON, COLOR_BUTTON_TEXT
+from aura.layout.touch_target import note_touch_target
 from aura.rendering.layer import PaintingContext
 from aura.rendering.render_object import RenderBox
-from aura.semantics.semantics_node import SemanticsNode
+from aura.semantics.semantics_node import ACTION_TAP, SemanticsNode
 from aura.text.measure import measure_height, measure_width
 from aura.widgets.framework import Element, RenderObjectWidget
-from aura.widgets.theme import theme_for_element
+from aura.foundation.window_metrics import WindowMetrics
+from aura.widgets.theme import ThemeData, resolved_theme
+from aura.widgets.window_metrics import window_metrics_if_present
 from aura.widgets.key import Key
 from aura.widgets.type_ids import alloc_type_id
 
@@ -62,6 +65,7 @@ class RenderButton(RenderBox):
         text_h: float = measure_height(self.font_size, 600, "")
         self.width = self.constraints.constrain_width(text_w + BUTTON_PAD_X * 2.0)
         self.height = self.constraints.constrain_height(text_h + BUTTON_PAD_Y * 2.0)
+        note_touch_target(self.node_id, self.width, self.height)
 
     def paint_self(self, context: PaintingContext) -> None:
         context.fill_rect(0.0, 0.0, self.width, self.height, self.background)
@@ -84,7 +88,8 @@ class RenderButton(RenderBox):
         node.value = ""
         node.enabled = True
         node.checked = False
-        node.add_action("tap")
+        node.focusable = True
+        node.add_action(ACTION_TAP)
 
 
 class Button(RenderObjectWidget):
@@ -141,12 +146,21 @@ class Button(RenderObjectWidget):
     def sync_render(self, element: Element) -> None:
         element.remember_press(self.on_press)
         element.ensure_button_focus()
+        scale: float = 1.0
         color: int = self.color
         background: int = self.background
         if self.has_colors == 0:
-            color = theme_for_element(element).scheme.button_text
-            background = theme_for_element(element).scheme.button
-        element.apply_button(self.label, self.font_size, color, background, self.text_align, element.press_and_focus)
+            theme: ThemeData = resolved_theme(element)
+            color = theme.scheme.button_text
+            background = theme.scheme.button
+            scale = theme.font_scale
+        else:
+            metrics: WindowMetrics | None = window_metrics_if_present(element)
+            if metrics is not None and metrics.font_scale > 0.0:
+                scale = metrics.font_scale
+        if scale <= 0.0:
+            scale = 1.0
+        element.apply_button(self.label, self.font_size * scale, color, background, self.text_align, element.press_and_focus)
         if self.has_secondary == 1:
             element.apply_secondary(self.on_secondary)
         else:

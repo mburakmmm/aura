@@ -1,0 +1,76 @@
+import nox.test
+from aura.core.diagnostics import FrameworkError
+from aura.platform.bridge import post_platform_route
+from aura.runtime.binding import Binding
+from aura.text import Text
+from aura.widgets import PLATFORM_ROUTE_APP_LINK, PLATFORM_ROUTE_INTENT, Element, Navigator, PlatformRouteRequest, Widget
+
+linked_location: str = ""
+linked_source: int = 0
+
+
+def resolve_link(request: PlatformRouteRequest) -> Widget | None:
+    linked_location = request.location
+    linked_source = request.source
+    if request.location == "https://example.test/linked":
+        return Text("Linked")
+    return None
+
+
+def names_of(element: Element) -> list[str]:
+    names: list[str] = element.route_names()
+    if len(names) > 0:
+        return names
+    i: int = 0
+    while i < len(element.children):
+        found: list[str] = names_of(element.children[i])
+        if len(found) > 0:
+            return found
+        i = i + 1
+    return names
+
+
+def require_root(binding: Binding) -> Element:
+    root: Element | None = binding.pump.root
+    if root is None:
+        raise Exception("missing binding root")
+    return root
+
+
+binding: Binding = Binding(240, 160, "route", 0)
+route_handle: int = binding.surface.handle
+empty_rejected: int = 0
+try:
+    post_platform_route(route_handle, PLATFORM_ROUTE_APP_LINK, "")
+except FrameworkError as error:
+    empty_rejected = 1
+    nox.test.assert_eq_str(error.message, "platform route location is empty", "empty route is rejected")
+nox.test.assert_eq_int(empty_rejected, 1, "empty route raised")
+
+binding.mount(Navigator(Text("Home")).with_platform_routes(resolve_link))
+binding.frame()
+nox.test.assert_eq_str(names_of(require_root(binding))[0], "home", "host queue starts on the home route")
+
+post_platform_route(route_handle, PLATFORM_ROUTE_APP_LINK, "https://example.test/linked")
+binding.frame()
+nox.test.assert_eq_str(linked_location, "https://example.test/linked", "binding drain delivers the location")
+nox.test.assert_eq_int(linked_source, PLATFORM_ROUTE_APP_LINK, "binding drain delivers the source")
+nox.test.assert_true(binding.pump.last_platform_route_handled, "resolved route is handled")
+routed: list[str] = names_of(require_root(binding))
+nox.test.assert_eq_int(len(routed), 2, "host route pushes one page")
+nox.test.assert_eq_str(routed[1], "https://example.test/linked", "pushed route keeps the location")
+
+post_platform_route(route_handle, PLATFORM_ROUTE_INTENT, "aura://unknown")
+binding.frame()
+nox.test.assert_true(not binding.pump.last_platform_route_handled, "unknown route stays unhandled")
+nox.test.assert_eq_int(len(names_of(require_root(binding))), 2, "unhandled route does not push")
+
+binding.close()
+closed_rejected: int = 0
+try:
+    post_platform_route(route_handle, PLATFORM_ROUTE_APP_LINK, "https://example.test/closed")
+except FrameworkError as error:
+    closed_rejected = 1
+    nox.test.assert_eq_str(error.message, "use after close", "closed window rejects a route")
+nox.test.assert_eq_int(closed_rejected, 1, "closed route raised")
+print("platform route binding ok")

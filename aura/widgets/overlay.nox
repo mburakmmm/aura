@@ -1,5 +1,5 @@
 from aura.controls.button import Button
-from aura.foundation.color import COLOR_BUTTON, rgba
+from aura.foundation.color import COLOR_BUTTON, COLOR_BUTTON_TEXT, rgba
 from aura.foundation.constraints import Constraints
 from aura.foundation.insets import insets_all
 from aura.layout.boxes import ColoredBox, Padding
@@ -24,6 +24,10 @@ _overlay_ids: list[int] = []
 _overlay_elements: list[Element] = []
 
 
+def _noop_back() -> None:
+    pass
+
+
 class DialogResult:
     code: int
     chosen: int
@@ -35,6 +39,9 @@ class DialogResult:
     def choose(self, code: int) -> None:
         self.code = code
         self.chosen = 1
+
+    def cancel(self) -> None:
+        self.choose(0)
 
 
 class MenuItem:
@@ -90,6 +97,12 @@ class OverlayHandle:
         if found is None:
             return
         found.push_entry(page)
+
+    def push_dismissible(self, page: Widget, on_back: () -> None) -> None:
+        found: Element | None = _overlay_at(self.element_id)
+        if found is None:
+            return
+        found.push_entry_with_back(page, on_back)
 
     def pop(self) -> None:
         found: Element | None = _overlay_at(self.element_id)
@@ -176,6 +189,7 @@ class OverlayElement(RenderElement):
     entries: list[Widget]
     entry_ids: list[int]
     next_entry_id: int
+    back_handlers: list[() -> None]
 
     def __init__(self) -> None:
         super().__init__()
@@ -183,6 +197,7 @@ class OverlayElement(RenderElement):
         self.entries = []
         self.entry_ids = []
         self.next_entry_id = 10
+        self.back_handlers = []
 
     def first_mount(self) -> None:
         widget: Widget | None = self.widget
@@ -227,10 +242,14 @@ class OverlayElement(RenderElement):
         self.page = page
 
     def push_entry(self, page: Widget) -> None:
+        self.push_entry_with_back(page, _noop_back)
+
+    def push_entry_with_back(self, page: Widget, on_back: () -> None) -> None:
         entry_id: int = self.next_entry_id
         self.next_entry_id = self.next_entry_id + 1
         self.entries.append(page)
         self.entry_ids.append(entry_id)
+        self.back_handlers.append(on_back)
         self.mark_dirty()
 
     def pop_entry(self) -> None:
@@ -238,14 +257,65 @@ class OverlayElement(RenderElement):
             return
         pages: list[Widget] = []
         ids: list[int] = []
+        handlers: list[() -> None] = []
         i: int = 0
         while i < len(self.entries) - 1:
             pages.append(self.entries[i])
             ids.append(self.entry_ids[i])
+            handlers.append(self.back_handlers[i])
             i = i + 1
         self.entries = pages
         self.entry_ids = ids
+        self.back_handlers = handlers
         self.mark_dirty()
+
+    def system_pop_entry(self) -> int:
+        if len(self.entries) == 0:
+            return 0
+        last: int = len(self.back_handlers) - 1
+        on_back: () -> None = self.back_handlers[last]
+        self.pop_entry()
+        on_back()
+        return 1
+
+    def handle_system_overlay_back(self) -> int:
+        if len(self.entries) > 0:
+            top: int = len(self.children) - 1
+            if top >= 0 and self.children[top].handle_system_overlay_back() == 1:
+                return 1
+            return self.system_pop_entry()
+        if len(self.children) > 0:
+            return self.children[0].handle_system_overlay_back()
+        return 0
+
+    def handle_system_route_back(self) -> int:
+        if len(self.children) == 0:
+            return 0
+        active: int = len(self.children) - 1
+        return self.children[active].handle_system_route_back()
+
+    def can_begin_interactive_route(self) -> int:
+        if len(self.entries) > 0 or len(self.children) == 0:
+            return 0
+        return self.children[0].can_begin_interactive_route()
+
+    def begin_interactive_route(self) -> int:
+        if len(self.entries) > 0 or len(self.children) == 0:
+            return 0
+        return self.children[0].begin_interactive_route()
+
+    def update_interactive_route(self, progress: float) -> int:
+        if len(self.entries) > 0 or len(self.children) == 0:
+            return 0
+        return self.children[0].update_interactive_route(progress)
+
+    def finish_interactive_route(self, commit: int) -> int:
+        if len(self.children) == 0:
+            return 0
+        active: int = 0
+        if len(self.entries) > 0:
+            active = len(self.children) - 1
+        return self.children[active].finish_interactive_route(commit)
 
     def entry_count(self) -> int:
         return len(self.entries)
@@ -370,8 +440,8 @@ class DialogState(State):
 
     def build(self, context: BuildContext) -> Widget:
         card: Widget = ColoredBox(COLOR_BUTTON, Padding(insets_all(16.0), Column([
-            Text(self.title, font_size=24.0),
-            Text(self.body),
+            Text(self.title, font_size=24.0, color=COLOR_BUTTON_TEXT),
+            Text(self.body, color=COLOR_BUTTON_TEXT),
             Button("OK", self.accept),
         ], main_size=MAIN_MIN, spacing=12.0)))
         return ModalLayer(card, self.dismiss, 0, 0.0, 0.0)
@@ -397,7 +467,7 @@ class DialogBox(StatefulWidget):
 
 
 def show_dialog(context: BuildContext, title: str, body: str, result: DialogResult) -> None:
-    overlay_handle(context).push(DialogBox(title, body, result))
+    overlay_handle(context).push_dismissible(DialogBox(title, body, result), result.cancel)
 
 
 class MenuRowState(State):
@@ -484,3 +554,7 @@ class MenuBox(StatefulWidget):
 
 def show_menu(context: BuildContext, x: float, y: float, items: list[MenuItem]) -> None:
     overlay_handle(context).push(MenuBox(items, x, y))
+
+
+def dismiss_system_overlay(root: Element) -> bool:
+    return root.handle_system_overlay_back() == 1

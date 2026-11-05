@@ -1,0 +1,36 @@
+from aura.foundation.insets import EdgeInsets
+from aura.layout.boxes import Padding
+from aura.widgets.framework import BuildContext, StatelessWidget, Widget
+from aura.widgets.key import Key
+from aura.widgets.type_ids import alloc_type_id
+from aura.widgets.window_metrics import window_metrics_of
+
+TYPE_KEYBOARD_INSET: int = alloc_type_id()
+
+
+def _inset_edge(enabled: int, value: float) -> float:
+    if enabled == 0:
+        return 0.0
+    if value < 0.0:
+        return 0.0
+    return value
+
+
+class KeyboardInset(StatelessWidget):
+    child: Widget
+    left: int
+    top: int
+    right: int
+    bottom: int
+
+    def __init__(self, child: Widget, left: int = 0, top: int = 0, right: int = 0, bottom: int = 1, key: Key | None = None) -> None:
+        super().__init__(TYPE_KEYBOARD_INSET, key)
+        self.child = child
+        self.left = left
+        self.top = top
+        self.right = right
+        self.bottom = bottom
+
+    def build(self, context: BuildContext) -> Widget:
+        insets: EdgeInsets = window_metrics_of(context).view_insets
+        return Padding(EdgeInsets(_inset_edge(self.left, insets.left), _inset_edge(self.top, insets.top), _inset_edge(self.right, insets.right), _inset_edge(self.bottom, insets.bottom)), self.child)

@@ -1,0 +1,131 @@
+from aura.core.diagnostics import FrameworkError
+from aura.foundation.insets import EdgeInsets
+from aura.foundation.window_metrics import CutoutRect, WindowMetrics
+from aura.widgets.framework import BuildContext, Element, InheritedElement, StatelessWidget, Widget
+from aura.widgets.key import Key
+from aura.widgets.scope import ScopeAsk
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_WINDOW_METRICS: int = alloc_type_id()
+
+_metric_ids: list[int] = []
+_metric_values: list[WindowMetrics] = []
+
+
+class _MetricsSignatureAsk(ScopeAsk):
+    signature: str
+
+    def __init__(self) -> None:
+        self.signature = ""
+
+    def apply_text(self, value: str) -> None:
+        self.signature = value
+
+
+def _insets_signature(value: EdgeInsets) -> str:
+    return str(value.left) + "," + str(value.top) + "," + str(value.right) + "," + str(value.bottom)
+
+
+def _cutout_signature(values: list[CutoutRect]) -> str:
+    text: str = ""
+    i: int = 0
+    while i < len(values):
+        item: CutoutRect = values[i]
+        text = text + str(item.x) + "," + str(item.y) + "," + str(item.width) + "," + str(item.height) + ";"
+        i = i + 1
+    return text
+
+
+def _metrics_signature(value: WindowMetrics) -> str:
+    return str(value.logical_width) + "|" + str(value.logical_height) + "|" + str(value.physical_width) + "|" + str(value.physical_height) + "|" + str(value.device_pixel_ratio) + "|" + str(value.refresh_rate) + "|" + _insets_signature(value.view_padding) + "|" + _insets_signature(value.view_insets) + "|" + _insets_signature(value.system_gesture_insets) + "|" + str(value.orientation) + "|" + str(value.font_scale) + "|" + str(value.brightness) + "|" + str(value.high_contrast) + "|" + value.locale + "|" + str(value.text_direction) + "|" + str(value.reduce_motion) + "|" + str(value.accessible_navigation) + "|" + str(value.rotation_degrees) + "|" + str(value.bold_text) + "|" + str(value.keyboard_duration_s) + "|" + str(value.keyboard_curve) + "|" + value.locale_list + "|" + _cutout_signature(value.cutouts)
+
+
+def _publish(element_id: int, data: WindowMetrics) -> None:
+    i: int = 0
+    while i < len(_metric_ids):
+        if _metric_ids[i] == element_id:
+            _metric_values[i] = data
+            return
+        i = i + 1
+    _metric_ids.append(element_id)
+    _metric_values.append(data)
+
+
+def _unpublish(element_id: int) -> None:
+    kept_ids: list[int] = []
+    kept_values: list[WindowMetrics] = []
+    i: int = 0
+    while i < len(_metric_ids):
+        if _metric_ids[i] != element_id:
+            kept_ids.append(_metric_ids[i])
+            kept_values.append(_metric_values[i])
+        i = i + 1
+    _metric_ids = kept_ids
+    _metric_values = kept_values
+
+
+def _window_metrics_entry_count() -> int:
+    return len(_metric_ids)
+
+
+def window_metrics_if_present(element: Element) -> WindowMetrics | None:
+    parent: Element | None = element.parent
+    while parent is not None:
+        i: int = 0
+        while i < len(_metric_ids):
+            if _metric_ids[i] == parent.element_id:
+                parent.add_dependent(element)
+                return _metric_values[i]
+            i = i + 1
+        parent = parent.parent
+    return None
+
+
+def window_metrics_for_element(element: Element) -> WindowMetrics:
+    parent: Element | None = element.parent
+    while parent is not None:
+        i: int = 0
+        while i < len(_metric_ids):
+            if _metric_ids[i] == parent.element_id:
+                parent.add_dependent(element)
+                return _metric_values[i]
+            i = i + 1
+        parent = parent.parent
+    raise FrameworkError("window metrics are missing")
+
+
+def window_metrics_of(context: BuildContext) -> WindowMetrics:
+    return window_metrics_for_element(context.element)
+
+
+class WindowMetricsScope(StatelessWidget):
+    data: WindowMetrics
+    child: Widget
+
+    def __init__(self, data: WindowMetrics, child: Widget, key: Key | None = None) -> None:
+        super().__init__(TYPE_WINDOW_METRICS, key)
+        self.data = data
+        self.child = child
+
+    def create_element(self) -> Element:
+        return InheritedElement()
+
+    def publish_inherited(self, element: Element) -> None:
+        _publish(element.element_id, self.data)
+
+    def _unpublish_inherited(self, element: Element) -> None:
+        _unpublish(element.element_id)
+
+    def same_scope(self, previous: Widget) -> int:
+        ask: _MetricsSignatureAsk = _MetricsSignatureAsk()
+        previous.answer(ask)
+        if ask.signature == _metrics_signature(self.data):
+            return 1
+        return 0
+
+    def answer(self, ask: ScopeAsk) -> None:
+        ask.apply_text(_metrics_signature(self.data))
+
+    def build(self, context: BuildContext) -> Widget:
+        _publish(context.element.element_id, self.data)
+        return self.child

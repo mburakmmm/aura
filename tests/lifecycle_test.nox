@@ -1,0 +1,137 @@
+import nox.test
+from aura.animation.ticker import AnimationController
+from aura.core.diagnostics import FrameworkError
+from aura.runtime.frame import FramePump
+from aura.runtime.lifecycle import LIFECYCLE_HIDDEN, LIFECYCLE_INACTIVE, LIFECYCLE_PAUSED, LIFECYCLE_RESUMED, MEMORY_PRESSURE_CRITICAL, LifecycleObserver, LifecycleOwner
+from aura.widgets.scheduler import Scheduler
+
+
+class RecordingObserver(LifecycleObserver):
+    states: list[int]
+    saves: int
+    memory_levels: list[int]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.states = []
+        self.saves = 0
+        self.memory_levels = []
+
+    def did_change_lifecycle(self, state: int) -> None:
+        self.states.append(state)
+
+    def did_request_state_save(self) -> None:
+        self.saves = self.saves + 1
+
+    def did_receive_memory_pressure(self, level: int) -> None:
+        self.memory_levels.append(level)
+
+
+class ReentrantObserver(LifecycleObserver):
+    owner: LifecycleOwner
+
+    def __init__(self, owner: LifecycleOwner) -> None:
+        super().__init__()
+        self.owner = owner
+
+    def did_change_lifecycle(self, state: int) -> None:
+        self.owner.transition(LIFECYCLE_RESUMED)
+
+
+owner: LifecycleOwner = LifecycleOwner()
+observer: RecordingObserver = RecordingObserver()
+owner.add_observer(observer)
+owner.add_observer(observer)
+owner.transition(LIFECYCLE_INACTIVE)
+owner.transition(LIFECYCLE_INACTIVE)
+owner.transition(LIFECYCLE_PAUSED)
+owner.transition(LIFECYCLE_HIDDEN)
+nox.test.assert_eq_int(owner.transition_count, 3, "duplicate transitions are ignored")
+nox.test.assert_eq_int(len(observer.states), 3, "observer is registered once")
+nox.test.assert_eq_int(observer.states[0], LIFECYCLE_INACTIVE, "inactive is delivered first")
+nox.test.assert_eq_int(observer.states[1], LIFECYCLE_PAUSED, "paused is delivered second")
+nox.test.assert_eq_int(observer.states[2], LIFECYCLE_HIDDEN, "hidden is delivered third")
+nox.test.assert_eq_int(observer.saves, 2, "paused and hidden request state save")
+owner.remove_observer(observer)
+owner.transition(LIFECYCLE_RESUMED)
+nox.test.assert_eq_int(len(observer.states), 3, "removed observer receives no transitions")
+
+invalid_raised: bool = False
+try:
+    owner.transition(99)
+except FrameworkError as error:
+    invalid_raised = True
+nox.test.assert_true(invalid_raised, "invalid lifecycle state is rejected")
+
+reentrant_owner: LifecycleOwner = LifecycleOwner()
+reentrant_owner.add_observer(ReentrantObserver(reentrant_owner))
+reentrant_raised: bool = False
+try:
+    reentrant_owner.transition(LIFECYCLE_PAUSED)
+except FrameworkError as error:
+    reentrant_raised = True
+nox.test.assert_true(reentrant_raised, "reentrant lifecycle transition is rejected")
+nox.test.assert_true(not reentrant_owner.dispatching, "dispatch flag is restored after observer error")
+
+scheduler: Scheduler = Scheduler()
+controller: AnimationController = AnimationController(10.0)
+controller.forward(scheduler)
+scheduler.time_s = 2.0
+scheduler.flush()
+nox.test.assert_eq_float(controller.value, 0.2, "animation advances before pause")
+scheduler.suspend(2.0)
+scheduler.time_s = 100.0
+scheduler.flush()
+nox.test.assert_eq_float(controller.value, 0.2, "animation does not advance while suspended")
+scheduler.resume(100.0)
+scheduler.flush()
+nox.test.assert_eq_float(controller.value, 0.2, "resume rebases the animation clock")
+scheduler.time_s = 101.0
+scheduler.flush()
+nox.test.assert_eq_float(controller.value, 0.3, "animation continues from the paused value")
+reduced: AnimationController = AnimationController(10.0)
+reduced.forward(scheduler)
+nox.test.assert_eq_float(reduced.value, 0.0, "animation starts at zero")
+scheduler.set_reduce_motion(1)
+nox.test.assert_eq_float(reduced.value, 1.0, "reduce motion completes the running animation")
+instant: AnimationController = AnimationController(10.0)
+instant.forward(scheduler)
+nox.test.assert_eq_float(instant.value, 1.0, "reduce motion skips a new animation")
+owner.add_observer(observer)
+owner.notify_memory_pressure(MEMORY_PRESSURE_CRITICAL)
+nox.test.assert_eq_int(observer.memory_levels[0], MEMORY_PRESSURE_CRITICAL, "memory pressure reaches the observer")
+nox.test.assert_eq_int(owner.memory_pressure_level, MEMORY_PRESSURE_CRITICAL, "owner records memory pressure")
+invalid_memory: bool = False
+try:
+    owner.notify_memory_pressure(0)
+except FrameworkError as error:
+    invalid_memory = True
+nox.test.assert_true(invalid_memory, "memory pressure none is not a host signal")
+
+pump: FramePump = FramePump()
+pump.frame_time = 4.0
+pump.arena.tracking = True
+pump.apply_lifecycle(LIFECYCLE_PAUSED)
+nox.test.assert_true(not pump.scheduler.active, "frame scheduler is suspended in background")
+nox.test.assert_true(not pump.arena.tracking, "active pointer sequence is cancelled")
+nox.test.assert_true(pump.focus.input_suspended, "focus and IME are suspended")
+pump.frame_time = 40.0
+pump.apply_lifecycle(LIFECYCLE_RESUMED)
+nox.test.assert_true(pump.scheduler.active, "frame scheduler resumes")
+nox.test.assert_true(not pump.focus.input_suspended, "focus and IME resume")
+nox.test.assert_eq_float(pump.scheduler.time_s, 40.0, "resumed scheduler uses current frame timestamp")
+pump.arena.tracking = True
+pump.apply_surface_available(False)
+nox.test.assert_true(not pump.surface_available, "surface loss is recorded")
+nox.test.assert_true(not pump.scheduler.active, "surface loss suspends frame ticks")
+nox.test.assert_true(not pump.arena.tracking, "surface loss cancels the pointer sequence")
+nox.test.assert_true(pump.focus.input_suspended, "surface loss suspends text input")
+pump.frame_time = 50.0
+pump.apply_surface_available(True)
+nox.test.assert_true(pump.scheduler.active, "surface recreation resumes a foreground app")
+nox.test.assert_true(not pump.focus.input_suspended, "surface recreation restores foreground input")
+pump.apply_lifecycle(LIFECYCLE_PAUSED)
+pump.apply_surface_available(False)
+pump.apply_surface_available(True)
+nox.test.assert_true(not pump.scheduler.active, "surface recreation does not resume a paused app")
+print("lifecycle ok")

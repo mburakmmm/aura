@@ -1,16 +1,55 @@
 import nox.test
+from aura.input.events import EVENT_QUEUE_OVERFLOW, EVENT_SYSTEM_BACK
 from aura.layout.boxes import SizedBox
 from aura.rendering.render_object import HitTestResult, RenderBox
 from aura.testing.tester import WidgetTester
-from aura.widgets.framework import Element, RenderObjectWidget
+from aura.text.editing import TextEditingController
+from aura.text.field import TextField
+from aura.widgets.framework import Element, RenderObjectWidget, Widget
+from aura.widgets.gesture_detector import PAN_HORIZONTAL, GestureDetector
 from aura.widgets.type_ids import alloc_type_id
 
 TYPE_TAP: int = alloc_type_id()
+TYPE_SCROLL: int = alloc_type_id()
+TYPE_NESTED_SCROLL: int = alloc_type_id()
 clicks: int = 0
+gesture_taps: int = 0
+double_taps: int = 0
+long_presses: int = 0
+pan_x: float = 0.0
+pan_y: float = 0.0
+scale_value: float = 0.0
+scale_calls: int = 0
+scroll_delta: float = 0.0
+inner_scroll_position: float = 0.0
+outer_scroll_position: float = 0.0
+text_scroll_position: float = 0.0
 
 
 def on_press() -> None:
     clicks = clicks + 1
+
+
+def on_gesture_tap() -> None:
+    gesture_taps = gesture_taps + 1
+
+
+def on_double_tap() -> None:
+    double_taps = double_taps + 1
+
+
+def on_long_press() -> None:
+    long_presses = long_presses + 1
+
+
+def on_horizontal_pan(dx: float, dy: float) -> None:
+    pan_x = pan_x + dx
+    pan_y = pan_y + dy
+
+
+def on_scale(value: float) -> None:
+    scale_value = value
+    scale_calls = scale_calls + 1
 
 
 class SizedRender(RenderBox):
@@ -37,10 +76,118 @@ class TapBox(RenderObjectWidget):
         box.set_tap(on_press)
 
 
+class ScrollRender(SizedRender):
+    def __init__(self) -> None:
+        super().__init__()
+        self.has_scroll = True
+
+    def scroll_by(self, delta: float) -> None:
+        scroll_delta = scroll_delta + delta
+
+
+class ScrollBox(RenderObjectWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_SCROLL, None)
+
+    def create_render(self) -> RenderBox | None:
+        return ScrollRender()
+
+
+def note_nested_position(tag: int, position: float) -> None:
+    if tag == 82:
+        inner_scroll_position = position
+    elif tag == 81:
+        outer_scroll_position = position
+    elif tag == 71:
+        text_scroll_position = position
+
+
+class NestedScrollRender(RenderBox):
+    max_position: float
+    position: float
+
+    def __init__(self, max_position: float, tag: int) -> None:
+        super().__init__()
+        self.max_position = max_position
+        self.position = 0.0
+        self.debug_tag = tag
+        self.has_scroll = True
+
+    def hit_test_self(self, x: float, y: float) -> bool:
+        return True
+
+    def perform_layout(self) -> None:
+        child: RenderBox | None = self.only_child
+        if child is not None:
+            child.layout(self.constraints)
+            child.offset_x = 0.0
+            child.offset_y = 0.0
+            self.width = child.width
+            self.height = child.height
+        else:
+            self.width = self.constraints.constrain_width(self.constraints.max_width)
+            self.height = self.constraints.constrain_height(self.constraints.max_height)
+
+    def scroll_by(self, delta: float) -> None:
+        self.consume_scroll(delta)
+
+    def consume_scroll(self, delta: float) -> float:
+        previous: float = self.position
+        nxt: float = previous + delta
+        if nxt < 0.0:
+            nxt = 0.0
+        if nxt > self.max_position:
+            nxt = self.max_position
+        self.position = nxt
+        note_nested_position(self.debug_tag, nxt)
+        return delta - (nxt - previous)
+
+
+class NestedScrollBox(RenderObjectWidget):
+    child: Widget
+    max_position: float
+    tag: int
+
+    def __init__(self, child: Widget, max_position: float, tag: int) -> None:
+        super().__init__(TYPE_NESTED_SCROLL, None)
+        self.child = child
+        self.max_position = max_position
+        self.tag = tag
+
+    def create_render(self) -> RenderBox | None:
+        return NestedScrollRender(self.max_position, self.tag)
+
+    def child_widgets(self) -> list[Widget]:
+        return [self.child]
+
+
 def require_box(box: RenderBox | None, name: str) -> RenderBox:
     if box is None:
         raise Exception(name)
     return box
+
+
+def close_enough(left: float, right: float, tolerance: float) -> bool:
+    difference: float = left - right
+    if difference < 0.0:
+        difference = -difference
+    return difference <= tolerance
+
+
+def sampled_scroll_velocity(samples: int, hz: float) -> float:
+    sampled: WidgetTester = WidgetTester()
+    sampled.pump_widget(NestedScrollBox(SizedBox(100.0, 100.0), 10000.0, 90), 100.0, 100.0)
+    sx: float = 50.0
+    sy: float = 80.0
+    sampled.pump.pointer_down(sx, sy, 1, 900 + samples, 0.0)
+    i: int = 1
+    while i <= samples:
+        time_s: float = float(i) / hz
+        sampled.pump.pointer_move(sx, sy - 240.0 * time_s, 900 + samples, time_s)
+        i = i + 1
+    end_time: float = float(samples) / hz
+    sampled.pump.pointer_up(sx, sy - 240.0 * end_time, 900 + samples, end_time)
+    return sampled.pump.arena.fling_velocity
 
 
 placed: WidgetTester = WidgetTester()
@@ -62,4 +209,128 @@ tester.pump.pointer_up(x + 30.0, y)
 nox.test.assert_eq_int(clicks, 0, "slop rejects tap")
 tester.tap(x, y)
 nox.test.assert_eq_int(clicks, 1, "tap accepted")
+tester.pump.pointer_down(x, y)
+tester.pump.dispatch(EVENT_QUEUE_OVERFLOW, 0.0, 0.0, 0, "")
+tester.pump.pointer_up(x, y)
+nox.test.assert_eq_int(clicks, 1, "overflow cancels active pointer")
+nox.test.assert_eq_int(tester.pump.event_overflows, 1, "queue overflow is diagnostic")
+before_back_cancel: int = clicks
+tester.pump.pointer_down(x, y, 1, 91, 0.5)
+tester.pump.dispatch(EVENT_SYSTEM_BACK, 0.0, 0.0, 0, "")
+tester.pump.pointer_up(x, y, 91, 0.6)
+nox.test.assert_eq_int(clicks, before_back_cancel, "system back cancels active pointer before routing")
+before_multi: int = clicks
+tester.pump.pointer_down(x, y, 1, 101, 1.0)
+tester.pump.pointer_down(x, y, 1, 202, 1.0)
+nox.test.assert_eq_int(tester.pump.arena.active_pointer_count, 2, "arena tracks two pointer identities")
+tester.pump.pointer_move(x + 30.0, y, 101, 1.1)
+nox.test.assert_true(tester.pump.arena.sequences[0].members[0].cancelled, "losing tap recognizer receives rejection")
+nox.test.assert_true(not tester.pump.arena.sequences[1].members[0].cancelled, "other pointer recognizer remains active")
+tester.pump.pointer_up(x, y, 202, 1.2)
+nox.test.assert_eq_int(clicks, before_multi + 1, "second pointer tap resolves independently")
+nox.test.assert_eq_int(tester.pump.arena.active_pointer_count, 1, "only completed pointer is removed")
+tester.pump.pointer_up(x + 30.0, y, 101, 1.3)
+nox.test.assert_eq_int(clicks, before_multi + 1, "moved first pointer remains rejected")
+nox.test.assert_eq_int(tester.pump.arena.active_pointer_count, 0, "all pointer sequences complete")
+
+gesture_widget: GestureDetector = GestureDetector(SizedBox(40.0, 40.0), on_gesture_tap)
+gesture_widget.with_double_tap(on_double_tap)
+gesture_widget.with_long_press(on_long_press)
+gesture_widget.with_pan(on_horizontal_pan, PAN_HORIZONTAL)
+gesture_widget.with_scale(on_scale)
+gestures: WidgetTester = WidgetTester()
+gestures.pump_widget(gesture_widget, 100.0, 100.0)
+gesture_box: RenderBox = require_box(gestures.view().only_child, "gesture detector")
+gx: float = gesture_box.absolute_x() + gesture_box.width / 2.0
+gy: float = gesture_box.absolute_y() + gesture_box.height / 2.0
+
+gestures.pump.pointer_down(gx, gy, 1, 301, 10.0)
+gestures.pump.pointer_up(gx, gy, 301, 10.01)
+nox.test.assert_eq_int(gesture_taps, 0, "single tap waits for double tap timeout")
+gestures.pump.arena.tick(10.20)
+nox.test.assert_eq_int(gesture_taps, 0, "single tap remains pending inside timeout")
+gestures.pump.pointer_down(gx, gy, 1, 302, 10.20)
+gestures.pump.pointer_up(gx, gy, 302, 10.21)
+nox.test.assert_eq_int(double_taps, 1, "second tap resolves double tap")
+nox.test.assert_eq_int(gesture_taps, 0, "double tap suppresses pending single tap")
+
+gestures.pump.pointer_down(gx, gy, 1, 303, 11.0)
+gestures.pump.pointer_up(gx, gy, 303, 11.01)
+gestures.pump.arena.tick(11.31)
+nox.test.assert_eq_int(gesture_taps, 1, "expired double tap window resolves single tap")
+
+gestures.pump.pointer_down(gx, gy, 1, 304, 12.0)
+gestures.pump.arena.tick(12.49)
+nox.test.assert_eq_int(long_presses, 0, "long press waits for threshold")
+gestures.pump.arena.tick(12.51)
+nox.test.assert_eq_int(long_presses, 1, "long press fires from frame time")
+gestures.pump.pointer_up(gx, gy, 304, 12.60)
+nox.test.assert_eq_int(gesture_taps, 1, "long press rejects tap")
+
+gestures.pump.pointer_down(gx, gy, 1, 305, 13.0)
+gestures.pump.pointer_move(gx + 20.0, gy + 5.0, 305, 13.1)
+gestures.pump.pointer_move(gx + 30.0, gy + 15.0, 305, 13.2)
+gestures.pump.pointer_up(gx + 30.0, gy + 15.0, 305, 13.3)
+nox.test.assert_eq_float(pan_x, 30.0, "horizontal pan reports locked x deltas")
+nox.test.assert_eq_float(pan_y, 0.0, "horizontal pan suppresses y deltas")
+nox.test.assert_eq_int(gesture_taps, 1, "pan rejects tap")
+
+gestures.pump.pointer_down(gx - 10.0, gy, 1, 401, 14.0)
+gestures.pump.pointer_down(gx + 10.0, gy, 1, 402, 14.0)
+nox.test.assert_true(gestures.pump.arena.scale_active, "two pointers on same target begin scale")
+gestures.pump.pointer_move(gx + 20.0, gy, 402, 14.1)
+nox.test.assert_eq_int(scale_calls, 1, "scale update is delivered")
+nox.test.assert_eq_float(scale_value, 1.5, "scale uses pointer distance ratio")
+gestures.pump.pointer_up(gx + 20.0, gy, 402, 14.2)
+gestures.pump.pointer_up(gx - 10.0, gy, 401, 14.2)
+nox.test.assert_true(not gestures.pump.arena.scale_active, "scale ends when either pointer lifts")
+nox.test.assert_eq_int(gesture_taps, 1, "scale rejects both taps")
+
+scroll_gesture: GestureDetector = GestureDetector(ScrollBox(), on_gesture_tap)
+scroll_gesture.with_scale(on_scale)
+scrolling: WidgetTester = WidgetTester()
+scrolling.pump_widget(scroll_gesture, 100.0, 100.0)
+scroll_box: RenderBox = require_box(scrolling.view().only_child, "scale around scroll")
+sx: float = scroll_box.absolute_x() + scroll_box.width / 2.0
+sy: float = scroll_box.absolute_y() + scroll_box.height / 2.0
+scrolling.pump.pointer_down(sx, sy, 1, 501, 15.0)
+scrolling.pump.pointer_move(sx, sy + 24.0, 501, 15.1)
+nox.test.assert_true(scrolling.pump.arena.sequences[0].scroll_won, "single pointer scroll wins after slop")
+scrolling.pump.pointer_down(sx + 5.0, sy, 1, 502, 15.2)
+nox.test.assert_true(not scrolling.pump.arena.scale_active, "second pointer cannot steal established scroll winner")
+scrolling.pump.pointer_cancel()
+
+nested: WidgetTester = WidgetTester()
+nested.pump_widget(NestedScrollBox(NestedScrollBox(SizedBox(100.0, 100.0), 10.0, 82), 100.0, 81), 100.0, 100.0)
+nested.pump.pointer_down(50.0, 60.0, 1, 601, 16.0)
+nested.pump.pointer_move(50.0, 30.0, 601, 16.1)
+nox.test.assert_eq_float(inner_scroll_position, 10.0, "nested scroll lets leaf consume to its boundary")
+nox.test.assert_eq_float(outer_scroll_position, 20.0, "nested scroll bubbles only the remaining delta")
+nested.pump.pointer_move(50.0, 45.0, 601, 16.2)
+nox.test.assert_eq_float(inner_scroll_position, 0.0, "reverse drag restarts consumption at leaf")
+nox.test.assert_eq_float(outer_scroll_position, 15.0, "reverse remainder returns from ancestor")
+nested.pump.pointer_up(50.0, 45.0, 601, 16.2)
+
+editing: TextEditingController = TextEditingController("abcdefghij")
+field_scroll: WidgetTester = WidgetTester()
+field_scroll.pump_widget(NestedScrollBox(TextField(editing), 200.0, 71), 200.0, 60.0)
+field: RenderBox = require_box(field_scroll.view().find_role("text-field"), "field in scroll")
+fx: float = field.absolute_x() + 16.0
+fy: float = field.absolute_y() + 20.0
+field_scroll.pump.pointer_down(fx, fy, 1, 701, 17.0)
+field_scroll.pump.pointer_move(fx + 60.0, fy + 2.0, 701, 17.1)
+field_scroll.pump.pointer_up(fx + 60.0, fy + 2.0, 701, 17.1)
+nox.test.assert_true(editing.cursor != editing.anchor, "horizontal drag in text field wins selection")
+nox.test.assert_eq_float(text_scroll_position, 0.0, "horizontal text selection does not scroll ancestor")
+field_scroll.pump.pointer_down(fx, fy, 1, 702, 18.0)
+field_scroll.pump.pointer_move(fx, fy - 30.0, 702, 18.1)
+field_scroll.pump.pointer_up(fx, fy - 30.0, 702, 18.1)
+nox.test.assert_eq_float(text_scroll_position, 30.0, "vertical drag in text field yields to ancestor scroll")
+
+velocity_60: float = sampled_scroll_velocity(12, 60.0)
+velocity_90: float = sampled_scroll_velocity(18, 90.0)
+velocity_120: float = sampled_scroll_velocity(24, 120.0)
+nox.test.assert_true(close_enough(velocity_60, velocity_90, 0.001), "60 and 90 Hz produce equivalent velocity")
+nox.test.assert_true(close_enough(velocity_90, velocity_120, 0.001), "90 and 120 Hz produce equivalent velocity")
+nox.test.assert_true(close_enough(velocity_120, 240.0, 0.001), "velocity follows logical distance per second")
 print("input ok")

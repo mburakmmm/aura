@@ -4,4 +4,6 @@ from aura.layout.decorated import DecoratedBox
 from aura.layout.flex import Column, Expanded, Flexible, Row, Spacer
 from aura.layout.stack import Positioned, Stack
 from aura.layout.repaint import RepaintBoundary
+from aura.layout.keyboard_inset import KeyboardInset
+from aura.layout.safe_area import SafeArea
 from aura.layout.virtual_list import ItemSource, ScrollController, ScrollPosition, Viewport, ViewportMetrics, VirtualList

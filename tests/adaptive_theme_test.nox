@@ -1,0 +1,146 @@
+import nox.test
+from aura.foundation.color import COLOR_TEXT, rgb
+from aura.graphics.recording import KIND_TEXT
+from aura.foundation.window_metrics import BRIGHTNESS_DARK, BRIGHTNESS_LIGHT, TEXT_DIRECTION_LTR, TEXT_DIRECTION_RTL, WindowMetrics, default_window_metrics
+from aura.layout import SizedBox
+from aura.layout.flex import CROSS_START, MAIN_MIN, MAIN_START, Column, Row
+from aura.rendering.render_object import RenderBox
+from aura.testing.tester import WidgetTester
+from aura.text import Text
+from aura.widgets import BuildContext, State, StatefulWidget, StatelessWidget, SystemTheme, Widget, WindowMetricsScope, window_metrics_of
+from aura.widgets.type_ids import alloc_type_id
+
+TYPE_ADAPTIVE_PAGE: int = alloc_type_id()
+TYPE_LOCALE_READER: int = alloc_type_id()
+locale_builds: int = 0
+seen_locale: str = ""
+holder: AdaptiveState | None = None
+pending_metrics: WindowMetrics = default_window_metrics(200.0, 80.0, 1.0, 1)
+pending_child: Widget = SizedBox(1.0, 1.0)
+
+
+class AdaptiveState(State):
+    metrics: WindowMetrics
+    child: Widget
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.metrics = pending_metrics
+        self.child = pending_child
+        holder = self
+
+    def build(self, context: BuildContext) -> Widget:
+        return WindowMetricsScope(self.metrics, SystemTheme(self.child))
+
+
+class AdaptivePage(StatefulWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_ADAPTIVE_PAGE, None)
+
+    def create_state(self) -> State:
+        return AdaptiveState()
+
+
+class LocaleReader(StatelessWidget):
+    def __init__(self) -> None:
+        super().__init__(TYPE_LOCALE_READER, None)
+
+    def build(self, context: BuildContext) -> Widget:
+        seen_locale = window_metrics_of(context).locale
+        locale_builds = locale_builds + 1
+        return SizedBox(10.0, 10.0)
+
+
+def require_state() -> AdaptiveState:
+    current: AdaptiveState | None = holder
+    if current is None:
+        raise Exception("missing adaptive state")
+    return current
+
+
+def text_index(tester: WidgetTester) -> int:
+    i: int = 0
+    while i < len(tester.canvas.kinds):
+        if tester.canvas.kinds[i] == KIND_TEXT:
+            return i
+        i = i + 1
+    raise Exception("missing text command")
+
+
+def require_box(box: RenderBox | None, message: str) -> RenderBox:
+    if box is None:
+        raise Exception(message)
+    return box
+
+
+def pump(child: Widget, metrics: WindowMetrics) -> WidgetTester:
+    tester: WidgetTester = WidgetTester()
+    pending_metrics = metrics
+    pending_child = child
+    tester.pump_widget(AdaptivePage(), metrics.logical_width, metrics.logical_height)
+    return tester
+
+
+base: WindowMetrics = default_window_metrics(200.0, 80.0, 1.0, 1)
+nox.test.assert_eq_int(base.brightness, BRIGHTNESS_DARK, "desktop default matches the dark theme")
+nox.test.assert_eq_int(base.text_direction, TEXT_DIRECTION_LTR, "desktop default is left to right")
+
+plain: WidgetTester = pump(Text("Ag"), base)
+plain_text: RenderBox = require_box(plain.view().only_child, "text missing")
+plain_paint: int = text_index(plain)
+nox.test.assert_eq_int(plain.canvas.argbs[plain_paint], COLOR_TEXT, "dark system theme keeps light text")
+plain_height: float = plain_text.height
+
+scaled: WindowMetrics = default_window_metrics(200.0, 120.0, 1.0, 2)
+scaled.font_scale = 2.0
+scaled_view: WidgetTester = pump(Text("Ag"), scaled)
+scaled_text: RenderBox = require_box(scaled_view.view().only_child, "scaled text missing")
+nox.test.assert_true(scaled_text.height > plain_height * 1.9, "font scale enlarges text")
+nox.test.assert_true(scaled_text.height < plain_height * 2.1, "font scale stays near double")
+
+bold: WindowMetrics = default_window_metrics(200.0, 80.0, 1.0, 3)
+bold.bold_text = 1
+bold_view: WidgetTester = pump(Text("Ag"), bold)
+nox.test.assert_eq_int(bold_view.canvas.weights[text_index(bold_view)], 700, "bold text preference raises weight")
+
+contrast: WindowMetrics = default_window_metrics(200.0, 80.0, 1.0, 4)
+contrast.high_contrast = 1
+contrast.brightness = BRIGHTNESS_DARK
+contrast_view: WidgetTester = pump(Text("Ag"), contrast)
+nox.test.assert_eq_int(contrast_view.canvas.argbs[text_index(contrast_view)], rgb(255, 255, 255), "high contrast dark text is white")
+
+light: WindowMetrics = default_window_metrics(200.0, 80.0, 1.0, 5)
+light.brightness = BRIGHTNESS_LIGHT
+light_view: WidgetTester = pump(Text("Ag"), light)
+nox.test.assert_eq_int(light_view.canvas.argbs[text_index(light_view)], rgb(28, 27, 25), "light system theme uses dark text")
+
+ltr: WidgetTester = pump(Row([SizedBox(100.0, 10.0), SizedBox(40.0, 10.0)], MAIN_START, CROSS_START), base)
+ltr_row: RenderBox = require_box(ltr.view().only_child, "ltr row missing")
+nox.test.assert_eq_float(ltr_row.children[0].offset_x, 0.0, "first child starts at the left")
+nox.test.assert_eq_float(ltr_row.children[1].offset_x, 100.0, "second child follows on the left")
+
+rtl_metrics: WindowMetrics = default_window_metrics(200.0, 80.0, 1.0, 6)
+rtl_metrics.text_direction = TEXT_DIRECTION_RTL
+rtl: WidgetTester = pump(Row([SizedBox(100.0, 10.0), SizedBox(40.0, 10.0)], MAIN_START, CROSS_START), rtl_metrics)
+rtl_row: RenderBox = require_box(rtl.view().only_child, "rtl row missing")
+nox.test.assert_eq_float(rtl_row.children[0].offset_x, 100.0, "first child starts at the right")
+nox.test.assert_eq_float(rtl_row.children[1].offset_x, 60.0, "second child sits to its left")
+
+rtl_column: WidgetTester = pump(SizedBox(200.0, 80.0, Column([SizedBox(40.0, 10.0)], MAIN_START, CROSS_START, MAIN_MIN)), rtl_metrics)
+column_host: RenderBox = require_box(rtl_column.view().only_child, "sized column missing")
+column_box: RenderBox = require_box(column_host.only_child, "rtl column missing")
+nox.test.assert_eq_float(column_box.children[0].offset_x, 160.0, "column cross start is the right edge")
+
+locale_metrics: WindowMetrics = default_window_metrics(200.0, 80.0, 1.0, 7)
+locale_view: WidgetTester = pump(LocaleReader(), locale_metrics)
+nox.test.assert_eq_str(seen_locale, "en", "locale reaches dependents")
+nox.test.assert_eq_int(locale_builds, 1, "locale reader mounted once")
+changed: WindowMetrics = default_window_metrics(200.0, 80.0, 1.0, 8)
+changed.locale = "tr"
+changed.locale_list = "tr\nen"
+require_state().metrics = changed
+require_state().invalidate()
+locale_view.pump_frame()
+nox.test.assert_eq_int(locale_builds, 2, "locale change rebuilds dependents")
+nox.test.assert_eq_str(seen_locale, "tr", "new locale is visible")
+print("adaptive theme ok")
