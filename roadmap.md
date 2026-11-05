@@ -74,7 +74,7 @@ uygulama ve kanıt durumunu tanımlar.
 
 İlk telefon iOS’tur. Geliştirme makinesi ve mevcut Cocoa kabuğu oradadır. Android aynı sembolleri ikinci kabuk olarak uygular.
 
-Durum, 5 Kasım 2026: kabuk kaynakları `main` üzerindedir ve 1.1.0 olarak yayınlanır. Ayrıntı `MOBILE_TODO.md` dosyasındadır. iPhone 17 Pro’da ve bir Android 12 telefonunda sekiz örnek açıldı. Notes için Xcode archive, dSYM ve development IPA üretildi. TestFlight, Play, GPU, TalkBack, emoji ve çift yön açıktır. 16 KiB çalışma zamanı bu telefonda kanıtlanmadı.
+Durum, 5 Kasım 2026: kabuk kaynakları `main` üzerindedir. 1.1.0 kabuğu, 1.2.0 ise `aura run`, `build`, `devices`, `test` ve `clean` komutlarını yayınlar. Ayrıntı `MOBILE_TODO.md` dosyasındadır. iPhone 17 Pro’da ve bir Android 12 telefonunda sekiz örnek açıldı. Notes için Xcode archive, dSYM ve development IPA üretildi. TestFlight, Play, GPU, TalkBack, emoji ve çift yön açıktır. 16 KiB çalışma zamanı bu telefonda kanıtlanmadı. Hot reload, web, flavor ve profile kipi yoktur.
 
 Çizim komutları değişmez. 1.1–1.4 pixmap’i Skia raster üretir ve kabuk bunu yüzeye basar. GPU yüzeyi 1.5’tir ve ADR’siz seçilmez. Masaüstü blit yolu durur.
 

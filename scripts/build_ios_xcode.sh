@@ -50,6 +50,11 @@ if [ -n "$SIGNING_KIND" ]; then
 else
   python3 "$ROOT/scripts/ios_project.py" generate --root "$ROOT" --name "$NAME" --out "$OUT" --configuration "$CONFIG"
 fi
+if [ "${SRC#/}" != "$SRC" ]; then
+  APP_SOURCE="$SRC"
+else
+  APP_SOURCE="$ROOT/$SRC"
+fi
 if [ "$KIND" = "simulator" ]; then
   xcodebuild \
     -project "$OUT/$NAME.xcodeproj" \
@@ -61,7 +66,7 @@ if [ "$KIND" = "simulator" ]; then
     NOX_ROOT="$NOX" \
     SKIA_SRC="$SKIA" \
     SKIA_OUT="$SKIA_OUT" \
-    AURA_APP_SOURCE="$ROOT/$SRC" \
+    AURA_APP_SOURCE="$APP_SOURCE" \
     build
   echo "$OUT/DerivedData/Build/Products/Debug-iphonesimulator/$NAME.app"
   exit 0
@@ -77,7 +82,7 @@ xcodebuild \
   NOX_ROOT="$NOX" \
   SKIA_SRC="$SKIA" \
   SKIA_OUT="$SKIA_OUT" \
-  AURA_APP_SOURCE="$ROOT/$SRC" \
+  AURA_APP_SOURCE="$APP_SOURCE" \
   archive
 xcodebuild \
   -exportArchive \

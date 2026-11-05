@@ -1,9 +1,10 @@
 from nox.fs import create_dir_all, exists, is_dir, is_file, read_dir, read_to_string, write_string
-from nox.json import JsonValue, as_string, is_object, is_string, object_key, object_len, object_value, parse
+from nox.json import JsonValue, array_get, array_len, as_string, is_array, is_null, is_object, is_string, object_key, object_len, object_value, parse
+from nox.os import OsError, getenv
 from nox.path import dirname, join
 from nox.strings import byte_at, byte_len, contains, join as join_lines
 
-VERSION: str = "1.1.0"
+VERSION: str = "1.2.0"
 PACKAGE_REPO: str = "github.com/mburakmmm/aura"
 
 
@@ -12,7 +13,12 @@ def usage() -> str:
         "usage: aura <command>",
         "  version",
         "  new <name>",
-        "  doctor",
+        "  doctor [-v]",
+        "  devices",
+        "  run [entry] [--platform macos|ios|android] [--mode debug|release|simulator|device] [--device id]",
+        "  build apk|aab|ipa|macos [entry] [--mode debug|release|simulator|device|store]",
+        "  test",
+        "  clean",
         "  help",
     ], "\n")
 
@@ -163,3 +169,67 @@ def package_has_command(document: str) -> bool:
 
 def pinned_version(checkout: str) -> str:
     return package_version(read_to_string(join(checkout, "nox.json")))
+
+
+def object_field(root: JsonValue, key: str) -> JsonValue:
+    i: int = 0
+    count: int = object_len(root)
+    while i < count:
+        if object_key(root, i) == key:
+            return object_value(root, i)
+        i = i + 1
+    return parse("null")
+
+
+def object_field_string(root: JsonValue, key: str) -> str:
+    value: JsonValue = object_field(root, key)
+    if is_string(value):
+        return as_string(value)
+    return ""
+
+
+def installed_sha(document: str, command: str) -> str:
+    root: JsonValue = parse(document)
+    if not is_object(root):
+        return ""
+    packages: JsonValue = object_field(root, "packages")
+    if is_null(packages) or not is_array(packages):
+        return ""
+    i: int = 0
+    count: int = array_len(packages)
+    while i < count:
+        item: JsonValue = array_get(packages, i)
+        if is_object(item) and object_field_string(item, "command_name") == command:
+            return object_field_string(item, "resolved_sha")
+        i = i + 1
+    return ""
+
+
+def nox_home() -> str:
+    try:
+        return getenv("NOX_HOME")
+    except OsError:
+        return home_nox()
+
+
+def home_nox() -> str:
+    try:
+        return join(getenv("HOME"), ".nox")
+    except OsError:
+        return ""
+
+
+def tool_script(start: str) -> str:
+    checkout: str = find_checkout(start)
+    if checkout != "":
+        return join(checkout, "scripts/aura_cmd.py")
+    home: str = nox_home()
+    if home == "":
+        return ""
+    registry: str = join(home, "pkg/installed.json")
+    if not is_file(registry):
+        return ""
+    sha: str = installed_sha(read_to_string(registry), "aura")
+    if sha == "":
+        return ""
+    return join(home, "pkg/mod/github.com/mburakmmm/aura/" + sha + "/scripts/aura_cmd.py")

@@ -1,4 +1,6 @@
 .nox/
+__pycache__/
+*.pyc
 native/macos/*.dylib
 native/macos/*.o
 native/libaura_host.dylib

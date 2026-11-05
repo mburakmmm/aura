@@ -13,6 +13,7 @@ import json
 import os
 import platform
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -333,6 +334,13 @@ def sbom_document(root: Path) -> dict:
     }
 
 
+def redact(text: str) -> str:
+    home = str(Path.home())
+    if home:
+        text = text.replace(home, "~")
+    return text.replace(HOME_PREFIX, "~/").replace(UNIX_HOME_PREFIX, "~/").replace(WINDOWS_HOME_PREFIX, "~\\")
+
+
 def command_text(args: list[str]) -> tuple[int, str]:
     try:
         completed = subprocess.run(args, check=False, capture_output=True, text=True, timeout=8)
@@ -341,11 +349,41 @@ def command_text(args: list[str]) -> tuple[int, str]:
     return completed.returncode, (completed.stdout or "") + (completed.stderr or "")
 
 
+def adb_executable() -> str:
+    found = shutil.which("adb")
+    if found:
+        return found
+    sdk = os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME") or ""
+    if not sdk:
+        default_sdk = Path.home() / "Library" / "Android" / "sdk"
+        sdk = str(default_sdk) if default_sdk.is_dir() else ""
+    if not sdk:
+        return ""
+    candidate = Path(sdk) / "platform-tools" / "adb"
+    return str(candidate) if candidate.is_file() else ""
+
+
+def java_major() -> str:
+    probes = [["java", "-version"]]
+    studio = Path("/Applications") / "Android Studio.app" / "Contents" / "jbr" / "Contents" / "Home" / "bin" / "java"
+    if studio.is_file():
+        probes.append([str(studio), "-version"])
+    java_home = os.environ.get("AURA_JAVA_HOME", "")
+    if java_home:
+        probes.append([str(Path(java_home) / "bin" / "java"), "-version"])
+    for args in probes:
+        code, text = command_text(args)
+        match = re.search(r'version "(\d+)', text)
+        if code == 0 and match:
+            return match.group(1)
+    return "missing"
+
+
 def collect_facts(root: Path) -> dict[str, str]:
     facts: dict[str, str] = {"host": platform.system() + " " + platform.machine()}
-    code, text = command_text(["java", "-version"])
-    match = re.search(r'version "(\d+)', text)
-    facts["java"] = match.group(1) if code == 0 and match else "missing"
+    facts["java"] = java_major()
+    code, text = command_text(["noxc", "version"])
+    facts["noxc"] = text.splitlines()[0].strip() if code == 0 and text.strip() else "missing"
     version_args = {
         "xcodebuild": ["xcodebuild", "-version"],
         "zig": ["zig", "version"],
@@ -353,6 +391,7 @@ def collect_facts(root: Path) -> dict[str, str]:
         "gradle": ["gradle", "-version"],
         "adb": ["adb", "version"],
     }
+    facts["adb_probe"] = "adb version"
     for name, args in version_args.items():
         code, text = command_text(args)
         if name == "xcodebuild":
@@ -362,6 +401,9 @@ def collect_facts(root: Path) -> dict[str, str]:
             facts[name] = text.splitlines()[0].strip()
         else:
             facts[name] = "missing"
+    if facts.get("adb") == "missing" and adb_executable():
+        facts["adb"] = "present"
+        facts["adb_probe"] = "sdk platform-tools adb"
     nox_root = os.environ.get("NOX_ROOT", "")
     candidate = Path(nox_root) if nox_root else root.parent / "nox-lang"
     facts["nox_source"] = "present" if (candidate / "include" / "nox_embed.h").is_file() else "missing"
@@ -374,14 +416,16 @@ def collect_facts(root: Path) -> dict[str, str]:
     ndk = os.environ.get("ANDROID_NDK_HOME") or (str(Path(sdk) / "ndk" / pin) if sdk else "")
     facts["ndk"] = "present" if ndk and Path(ndk).is_dir() else "missing"
     skia = os.environ.get("SKIA_SRC") or f"/tmp/skia-{toolchain['skia']}-src"
+    facts["skia_path"] = skia
     facts["skia"] = "present" if Path(skia).is_dir() else "missing"
+    facts["host_library"] = "built" if (root / "native" / "libaura_host.dylib").is_file() else "absent"
     code, text = command_text(["xcrun", "simctl", "list", "devices", "available"])
     if code == 0:
         facts["simulators"] = str(len(re.findall(r"\([0-9A-Fa-f-]{36}\)", text)))
     else:
         facts["simulators"] = "unavailable"
     if facts["adb"] != "missing":
-        code, text = command_text(["adb", "devices"])
+        code, text = command_text([adb_executable() or "adb", "devices"])
         devices = [line for line in text.splitlines() if line.endswith("\tdevice")]
         facts["android_devices"] = str(len(devices)) if code == 0 else "unavailable"
     else:
@@ -393,46 +437,69 @@ def collect_facts(root: Path) -> dict[str, str]:
     return facts
 
 
-def doctor_report(root: Path, facts: dict[str, str]) -> tuple[str, int]:
-    toolchain = load_json(root / "toolchain" / "manifest.json")
+def format_doctor(toolchain: dict, facts: dict[str, str], verbose: bool = False) -> tuple[str, int]:
+    java = facts.get("java", "missing")
+    jdk_ok = java != "missing" and int(java) >= toolchain["android"]["jdk_minimum"]
+    desktop_ok = (
+        facts.get("noxc") != "missing"
+        and facts.get("clang") != "missing"
+        and facts.get("nox_source") == "present"
+        and facts.get("skia") == "present"
+    )
+    android_ok = facts.get("ndk") == "present" and jdk_ok and facts.get("adb") != "missing"
+    ios_applicable = str(facts.get("host", "")).startswith("Darwin")
+    ios_ok = facts.get("xcodebuild") != "missing"
     lines = [
-        f"host: {facts['host']}",
+        f"host: {facts.get('host', 'missing')}",
         f"aura: {toolchain['aura']}",
         f"nox: {toolchain['nox']['minimum']}..{toolchain['nox']['maximum']} ci {toolchain['nox']['ci']}",
         f"embed_abi: {toolchain['nox']['embed_abi']}",
-        f"skia: {toolchain['skia']} source {facts['skia']}",
         f"targets: {', '.join(toolchain['targets'])}",
-        f"nox_source: {facts['nox_source']}",
-        f"android_ndk: {toolchain['android']['ndk']} {facts['ndk']}",
-        f"ios_minimum: {toolchain['ios']['minimum']}",
-        f"java: {facts['java']}",
-        f"xcode: {facts['xcodebuild']}",
-        f"clang: {facts['clang']}",
-        f"zig: {facts['zig']}",
-        f"gradle: {facts['gradle']}",
-        f"simulators: {facts['simulators']}",
-        f"android_devices: {facts['android_devices']}",
-        f"signing.ios_identities: {facts['ios_identities']}",
-        f"signing.android_debug_keystore: {facts['debug_keystore']}",
+        "desktop: " + ("ok" if desktop_ok else "missing"),
+        f"  noxc: {facts.get('noxc', 'missing')}",
+        f"  clang: {facts.get('clang', 'missing')}",
+        f"  nox_source: {facts.get('nox_source', 'missing')}",
+        f"  skia: {toolchain['skia']} {facts.get('skia', 'missing')}",
+        f"  host: {facts.get('host_library', 'absent')}",
+        "android: " + ("ok" if android_ok else "missing"),
+        f"  ndk: {toolchain['android']['ndk']} {facts.get('ndk', 'missing')}",
+        f"  jdk: {java}",
+        f"  adb: {facts.get('adb', 'missing')}",
+        f"  devices: {facts.get('android_devices', 'unavailable')}",
+        f"  debug_keystore: {facts.get('debug_keystore', 'absent')}",
     ]
-    missing: list[str] = []
-    if facts["nox_source"] != "present":
-        missing.append("Nox source is missing. Set NOX_ROOT to the tree that contains include/nox_embed.h.")
-    if facts["ndk"] != "present":
-        missing.append(
-            f"Android NDK {toolchain['android']['ndk']} is missing. Install that NDK or set ANDROID_NDK_HOME."
-        )
-    java = facts["java"]
-    if java == "missing" or int(java) < toolchain["android"]["jdk_minimum"]:
-        missing.append(f"JDK {toolchain['android']['jdk_minimum']} or newer is required. Install a JDK and put java on PATH.")
+    if ios_applicable:
+        lines.append("ios: " + ("ok" if ios_ok else "missing"))
+        lines.append(f"  xcode: {facts.get('xcodebuild', 'missing')}")
+        lines.append(f"  minimum: {toolchain['ios']['minimum']}")
+        lines.append(f"  simulators: {facts.get('simulators', 'unavailable')}")
+        lines.append(f"  identities: {facts.get('ios_identities', 'unavailable')}")
+    else:
+        lines.append("ios: skipped")
     for tool in toolchain["unpinned"]:
         key = "xcodebuild" if tool == "xcode" else tool
         if facts.get(key) == "missing":
             lines.append(f"optional-missing: {tool}")
-    text = "\n".join(lines + missing)
-    if HOME_PREFIX in text or "storepass" in text or PRIVATE_KEY in text:
+    if not desktop_ok and facts.get("nox_source") != "present":
+        lines.append("Nox source is missing. Set NOX_ROOT to the tree that contains include/nox_embed.h.")
+    if not android_ok and facts.get("ndk") != "present":
+        lines.append(f"Android NDK {toolchain['android']['ndk']} is missing. Install that NDK or set ANDROID_NDK_HOME.")
+    if not jdk_ok:
+        lines.append(f"JDK {toolchain['android']['jdk_minimum']} or newer is required for Android.")
+    if verbose:
+        lines.append("probe: noxc version")
+        lines.append("probe: clang --version")
+        lines.append("probe: " + facts.get("adb_probe", "adb version"))
+        lines.append("skia_dir: " + redact(facts.get("skia_path", "")))
+    failed = not desktop_ok or not android_ok or (ios_applicable and not ios_ok)
+    text = redact("\n".join(lines))
+    if HOME_PREFIX in text or UNIX_HOME_PREFIX in text or "storepass" in text or PRIVATE_KEY in text:
         return "doctor report leaked a path or secret", 1
-    return text, 1 if missing else 0
+    return text, 1 if failed else 0
+
+
+def doctor_report(root: Path, facts: dict[str, str], verbose: bool = False) -> tuple[str, int]:
+    return format_doctor(load_json(root / "toolchain" / "manifest.json"), facts, verbose)
 
 
 def run_self_test() -> int:
@@ -493,6 +560,36 @@ def run_self_test() -> int:
     if not validate_app(broken, aura, toolchain):
         print("package self-test: unsorted assets were accepted", file=sys.stderr)
         return 1
+    sample_toolchain = {"aura": "1.2.0", "nox": {"minimum": "2.0.0", "maximum": "2.0.0", "ci": "v2.0.0", "embed_abi": 1}, "skia": "m151", "android": {"ndk": "28", "jdk_minimum": 17}, "ios": {"minimum": "17.0"}, "targets": ["android-arm64"], "unpinned": []}
+    sample_facts = {
+        "host": "Darwin arm64",
+        "noxc": "noxc 2.0.0",
+        "clang": "clang",
+        "nox_source": "present",
+        "skia": "present",
+        "skia_path": "/tmp/skia-m151-src",
+        "host_library": "absent",
+        "ndk": "missing",
+        "java": "missing",
+        "adb": "missing",
+        "adb_probe": "adb version",
+        "android_devices": "unavailable",
+        "debug_keystore": "absent",
+        "xcodebuild": "Xcode 27.0",
+        "simulators": "1",
+        "ios_identities": "1",
+    }
+    report, status = format_doctor(sample_toolchain, sample_facts, True)
+    if "desktop: ok" not in report or "android: missing" not in report or "ios: ok" not in report or status != 1:
+        print("package self-test: doctor sections were not independent", file=sys.stderr)
+        return 1
+    if HOME_PREFIX in report:
+        print("package self-test: doctor leaked a home path", file=sys.stderr)
+        return 1
+    leaked, leaked_status = format_doctor(sample_toolchain, {**sample_facts, "skia_path": HOME_PREFIX + "someone/skia"}, True)
+    if HOME_PREFIX in leaked or leaked_status != 1:
+        print("package self-test: doctor kept a home path", file=sys.stderr)
+        return 1
     print("mobile package self-test: ok")
     return 0
 
@@ -504,6 +601,7 @@ def main() -> int:
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parent.parent)
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--verbose", "-v", action="store_true")
     args = parser.parse_args()
     root = args.root.resolve()
     if args.self_test:
@@ -517,7 +615,7 @@ def main() -> int:
         print("mobile package: toolchain, manifest, and source scan are clean")
         return 0
     if args.command == "doctor":
-        text, code = doctor_report(root, collect_facts(root))
+        text, code = doctor_report(root, collect_facts(root), verbose=args.verbose)
         print(text)
         return code
     if args.command == "proof":

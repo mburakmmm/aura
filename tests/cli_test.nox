@@ -1,5 +1,5 @@
 import nox.test
-from cli.command import VERSION, find_checkout, package_has_command, pinned_version, project_main, project_manifest, usage, valid_name, write_project
+from cli.command import VERSION, find_checkout, installed_sha, package_has_command, pinned_version, project_main, project_manifest, tool_script, usage, valid_name, write_project
 from nox.fs import exists, read_to_string, remove_dir_all
 from nox.os import current_dir
 from nox.path import join
@@ -11,6 +11,10 @@ nox.test.assert_eq_str(find_checkout(current_dir()), current_dir(), "the reposit
 nox.test.assert_eq_str(find_checkout("/tmp/aura-not-a-checkout"), "", "a tree outside the repository is not a checkout")
 nox.test.assert_true(contains(usage(), "new <name>"), "usage lists new")
 nox.test.assert_true(contains(usage(), "doctor"), "usage lists doctor")
+nox.test.assert_true(contains(usage(), "devices"), "usage lists devices")
+nox.test.assert_true(contains(usage(), "build apk|aab|ipa|macos"), "usage lists build products")
+nox.test.assert_eq_str(installed_sha("{\"packages\":[{\"command_name\":\"aura\",\"resolved_sha\":\"abc123\"}]}", "aura"), "abc123", "installed registry records the aura revision")
+nox.test.assert_true(contains(tool_script(current_dir()), "scripts/aura_cmd.py"), "the checkout exposes the command runner")
 nox.test.assert_true(valid_name("hello"), "a letter name is valid")
 nox.test.assert_true(not valid_name(""), "an empty name is rejected")
 nox.test.assert_true(not valid_name("1app"), "a name cannot start with a digit")

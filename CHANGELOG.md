@@ -2,6 +2,16 @@
 
 Bu dosya yayımlanan sürümleri tutar. Sürüm numarası `nox.json` ile, git etiketi `v` önekiyle aynıdır. Sonraki teslimatların sırası [roadmap.md](roadmap.md) dosyasındadır.
 
+## 1.2.0
+
+`aura` komutu çalışma kopyasındaki derleme betiklerini çağırır. Hot reload, web, flavor ve profile kipi yoktur.
+
+- `aura doctor` masaüstü, Android ve iOS durumunu ayrı yazar. `-v` denenen komutu ekler. Ev yolu ve parola rapora girmez.
+- `aura devices` simülatörleri ve `adb` cihazlarını listeler.
+- `aura run [giriş]` platform, kip ve cihaz alır. Örnek adı `examples/<ad>/main.nox` dosyasına çözülür. Android debug paketi kurulur ve açılır. iOS simülatörü veya telefonu aynı şekilde açar. Telefon için `--device` zorunludur.
+- `aura build` ürünü `apk`, `aab`, `ipa` veya `macos` olur. `aab` release paketidir. Release APK imza değişkenleri yoksa durur.
+- `aura test` çerçeve kopyasında `scripts/test.sh`, uygulama projesinde `noxc test` çalıştırır. `aura clean` yalnız `build/` dizinini siler.
+
 ## 1.1.0
 
 Mobil kabuk ve `aura` komutu. `nox.json` içindeki `bin` alanı `bin/aura.nox` dosyasına bakar. `noxc install` bu dosyayı derleyip `aura` komutunu kurar. Çizim Skia raster tamponudur. GPU seçilmedi. TestFlight yüklenmedi. Play yayını bu sürümün parçası değildir.

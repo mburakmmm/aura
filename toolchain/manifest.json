@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "aura": "1.1.0",
+  "aura": "1.2.0",
   "nox": {
     "minimum": "2.0.0",
     "maximum": "2.0.0",

@@ -1,4 +1,4 @@
-from cli.command import VERSION, find_checkout, usage, write_project
+from cli.command import VERSION, tool_script, usage, write_project
 from nox.os import arg, arg_count, current_dir, exit
 from nox.path import join
 from nox.process import Command, Output, ProcessError
@@ -10,11 +10,16 @@ def argument(index: int) -> str:
     return arg(index)
 
 
-def python_doctor(program: str, root: str) -> int:
-    script: str = join(root, "scripts/mobile_package.py")
+def run_python(program: str, script: str) -> int:
+    command: Command = Command(program)
+    command.arg(script)
+    index: int = 1
+    while index < arg_count():
+        command.arg(argument(index))
+        index = index + 1
     out: Output = Output(0, "", "")
     try:
-        out = Command(program).arg(script).arg("doctor").arg("--root").arg(root).run()
+        out = command.run()
     except ProcessError:
         return -1
     if out.stdout != "":
@@ -24,14 +29,18 @@ def python_doctor(program: str, root: str) -> int:
     return out.status
 
 
-def run_doctor(root: str) -> int:
-    status: int = python_doctor("python3", root)
+def forward(script: str) -> None:
+    if script == "":
+        print("aura tools were not found. Run this inside the Aura checkout or install the package with noxc.")
+        exit(2)
+    print("aura " + argument(1))
+    status: int = run_python("python3", script)
     if status == -1:
-        status = python_doctor("python", root)
+        status = run_python("python", script)
     if status == -1:
-        print("python3 is required for aura doctor")
-        return 1
-    return status
+        print("python3 is required")
+        exit(1)
+    exit(status)
 
 
 def dispatch() -> None:
@@ -52,19 +61,12 @@ def dispatch() -> None:
             print(error)
             exit(2)
         print("created " + name)
-        print("nox.json depends on github.com/mburakmmm/aura at v" + VERSION)
-        print("Build the desktop host in an Aura checkout before opening a window:")
-        print("  ./scripts/build_host.sh")
+        print("cd " + name)
+        print("noxc fetch")
+        print("aura run")
         exit(0)
-    if command == "doctor":
-        if argument(2) != "":
-            print(usage())
-            exit(2)
-        checkout: str = find_checkout(current_dir())
-        if checkout == "":
-            print("aura doctor needs an Aura checkout. Run it inside the repository.")
-            exit(2)
-        exit(run_doctor(checkout))
+    if command == "doctor" or command == "devices" or command == "run" or command == "build" or command == "test" or command == "clean":
+        forward(tool_script(current_dir()))
     print(usage())
     exit(2)
 

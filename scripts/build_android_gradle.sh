@@ -14,10 +14,18 @@ SKIA="${SKIA_SRC:-/tmp/skia-$SKIA_PIN-src}"
 SRC="${1:?nox source}"
 NAME="${2:?app name}"
 KIND="${3:-debug}"
+PRODUCT="${AURA_ANDROID_PRODUCT:-aab}"
 case "$KIND" in
   debug|release) ;;
   *)
     echo "kind must be debug or release" >&2
+    exit 2
+    ;;
+esac
+case "$PRODUCT" in
+  apk|aab) ;;
+  *)
+    echo "AURA_ANDROID_PRODUCT must be apk or aab" >&2
     exit 2
     ;;
 esac
@@ -141,6 +149,12 @@ cd "$PROJECT"
 if [ "$KIND" = "debug" ]; then
   "$DIST/bin/gradle" --no-daemon assembleDebug -Paura.repo="$ROOT" -Paura.jni="$JNI" -Paura.assets="$ASSETS"
   APK="$PROJECT/app/build/outputs/apk/debug/app-debug.apk"
+elif [ "$PRODUCT" = "apk" ]; then
+  "$DIST/bin/gradle" --no-daemon assembleRelease -Paura.repo="$ROOT" -Paura.jni="$JNI" -Paura.assets="$ASSETS"
+  APK="$PROJECT/app/build/outputs/apk/release/app-release.apk"
+  cp "$APK" "$ROOT/build/android/gradle/$NAME/$NAME.apk"
+  echo "$ROOT/build/android/gradle/$NAME/$NAME.apk"
+  exit 0
 else
   "$DIST/bin/gradle" --no-daemon bundleRelease -Paura.repo="$ROOT" -Paura.jni="$JNI" -Paura.assets="$ASSETS"
   AAB="$PROJECT/app/build/outputs/bundle/release/app-release.aab"

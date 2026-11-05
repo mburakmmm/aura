@@ -19,7 +19,7 @@ class CounterPage(StatelessWidget):
 
 Widget konfigürasyondur. Element kimliği, yaşam döngüsünü ve kirli durumu tutar. RenderObject yerleşir, boyar ve vuruş testi yapar. Bu üçü birbirinin yerine geçmez.
 
-**Şu anki sürüm 1.1.0’dır.** Genel API donmuştur. `Text` durur. `TextRun` ve `RichText` satır içi kalın, eğik ve başlık taşır. Özel arayüz `Stack`, `Align`, `Inherited`, `MouseRegion`, `GestureDetector`, `DecoratedBox` ve `CustomPaint` ile kurulur. Kapı [roadmap.md](roadmap.md) bölüm 1.0’dır: `scripts/certify.sh` testleri ve on gizli self-check’i koşturur. GitHub Actions bunu macOS, Win32, X11 ve Wayland üzerinde çalıştırır.
+**Şu anki sürüm 1.2.0’dır.** Genel API donmuştur. `Text` durur. `TextRun` ve `RichText` satır içi kalın, eğik ve başlık taşır. Özel arayüz `Stack`, `Align`, `Inherited`, `MouseRegion`, `GestureDetector`, `DecoratedBox` ve `CustomPaint` ile kurulur. Kapı [roadmap.md](roadmap.md) bölüm 1.0’dır: `scripts/certify.sh` testleri ve on gizli self-check’i koşturur. GitHub Actions bunu macOS, Win32, X11 ve Wayland üzerinde çalıştırır.
 
 ## Yol haritası
 
@@ -34,7 +34,7 @@ Bağlayıcı teslimat sözleşmesi [roadmap.md](roadmap.md) dosyasındadır. `AG
 | 0.8 | Tamam: Dosya gezgini, UI iş parçacığı dışında okuma |
 | 0.9 | Tamam: Dashboard, örtük animasyon, altın piksel, kare bütçesi |
 | 1.0 | Tamam: API dondurma, satır içi zengin metin, `packages/badge` |
-| 1.1–1.5 | Sürüyor: 1.1.0 mobil kabuğu ve `aura` komutunu yayınlar. TestFlight, Play, GPU, TalkBack ve 16 KiB çalışma zamanı açık |
+| 1.1–1.5 | Sürüyor: 1.2.0 `aura run`, `build`, `devices`, `test` ve `clean` komutlarını yayınlar. TestFlight, Play, GPU, TalkBack ve 16 KiB çalışma zamanı açık |
 
 Web, hot reload ve sliver bu sözleşmenin dışındadır. Satır içi kalın, eğik ve başlık 1.0’dadır. Çift yön ve emoji yoktur.
 
@@ -110,12 +110,22 @@ Nox derleyicisi bu depodan değiştirilmez.
 `nox.json` bir `bin` girişi yayınlar. Global kurulumdan sonra komut `aura` olur.
 
 ```sh
-noxc install github.com/mburakmmm/aura --ref v1.1.0
-aura version
-aura new hello
+noxc install github.com/mburakmmm/aura --ref v1.2.0
+aura doctor -v
+aura devices
+aura run notes --platform macos
+aura run notes --platform android --device <serial>
+aura run notes --platform ios --mode simulator
+aura build apk notes
+aura build aab notes
+aura build ipa notes --mode device
+aura test
+aura clean
 ```
 
-`aura new` sayaç kaynaklarını ve `github.com/mburakmmm/aura` bağımlılığını yazar. Pencereyi açmak için kabuk kütüphanesi gerekir. O kütüphane paketle gelmez; Aura çalışma kopyasında `./scripts/build_host.sh` üretir. `aura doctor` araç zincirini ancak bir Aura çalışma kopyasının içinde raporlar. Depodaki `scripts/aura doctor` aynı denetimi `noxc install` olmadan çalıştırır.
+Giriş yazılmazsa `nox.json` içindeki `entry` kullanılır. Çalışma kopyasında `notes` gibi bir örnek adı `examples/notes/main.nox` dosyasına çözülür. `--platform` masaüstü, iOS veya Android seçer. `--mode` derleme kipidir. `--device` simülatör veya telefon kimliğidir.
+
+`aura doctor` masaüstü, Android ve iOS araç zincirlerini ayrı satırlarda yazar. Biri eksik olsa da diğerinin durumu görünür. `aura run` Android’de debug APK kurar. Release Android paketi `aura build aab` ile çıkar ve imza ortam değişkeni ister. iOS `store` yalnız paketi üretir. Kabuk kütüphanesi yoksa masaüstü komutları `scripts/build_host.sh` çalıştırır.
 
 ## Yayın
 
