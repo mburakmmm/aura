@@ -19,7 +19,7 @@ class CounterPage(StatelessWidget):
 
 Widget konfigürasyondur. Element kimliği, yaşam döngüsünü ve kirli durumu tutar. RenderObject yerleşir, boyar ve vuruş testi yapar. Bu üçü birbirinin yerine geçmez.
 
-**Şu anki sürüm 1.3.0’dır.** Genel API donmuştur. `Text` durur. `TextRun` ve `RichText` satır içi kalın, eğik ve başlık taşır. Özel arayüz `Stack`, `Align`, `Inherited`, `MouseRegion`, `GestureDetector`, `DecoratedBox` ve `CustomPaint` ile kurulur. Kapı [roadmap.md](roadmap.md) bölüm 1.0’dır: `scripts/certify.sh` testleri ve on gizli self-check’i koşturur. GitHub Actions bunu macOS, Win32, X11 ve Wayland üzerinde çalıştırır.
+**Şu anki sürüm 1.3.1’dir.** Genel API donmuştur. `Text` durur. `TextRun` ve `RichText` satır içi kalın, eğik ve başlık taşır. Özel arayüz `Stack`, `Align`, `Inherited`, `MouseRegion`, `GestureDetector`, `DecoratedBox` ve `CustomPaint` ile kurulur. Kapı [roadmap.md](roadmap.md) bölüm 1.0’dır: `scripts/certify.sh` testleri ve on gizli self-check’i koşturur. GitHub Actions bunu macOS, Win32, X11 ve Wayland üzerinde çalıştırır.
 
 ## Yol haritası
 
@@ -110,7 +110,7 @@ Nox derleyicisi bu depodan değiştirilmez.
 `nox.json` bir `bin` girişi yayınlar. Global kurulumdan sonra komut `aura` olur.
 
 ```sh
-noxc install github.com/mburakmmm/aura --ref v1.3.0
+noxc install github.com/mburakmmm/aura --ref v1.3.1
 aura doctor -v
 aura devices
 aura run notes --platform macos

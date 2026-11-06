@@ -4,7 +4,7 @@ from nox.os import OsError, getenv
 from nox.path import dirname, join
 from nox.strings import byte_at, byte_len, contains, join as join_lines
 
-VERSION: str = "1.3.0"
+VERSION: str = "1.3.1"
 PACKAGE_REPO: str = "github.com/mburakmmm/aura"
 
 

@@ -39,34 +39,40 @@ def redact(text: str) -> str:
     return mobile_package.redact(text)
 
 
+def split_env_path(value: str, separator: str | None = None) -> list[str]:
+    sep = os.pathsep if separator is None else separator
+    return [item for item in value.split(sep) if item]
+
+
 def repair_path() -> None:
-    parts = [item for item in os.environ.get("PATH", "").split(":") if item]
+    parts = split_env_path(os.environ.get("PATH", ""))
     repo = Path(__file__).resolve().parents[1]
+    home = mobile_package.home_directory()
     candidates = [
-        Path("/opt/homebrew/bin"),
-        Path("/usr/local/bin"),
-        Path.home() / ".nox-lang" / "bin",
-        Path.home() / ".nox" / "bin",
         repo.parent / "nox-lang" / "zig-out" / "bin",
     ]
+    if os.name != "nt":
+        candidates = [Path("/opt/homebrew/bin"), Path("/usr/local/bin"), *candidates]
+    if home is not None:
+        candidates = [home / ".nox-lang" / "bin", home / ".nox" / "bin", *candidates]
     nox_root = os.environ.get("NOX_ROOT", "")
     if nox_root:
         candidates.append(Path(nox_root) / "zig-out" / "bin")
     sdk = os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME") or ""
     if not sdk:
-        default_sdk = Path.home() / "Library" / "Android" / "sdk"
-        if default_sdk.is_dir():
-            sdk = str(default_sdk)
+        found_sdk = mobile_package.default_android_sdk()
+        sdk = str(found_sdk) if found_sdk is not None else ""
     if sdk:
         candidates.append(Path(sdk) / "platform-tools")
     for candidate in candidates:
         text = str(candidate)
         if candidate.is_dir() and text not in parts:
             parts.insert(0, text)
-    for system in ("/usr/bin", "/bin", "/usr/sbin", "/sbin"):
-        if system not in parts:
-            parts.append(system)
-    os.environ["PATH"] = ":".join(parts)
+    if os.name != "nt":
+        for system in ("/usr/bin", "/bin", "/usr/sbin", "/sbin"):
+            if system not in parts:
+                parts.append(system)
+    os.environ["PATH"] = os.pathsep.join(parts)
 
 
 def run_stream(args: list[str], cwd: Path) -> int:
@@ -100,7 +106,10 @@ def nox_home() -> Path:
     override = os.environ.get("NOX_HOME", "")
     if override:
         return Path(override)
-    return Path.home() / ".nox"
+    home = mobile_package.home_directory()
+    if home is None:
+        return Path(".nox")
+    return home / ".nox"
 
 
 def cache_for(sha: str) -> Path | None:
@@ -404,12 +413,46 @@ def command_test(project: Path) -> int:
     return run_stream(["noxc", "test"], project)
 
 
+def tool_file(path: Path) -> Path | None:
+    if path.is_file():
+        return path
+    if path.suffix == "":
+        exe = Path(str(path) + ".exe")
+        if exe.is_file():
+            return exe
+    return None
+
+
+def host_shell(script: Path) -> list[str]:
+    if os.name != "nt":
+        return [str(script)]
+    found = shutil.which("bash") or shutil.which("sh")
+    if found:
+        return [found, str(script)]
+    roots = [os.environ.get("ProgramFiles", ""), os.environ.get("ProgramFiles(x86)", "")]
+    for root in roots:
+        if not root:
+            continue
+        for parts in (("Git", "bin", "bash.exe"), ("Git", "usr", "bin", "bash.exe")):
+            candidate = Path(root).joinpath(*parts)
+            if candidate.is_file():
+                return [str(candidate), str(script)]
+    return []
+
+
 def ensure_host(root: Path) -> int:
     host = root / "native" / "libaura_host.dylib"
     script = root / "scripts" / "build_host.sh"
     if host.is_file() or not script.is_file():
         return 0
-    return run_stream([str(script)], root)
+    command = host_shell(script)
+    if not command:
+        print(
+            "the Windows host library is missing. Install Git Bash and MSVC, then run scripts/build_host.sh from the Aura root. aura run links native/libaura_host.dylib from that root.",
+            file=sys.stderr,
+        )
+        return 1
+    return run_stream(command, root)
 
 
 def install_android(root: Path, name: str, apk: Path, device: str) -> int:
@@ -464,15 +507,14 @@ def library_matches(path: Path, product: str) -> bool:
 
 def noxc_executable(target: str) -> str:
     repo = Path(__file__).resolve().parents[1]
-    candidates = [
-        repo.parent / "nox-lang" / "zig-out" / "bin" / "noxc",
-        Path.home() / ".nox-lang" / "bin" / "noxc",
-        Path.home() / ".nox" / "bin" / "noxc",
-    ]
+    home = mobile_package.home_directory()
+    candidates = [repo.parent / "nox-lang" / "zig-out" / "bin" / "noxc"]
+    if home is not None:
+        candidates.extend([home / ".nox-lang" / "bin" / "noxc", home / ".nox" / "bin" / "noxc"])
     nox_root = os.environ.get("NOX_ROOT", "")
     if nox_root:
         candidates.insert(0, Path(nox_root) / "zig-out" / "bin" / "noxc")
-    found = [candidate for candidate in candidates if candidate.is_file()]
+    found = [located for candidate in candidates if (located := tool_file(candidate)) is not None]
     located = shutil.which("noxc")
     if located:
         found.append(Path(located))
@@ -691,6 +733,19 @@ def self_test() -> int:
         return 1
     if display_name("notes") != "Notes":
         print("aura command self-test: display name was not capitalized", file=sys.stderr)
+        return 1
+    if mobile_package.home_directory({}) is not None:
+        print("aura command self-test: a missing home directory was invented", file=sys.stderr)
+        return 1
+    if mobile_package.home_directory({"USERPROFILE": r"D:\Aura\profile"}) != Path(r"D:\Aura\profile"):
+        print("aura command self-test: USERPROFILE was ignored", file=sys.stderr)
+        return 1
+    if mobile_package.home_directory({"HOMEDRIVE": "D:", "HOMEPATH": r"\Aura\profile"}) != Path(r"D:\Aura\profile"):
+        print("aura command self-test: HOMEDRIVE and HOMEPATH were ignored", file=sys.stderr)
+        return 1
+    windows_path = split_env_path(r"C:\Windows\system32;C:\Tools", ";")
+    if windows_path != [r"C:\Windows\system32", r"C:\Tools"]:
+        print("aura command self-test: a Windows PATH was split on the drive colon", file=sys.stderr)
         return 1
     import tempfile
 

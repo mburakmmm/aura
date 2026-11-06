@@ -74,7 +74,7 @@ uygulama ve kanıt durumunu tanımlar.
 
 İlk telefon iOS’tur. Geliştirme makinesi ve mevcut Cocoa kabuğu oradadır. Android aynı sembolleri ikinci kabuk olarak uygular.
 
-Durum, 6 Kasım 2026: kabuk kaynakları `main` üzerindedir. 1.1.0 kabuğu, 1.2.0 komutları, 1.3.0 ise atanmayan ikona Nox markasını, örnek dizininden çalıştırmayı ve kapanışta ağacı bırakmayı yayınlar. İkon atanmayan uygulama Nox markasını kullanır. `aura build linux` ve `aura build windows` Nox hedef üçlüsünü kullanır; kabuk kütüphanesi o işletim sisteminde üretilir. Ayrıntı `MOBILE_TODO.md` dosyasındadır. iPhone 17 Pro’da ve bir Android 12 telefonunda sekiz örnek açıldı. Notes için Xcode archive, dSYM ve development IPA üretildi. TestFlight, Play, GPU, TalkBack, emoji ve çift yön açıktır. 16 KiB çalışma zamanı bu telefonda kanıtlanmadı. Hot reload, web, flavor ve profile kipi yoktur.
+Durum, 6 Kasım 2026: kabuk kaynakları `main` üzerindedir. 1.1.0 kabuğu, 1.2.0 komutları, 1.3.0 ise atanmayan ikona Nox markasını, örnek dizininden çalıştırmayı ve kapanışta ağacı bırakmayı yayınlar. 1.3.1 Windows’ta ev dizini ve `PATH` ayrımını düzeltir. İkon atanmayan uygulama Nox markasını kullanır. `aura build linux` ve `aura build windows` Nox hedef üçlüsünü kullanır; kabuk kütüphanesi o işletim sisteminde üretilir. Ayrıntı `MOBILE_TODO.md` dosyasındadır. iPhone 17 Pro’da ve bir Android 12 telefonunda sekiz örnek açıldı. Notes için Xcode archive, dSYM ve development IPA üretildi. TestFlight, Play, GPU, TalkBack, emoji ve çift yön açıktır. 16 KiB çalışma zamanı bu telefonda kanıtlanmadı. Hot reload, web, flavor ve profile kipi yoktur.
 
 Çizim komutları değişmez. 1.1–1.4 pixmap’i Skia raster üretir ve kabuk bunu yüzeye basar. GPU yüzeyi 1.5’tir ve ADR’siz seçilmez. Masaüstü blit yolu durur.
 

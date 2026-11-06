@@ -1,7 +1,7 @@
 #ifndef AURA_BUILD_IDENTITY_H
 #define AURA_BUILD_IDENTITY_H
 
-#define AURA_VERSION "1.3.0"
+#define AURA_VERSION "1.3.1"
 #define AURA_EMBED_ABI 1
 
 #endif

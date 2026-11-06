@@ -2,6 +2,14 @@
 
 Bu dosya yayımlanan sürümleri tutar. Sürüm numarası `nox.json` ile, git etiketi `v` önekiyle aynıdır. Sonraki teslimatların sırası [roadmap.md](roadmap.md) dosyasındadır.
 
+## 1.3.1
+
+Windows’ta `aura run` ev dizini yokken düşmez. `PATH` sürücü harfindeki iki noktadan bölünmez.
+
+- Ev dizini `USERPROFILE`, `HOME` veya `HOMEDRIVE`+`HOMEPATH` ile okunur. Hiçbiri yoksa komut sürmeye devam eder.
+- Yol listesi Windows’ta `;` ile birleşir. Unix dizinleri Windows `PATH` değerine eklenmez.
+- Eksik kabuk kütüphanesi Windows’ta Git Bash üzerinden `scripts/build_host.sh` ile kurulur. Skia hazır arşiv olarak iner; kullanıcı Skia derlemez.
+
 ## 1.3.0
 
 İkon atanmayan uygulama Nox markasını kullanır. Örnek dizininde `aura run` o örneği açar. Pencere kapanınca ağaç bırakılır.

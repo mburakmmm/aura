@@ -334,10 +334,51 @@ def sbom_document(root: Path) -> dict:
     }
 
 
+def home_directory(env: dict[str, str] | None = None) -> Path | None:
+    values = os.environ if env is None else env
+    for key in ("USERPROFILE", "HOME"):
+        raw = str(values.get(key, "")).strip().strip('"')
+        if raw:
+            return Path(raw)
+    drive = str(values.get("HOMEDRIVE", ""))
+    folder = str(values.get("HOMEPATH", "")).strip()
+    if folder:
+        return Path(f"{drive}{folder}") if drive else Path(folder)
+    if env is not None:
+        return None
+    try:
+        return Path.home()
+    except (RuntimeError, OSError):
+        pass
+    if os.name == "nt":
+        name = os.environ.get("USERNAME", "").strip()
+        if name and name not in {".", ".."}:
+            candidate = Path("C:/Users") / name
+            if candidate.is_dir():
+                return candidate
+    return None
+
+
+def default_android_sdk() -> Path | None:
+    local = os.environ.get("LOCALAPPDATA", "")
+    if local:
+        windows_sdk = Path(local) / "Android" / "Sdk"
+        if windows_sdk.is_dir():
+            return windows_sdk
+    home = home_directory()
+    if home is None:
+        return None
+    for relative in (("Library", "Android", "sdk"), ("Android", "Sdk")):
+        candidate = home.joinpath(*relative)
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
 def redact(text: str) -> str:
-    home = str(Path.home())
-    if home:
-        text = text.replace(home, "~")
+    home = home_directory()
+    if home is not None:
+        text = text.replace(str(home), "~")
     return text.replace(HOME_PREFIX, "~/").replace(UNIX_HOME_PREFIX, "~/").replace(WINDOWS_HOME_PREFIX, "~\\")
 
 
@@ -355,12 +396,16 @@ def adb_executable() -> str:
         return found
     sdk = os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME") or ""
     if not sdk:
-        default_sdk = Path.home() / "Library" / "Android" / "sdk"
-        sdk = str(default_sdk) if default_sdk.is_dir() else ""
+        found_sdk = default_android_sdk()
+        sdk = str(found_sdk) if found_sdk is not None else ""
     if not sdk:
         return ""
-    candidate = Path(sdk) / "platform-tools" / "adb"
-    return str(candidate) if candidate.is_file() else ""
+    directory = Path(sdk) / "platform-tools"
+    for name in ("adb", "adb.exe"):
+        candidate = directory / name
+        if candidate.is_file():
+            return str(candidate)
+    return ""
 
 
 def java_major() -> str:
@@ -411,8 +456,8 @@ def collect_facts(root: Path) -> dict[str, str]:
     pin = toolchain["android"]["ndk"]
     sdk = os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME")
     if not sdk:
-        default_sdk = Path.home() / "Library" / "Android" / "sdk"
-        sdk = str(default_sdk) if default_sdk.is_dir() else ""
+        found_sdk = default_android_sdk()
+        sdk = str(found_sdk) if found_sdk is not None else ""
     ndk = os.environ.get("ANDROID_NDK_HOME") or (str(Path(sdk) / "ndk" / pin) if sdk else "")
     facts["ndk"] = "present" if ndk and Path(ndk).is_dir() else "missing"
     skia = os.environ.get("SKIA_SRC") or f"/tmp/skia-{toolchain['skia']}-src"
@@ -560,7 +605,7 @@ def run_self_test() -> int:
     if not validate_app(broken, aura, toolchain):
         print("package self-test: unsorted assets were accepted", file=sys.stderr)
         return 1
-    sample_toolchain = {"aura": "1.3.0", "nox": {"minimum": "2.0.0", "maximum": "2.0.0", "ci": "v2.0.0", "embed_abi": 1}, "skia": "m151", "android": {"ndk": "28", "jdk_minimum": 17}, "ios": {"minimum": "17.0"}, "targets": ["android-arm64"], "unpinned": []}
+    sample_toolchain = {"aura": "1.3.1", "nox": {"minimum": "2.0.0", "maximum": "2.0.0", "ci": "v2.0.0", "embed_abi": 1}, "skia": "m151", "android": {"ndk": "28", "jdk_minimum": 17}, "ios": {"minimum": "17.0"}, "targets": ["android-arm64"], "unpinned": []}
     sample_facts = {
         "host": "Darwin arm64",
         "noxc": "noxc 2.0.0",
