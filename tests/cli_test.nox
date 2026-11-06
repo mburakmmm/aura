@@ -12,7 +12,7 @@ nox.test.assert_eq_str(find_checkout("/tmp/aura-not-a-checkout"), "", "a tree ou
 nox.test.assert_true(contains(usage(), "new <name>"), "usage lists new")
 nox.test.assert_true(contains(usage(), "doctor"), "usage lists doctor")
 nox.test.assert_true(contains(usage(), "devices"), "usage lists devices")
-nox.test.assert_true(contains(usage(), "build apk|aab|ipa|macos"), "usage lists build products")
+nox.test.assert_true(contains(usage(), "build apk|aab|ipa|macos|linux|windows"), "usage lists build products")
 nox.test.assert_eq_str(installed_sha("{\"packages\":[{\"command_name\":\"aura\",\"resolved_sha\":\"abc123\"}]}", "aura"), "abc123", "installed registry records the aura revision")
 nox.test.assert_true(contains(tool_script(current_dir()), "scripts/aura_cmd.py"), "the checkout exposes the command runner")
 nox.test.assert_true(valid_name("hello"), "a letter name is valid")

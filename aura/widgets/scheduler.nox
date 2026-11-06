@@ -46,6 +46,9 @@ class Scheduler:
             i = i + 1
         self.tickers.append(ticker)
 
+    def clear(self) -> None:
+        self.tickers = []
+
     def remove(self, ticker: Ticker) -> None:
         kept: list[Ticker] = []
         i: int = 0

@@ -211,8 +211,9 @@ class AnimatedOpacityState(State):
 
     def dispose(self) -> None:
         found: Scheduler | None = _scheduler(self)
+        self.controller.detach()
         if found is not None:
-            self.controller.dispose(found)
+            found.remove(self.controller)
         super().dispose()
 
     def build(self, context: BuildContext) -> Widget:
@@ -307,8 +308,9 @@ class AnimatedSizeState(State):
 
     def dispose(self) -> None:
         found: Scheduler | None = _scheduler(self)
+        self.controller.detach()
         if found is not None:
-            self.controller.dispose(found)
+            found.remove(self.controller)
         super().dispose()
 
     def build(self, context: BuildContext) -> Widget:
@@ -411,8 +413,9 @@ class AnimatedPositionState(State):
 
     def dispose(self) -> None:
         found: Scheduler | None = _scheduler(self)
+        self.controller.detach()
         if found is not None:
-            self.controller.dispose(found)
+            found.remove(self.controller)
         super().dispose()
 
     def build(self, context: BuildContext) -> Widget:

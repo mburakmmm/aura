@@ -123,6 +123,13 @@ class Binding:
 
     def close(self) -> None:
         if self.alive:
+            mounted: Element | None = self.pump.root
+            if mounted is not None:
+                mounted.unmount()
+                self.pump.root = None
+                self.pump.view.set_only_child(None)
+            self.pump.scheduler.clear()
+            self.pump.owner.retire()
             set_active_window(0)
             self.surface.close()
             self.alive = False

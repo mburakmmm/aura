@@ -18,8 +18,9 @@ import struct
 import subprocess
 import sys
 import tempfile
-import zlib
 from pathlib import Path
+
+import app_icon
 
 NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]*$")
 HOME_MARKERS = ("/" + "Users" + "/", "/" + "home" + "/")
@@ -196,33 +197,22 @@ def launch_storyboard() -> str:
 """
 
 
-def icon_rgb(x: int, y: int) -> tuple[int, int, int]:
-    if 96 <= x < 928 and 96 <= y < 928:
-        if y >= 800:
-            return (196, 122, 74)
-        return (248, 246, 242)
-    return (28, 27, 25)
-
-
-def _png_chunk(tag: bytes, data: bytes) -> bytes:
-    return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
-
-
 def icon_png() -> bytes:
-    width = 1024
-    height = 1024
-    rows = bytearray()
-    for y in range(height):
-        rows.append(0)
-        for x in range(width):
-            rows.extend(icon_rgb(x, y))
-    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
-    return b"\x89PNG\r\n\x1a\n" + _png_chunk(b"IHDR", ihdr) + _png_chunk(b"IDAT", zlib.compress(bytes(rows), 9)) + _png_chunk(b"IEND", b"")
+    return app_icon.default_icon(Path(__file__).resolve().parent.parent).read_bytes()
+
+
+def catalog_icon() -> bytes:
+    override = os.environ.get("AURA_APP_ICON", "")
+    if override:
+        path = Path(override)
+        if path.is_file():
+            return app_icon.square_png(path, 1024)
+    return icon_png()
 
 
 def write_icon(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(icon_png())
+    path.write_bytes(catalog_icon())
 
 
 def asset_catalog(directory: Path) -> None:

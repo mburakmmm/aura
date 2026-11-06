@@ -4,7 +4,7 @@ from nox.os import OsError, getenv
 from nox.path import dirname, join
 from nox.strings import byte_at, byte_len, contains, join as join_lines
 
-VERSION: str = "1.2.0"
+VERSION: str = "1.3.0"
 PACKAGE_REPO: str = "github.com/mburakmmm/aura"
 
 
@@ -15,8 +15,8 @@ def usage() -> str:
         "  new <name>",
         "  doctor [-v]",
         "  devices",
-        "  run [entry] [--platform macos|ios|android] [--mode debug|release|simulator|device] [--device id]",
-        "  build apk|aab|ipa|macos [entry] [--mode debug|release|simulator|device|store]",
+        "  run [entry] [--platform macos|ios|android|linux|windows] [--mode debug|release|simulator|device] [--device id]",
+        "  build apk|aab|ipa|macos|linux|windows [entry] [--mode debug|release|simulator|device|store]",
         "  test",
         "  clean",
         "  help",

@@ -6,6 +6,7 @@ if ! command -v python3 >/dev/null 2>&1; then
   python=python
 fi
 "$python" "$root/scripts/mobile_package.py" --self-test
+"$python" "$root/scripts/app_icon.py" --self-test
 "$python" "$root/scripts/aura_cmd.py" --self-test
 "$python" "$root/scripts/ios_project.py" --self-test
 "$python" "$root/scripts/android_project.py" --self-test

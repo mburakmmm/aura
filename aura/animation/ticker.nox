@@ -112,7 +112,11 @@ class AnimationController(Ticker):
         if self.has_listener:
             self.on_tick()
 
-    def dispose(self, scheduler: Scheduler) -> None:
+    def detach(self) -> None:
         self.playing = False
         self.has_listener = False
+        self.on_tick = _noop_tick
+
+    def dispose(self, scheduler: Scheduler) -> None:
+        self.detach()
         scheduler.remove(self)

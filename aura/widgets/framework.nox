@@ -291,7 +291,31 @@ def forget_element_signals(element_id: int) -> None:
     _watch_element = elements
 
 
+_next_owner_id: int = 0
+
+
+def _alloc_owner_id() -> int:
+    _next_owner_id = _next_owner_id + 1
+    return _next_owner_id
+
+
+def retire_owner(owner: BuildOwner) -> None:
+    owner.dirty = []
+    owner.key_ids = []
+    owner.key_elements = []
+    owner.mounted_ids = []
+    owner.mounted_elements = []
+    kept: list[BuildOwner] = []
+    i: int = 0
+    while i < len(_owners):
+        if _owners[i].owner_id != owner.owner_id:
+            kept.append(_owners[i])
+        i = i + 1
+    _owners = kept
+
+
 class BuildOwner:
+    owner_id: int
     dirty: list[Element]
     key_ids: list[int]
     key_elements: list[Element]
@@ -301,6 +325,7 @@ class BuildOwner:
     elements_updated: int
 
     def __init__(self) -> None:
+        self.owner_id = _alloc_owner_id()
         self.dirty = []
         self.key_ids = []
         self.key_elements = []
@@ -379,6 +404,19 @@ class BuildOwner:
             i = i + 1
         self.mounted_ids = ids
         self.mounted_elements = elements
+
+    def drop_element(self, element_id: int) -> None:
+        self.unregister_element(element_id)
+        kept: list[Element] = []
+        i: int = 0
+        while i < len(self.dirty):
+            if self.dirty[i].element_id != element_id:
+                kept.append(self.dirty[i])
+            i = i + 1
+        self.dirty = kept
+
+    def retire(self) -> None:
+        retire_owner(self)
 
     def element_by_id(self, element_id: int) -> Element | None:
         i: int = 0
@@ -619,6 +657,9 @@ class Element:
             self.children[i].unmount()
             i = i + 1
         self.children = []
+        self.widget = None
+        self.press = _noop_press
+        self.has_press = False
         state: State | None = self.state
         if state is not None:
             if not state.disposed:
@@ -638,9 +679,11 @@ class Element:
             owner.unregister_global_key(self.global_key_id)
             self.global_key_id = 0
         if owner is not None:
-            owner.unregister_element(self.element_id)
-        self.press = _noop_press
-        self.has_press = False
+            owner.drop_element(self.element_id)
+        self.owner = None
+        self.pipeline = None
+        self.focus_manager = None
+        self.scheduler = None
         self.parent = None
 
     def mark_dirty(self) -> None:

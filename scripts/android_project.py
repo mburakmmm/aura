@@ -174,6 +174,18 @@ aura.abi={ABI}
 """
 
 
+def launcher_icon(root: Path) -> bytes:
+    override = os.environ.get("AURA_APP_ICON", "")
+    if override:
+        path = Path(override)
+        if path.is_file():
+            return path.read_bytes()
+    brand = root / "assets" / "brand" / "icon-1024.png"
+    if brand.is_file():
+        return brand.read_bytes()
+    return (root / "native" / "ios" / "AppIcon.png").read_bytes()
+
+
 def generate(root: Path, out: Path, name: str) -> None:
     app = load_json(root / "examples" / "mobile" / "app.json")
     out.mkdir(parents=True, exist_ok=True)
@@ -187,9 +199,9 @@ def generate(root: Path, out: Path, name: str) -> None:
     main = app_dir / "src" / "main"
     (main / "res" / "drawable").mkdir(parents=True, exist_ok=True)
     (main / "AndroidManifest.xml").write_text(manifest_xml(app, name), encoding="utf-8")
-    icon = root / "native" / "ios" / "AppIcon.png"
+    icon = launcher_icon(root)
     target = main / "res" / "drawable" / "ic_launcher.png"
-    target.write_bytes(icon.read_bytes())
+    target.write_bytes(icon)
 
 
 def parse_load_aligns(text: str) -> list[int]:

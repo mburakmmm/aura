@@ -5,26 +5,33 @@ from __future__ import annotations
 
 import json
 import os
+import platform
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import app_icon  # noqa: E402
 import mobile_package  # noqa: E402
 
 
-PLATFORMS = {"macos", "ios", "android"}
-PRODUCTS = {"apk", "aab", "ipa", "macos"}
+PLATFORMS = {"macos", "ios", "android", "linux", "windows"}
+PRODUCTS = {"apk", "aab", "ipa", "macos", "linux", "windows"}
 RUN_MODES = {
     "macos": {"debug", "release"},
     "ios": {"simulator", "device"},
     "android": {"debug"},
+    "linux": {"debug", "release"},
+    "windows": {"debug", "release"},
 }
 BUILD_MODES = {
     "apk": {"debug", "release"},
     "aab": {"release"},
     "ipa": {"simulator", "device", "store"},
     "macos": {"debug", "release"},
+    "linux": {"debug", "release"},
+    "windows": {"debug", "release"},
 }
 
 
@@ -36,6 +43,8 @@ def repair_path() -> None:
     parts = [item for item in os.environ.get("PATH", "").split(":") if item]
     repo = Path(__file__).resolve().parents[1]
     candidates = [
+        Path("/opt/homebrew/bin"),
+        Path("/usr/local/bin"),
         Path.home() / ".nox-lang" / "bin",
         Path.home() / ".nox" / "bin",
         repo.parent / "nox-lang" / "zig-out" / "bin",
@@ -139,8 +148,26 @@ def read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def resolve_entry(project: Path, root: Path | None, token: str) -> tuple[Path, str]:
+def nearest_main(start: Path, project: Path) -> Path | None:
+    current = start.resolve()
+    boundary = project.resolve()
+    while current != boundary:
+        candidate = current / "main.nox"
+        if candidate.is_file():
+            return candidate
+        parent = current.parent
+        if parent == current:
+            return None
+        current = parent
+    return None
+
+
+def resolve_entry(project: Path, root: Path | None, token: str, start: Path | None = None) -> tuple[Path, str]:
     if token == "":
+        origin = project if start is None else start
+        local = nearest_main(origin, project)
+        if local is not None:
+            return local, display_name(local.parent.name)
         manifest = read_json(project / "nox.json") if (project / "nox.json").is_file() else {}
         entry_name = str(manifest.get("entry", "main.nox"))
         entry = project / entry_name
@@ -266,7 +293,7 @@ def parse_args(argv: list[str]) -> Request:
             index += 1
     if parsed.command == "build":
         if not positionals:
-            parsed.error = "build needs a product: apk, aab, ipa, or macos"
+            parsed.error = "build needs a product: apk, aab, ipa, macos, linux, or windows"
             return parsed
         parsed.product = positionals[0]
         if len(positionals) > 1:
@@ -305,7 +332,7 @@ def validate(parsed: Request) -> str:
         return parsed.error
     if parsed.command == "run":
         if parsed.platform not in PLATFORMS:
-            return "platform must be macos, ios, or android"
+            return "platform must be macos, ios, android, linux, or windows"
         if parsed.mode not in RUN_MODES[parsed.platform]:
             return f"{parsed.platform} run mode must be one of: " + ", ".join(sorted(RUN_MODES[parsed.platform]))
         if parsed.platform == "ios" and parsed.mode == "device" and parsed.device == "":
@@ -314,7 +341,7 @@ def validate(parsed: Request) -> str:
             return "android release is an app bundle. Use: aura build aab"
     if parsed.command == "build":
         if parsed.product not in PRODUCTS:
-            return "product must be apk, aab, ipa, or macos"
+            return "product must be apk, aab, ipa, macos, linux, or windows"
         if parsed.mode not in BUILD_MODES[parsed.product]:
             return f"{parsed.product} mode must be one of: " + ", ".join(sorted(BUILD_MODES[parsed.product]))
     return ""
@@ -406,21 +433,133 @@ def install_device(ipa: Path, device: str, application: str, cwd: Path) -> int:
     return run_stream(["xcrun", "devicectl", "device", "process", "launch", "--device", device, application], cwd)
 
 
-def command_run(project: Path, parsed: Request) -> int:
-    root = require_root(project)
-    entry, name = resolve_entry(project, root, parsed.entry)
-    require_file(entry)
-    application = bundle_prefix(root) + "." + name.lower()
-    if parsed.platform == "macos":
+def host_matches(product: str) -> bool:
+    system = platform.system()
+    return (product == "macos" and system == "Darwin") or (product == "linux" and system == "Linux") or (product == "windows" and system == "Windows")
+
+
+def desktop_target(product: str) -> str:
+    machine = platform.machine().lower()
+    if product == "windows":
+        return "windows-x64"
+    if product == "linux":
+        if platform.system() == "Linux" and machine in {"aarch64", "arm64"}:
+            return "linux-arm64"
+        return "linux-x64"
+    if machine in {"aarch64", "arm64"}:
+        return "macos-arm64"
+    return "macos-x64"
+
+
+def library_matches(path: Path, product: str) -> bool:
+    if not path.is_file():
+        return False
+    magic = path.read_bytes()[:4]
+    if product == "linux":
+        return magic == b"\x7fELF"
+    if product == "windows":
+        return magic[:2] == b"MZ"
+    return magic[:4] in {b"\xcf\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xca\xfe\xba\xbe"}
+
+
+def noxc_executable(target: str) -> str:
+    repo = Path(__file__).resolve().parents[1]
+    candidates = [
+        repo.parent / "nox-lang" / "zig-out" / "bin" / "noxc",
+        Path.home() / ".nox-lang" / "bin" / "noxc",
+        Path.home() / ".nox" / "bin" / "noxc",
+    ]
+    nox_root = os.environ.get("NOX_ROOT", "")
+    if nox_root:
+        candidates.insert(0, Path(nox_root) / "zig-out" / "bin" / "noxc")
+    found = [candidate for candidate in candidates if candidate.is_file()]
+    located = shutil.which("noxc")
+    if located:
+        found.append(Path(located))
+    if target:
+        for candidate in found:
+            runtime = candidate.resolve().parent.parent / "lib" / f"noxrt-{target}.o"
+            if runtime.is_file():
+                return str(candidate)
+        if found:
+            return str(found[0])
+    if found:
+        return str(found[0])
+    return "noxc"
+
+
+def desktop_output(project: Path, product: str, name: str) -> Path:
+    if product == "macos":
+        return project / "build" / "macos" / f"{name}.app" / "Contents" / "MacOS" / name
+    if product == "windows":
+        return project / "build" / "windows" / f"{name}.exe"
+    return project / "build" / "linux" / name
+
+
+def stamp_desktop(project: Path, product: str, name: str, icon: Path, bundle_id: str) -> None:
+    if product == "macos":
+        app_icon.stamp_macos(project / "build" / "macos" / f"{name}.app", name, icon, bundle_id)
+        return
+    if product == "windows":
+        app_icon.stamp_windows(project / "build" / "windows", name, icon)
+        return
+    app_icon.stamp_linux(project / "build" / "linux", name, icon)
+
+
+def compile_desktop(root: Path, entry: Path, product: str, output: Path) -> int:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    host = root / "native" / "libaura_host.dylib"
+    target = desktop_target(product)
+    if host_matches(product):
         if ensure_host(root) != 0:
             return 1
-        if parsed.mode == "release":
-            output = project / "build" / "macos" / name
-            output.parent.mkdir(parents=True, exist_ok=True)
-            if run_stream(["noxc", "build", "-o", str(output), str(entry)], project) != 0:
-                return 1
-            return run_stream([str(output)], project)
-        return run_stream(["noxc", "run", str(entry)], project)
+        if not library_matches(host, product):
+            print("the Aura host library does not match this operating system", file=sys.stderr)
+            return 1
+        return run_stream([noxc_executable(""), "build", "-o", str(output), str(entry)], root)
+    if not library_matches(host, product):
+        print(
+            f"aura cannot link {target} with the host library on this machine. scripts/build_host.sh produces that library on {product}; Nox then compiles the program with --target {target}.",
+            file=sys.stderr,
+        )
+        return 1
+    compiler = noxc_executable(target)
+    runtime = Path(compiler).resolve().parent.parent / "lib" / f"noxrt-{target}.o"
+    if not runtime.is_file():
+        print(f"noxc does not include the {target} runtime", file=sys.stderr)
+        return 1
+    return run_stream([compiler, "build", "--target", target, "-o", str(output), str(entry)], root)
+
+
+def command_desktop(project: Path, root: Path, entry: Path, name: str, product: str, launch: bool) -> int:
+    icon = app_icon.resolve_icon(project, root)
+    if icon.is_file():
+        os.environ["AURA_APP_ICON"] = str(icon)
+    output = desktop_output(project, product, name)
+    if compile_desktop(root, entry, product, output) != 0:
+        return 1
+    if icon.is_file():
+        stamp_desktop(project, product, name, icon, bundle_prefix(root) + "." + name.lower())
+    if launch and host_matches(product):
+        return run_stream([str(output)], project)
+    print(output if product != "macos" else project / "build" / "macos" / f"{name}.app")
+    return 0
+
+
+def activate_icon(project: Path, root: Path) -> None:
+    icon = app_icon.resolve_icon(project, root)
+    if icon.is_file():
+        os.environ["AURA_APP_ICON"] = str(icon)
+
+
+def command_run(project: Path, parsed: Request) -> int:
+    root = require_root(project)
+    activate_icon(project, root)
+    entry, name = resolve_entry(project, root, parsed.entry, Path.cwd())
+    require_file(entry)
+    application = bundle_prefix(root) + "." + name.lower()
+    if parsed.platform in {"macos", "linux", "windows"}:
+        return command_desktop(project, root, entry, name, parsed.platform, True)
     if parsed.platform == "android":
         code, output = capture(
             [str(root / "scripts" / "build_android_gradle.sh"), str(entry), name, "debug"],
@@ -450,14 +589,11 @@ def command_run(project: Path, parsed: Request) -> int:
 
 def command_build(project: Path, parsed: Request) -> int:
     root = require_root(project)
-    entry, name = resolve_entry(project, root, parsed.entry)
+    activate_icon(project, root)
+    entry, name = resolve_entry(project, root, parsed.entry, Path.cwd())
     require_file(entry)
-    if parsed.product == "macos":
-        if ensure_host(root) != 0:
-            return 1
-        output = project / "build" / "macos" / name
-        output.parent.mkdir(parents=True, exist_ok=True)
-        return run_stream(["noxc", "build", "-o", str(output), str(entry)], project)
+    if parsed.product in {"macos", "linux", "windows"}:
+        return command_desktop(project, root, entry, name, parsed.product, False)
     if parsed.product in {"apk", "aab"}:
         kind = "debug" if parsed.product == "apk" and parsed.mode == "debug" else "release"
         environment = os.environ.copy()
@@ -484,8 +620,8 @@ def dispatch(argv: list[str], project: Path) -> int:
                     "  new <name>",
                     "  doctor [-v]",
                     "  devices",
-                    "  run [entry] [--platform macos|ios|android] [--mode debug|release|simulator|device] [--device id]",
-                    "  build apk|aab|ipa|macos [entry] [--mode debug|release|simulator|device|store]",
+                    "  run [entry] [--platform macos|ios|android|linux|windows] [--mode debug|release|simulator|device] [--device id]",
+                    "  build apk|aab|ipa|macos|linux|windows [entry] [--mode debug|release|simulator|device|store]",
                     "  test",
                     "  clean",
                     "  help",
@@ -555,6 +691,33 @@ def self_test() -> int:
         return 1
     if display_name("notes") != "Notes":
         print("aura command self-test: display name was not capitalized", file=sys.stderr)
+        return 1
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as raw:
+        tree = Path(raw)
+        project = tree / "aura"
+        dashboard = project / "examples" / "dashboard"
+        dashboard.mkdir(parents=True)
+        (project / "nox.json").write_text('{"name":"aura","entry":"examples/counter/main.nox"}\n', encoding="utf-8")
+        (dashboard / "main.nox").write_text("print(1)\n", encoding="utf-8")
+        found, name = resolve_entry(project, project, "", dashboard)
+        if found.resolve() != (dashboard / "main.nox").resolve() or name != "Dashboard":
+            print("aura command self-test: a directory with main.nox did not win over the package entry", file=sys.stderr)
+            return 1
+        package_entry, package_name = resolve_entry(project, project, "", project)
+        if package_entry.resolve() != (project / "examples" / "counter" / "main.nox").resolve() or package_name != "Aura":
+            print("aura command self-test: the package entry was not kept at the project root", file=sys.stderr)
+            return 1
+    linux = parse_args(["build", "linux", "notes"])
+    apply_defaults(linux)
+    if validate(linux) or linux.product != "linux" or linux.mode != "debug":
+        print("aura command self-test: linux build was rejected", file=sys.stderr)
+        return 1
+    windows = parse_args(["run", "--platform", "windows"])
+    apply_defaults(windows)
+    if validate(windows) or windows.platform != "windows" or windows.mode != "debug":
+        print("aura command self-test: windows run was rejected", file=sys.stderr)
         return 1
     print("aura command self-test: ok")
     return 0

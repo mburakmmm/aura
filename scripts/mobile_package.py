@@ -560,7 +560,7 @@ def run_self_test() -> int:
     if not validate_app(broken, aura, toolchain):
         print("package self-test: unsorted assets were accepted", file=sys.stderr)
         return 1
-    sample_toolchain = {"aura": "1.2.0", "nox": {"minimum": "2.0.0", "maximum": "2.0.0", "ci": "v2.0.0", "embed_abi": 1}, "skia": "m151", "android": {"ndk": "28", "jdk_minimum": 17}, "ios": {"minimum": "17.0"}, "targets": ["android-arm64"], "unpinned": []}
+    sample_toolchain = {"aura": "1.3.0", "nox": {"minimum": "2.0.0", "maximum": "2.0.0", "ci": "v2.0.0", "embed_abi": 1}, "skia": "m151", "android": {"ndk": "28", "jdk_minimum": 17}, "ios": {"minimum": "17.0"}, "targets": ["android-arm64"], "unpinned": []}
     sample_facts = {
         "host": "Darwin arm64",
         "noxc": "noxc 2.0.0",

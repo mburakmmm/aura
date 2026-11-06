@@ -2,6 +2,15 @@
 
 Bu dosya yayımlanan sürümleri tutar. Sürüm numarası `nox.json` ile, git etiketi `v` önekiyle aynıdır. Sonraki teslimatların sırası [roadmap.md](roadmap.md) dosyasındadır.
 
+## 1.3.0
+
+İkon atanmayan uygulama Nox markasını kullanır. Örnek dizininde `aura run` o örneği açar. Pencere kapanınca ağaç bırakılır.
+
+- `nox.json` içindeki `icon` veya proje kökündeki `icon.png` atanmış ikondur. İkisi de yoksa `assets/brand` altındaki Nox markası kullanılır. macOS paketi icns taşır. Linux `.desktop` ve PNG, Windows ise exe yanında ico yazar.
+- `aura build linux` ve `aura build windows` Nox hedef üçlüsünü kullanır. Kabuk kütüphanesi o işletim sisteminde üretilir. Bu makinedeki kütüphane hedefe uymazsa bağlama denenmez.
+- Argümansız `aura run` ve `aura build`, bulunulan dizinden proje köküne kadar `main.nox` arar. Örnek klasörü o örneği seçer. Proje kökünde `nox.json` girişi durur.
+- Pencere kapanınca element ağacı unmount edilir, animasyon dinleyicisi kopar ve build sahibi bırakılır.
+
 ## 1.2.0
 
 `aura` komutu çalışma kopyasındaki derleme betiklerini çağırır. Hot reload, web, flavor ve profile kipi yoktur.

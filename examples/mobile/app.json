@@ -2,7 +2,7 @@
   "schema": 1,
   "bundle_id": "com.noxlang.aura",
   "display_name": "Aura",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "build_number": 1,
   "ios": {
     "minimum": "17.0",
@@ -17,19 +17,47 @@
   "permissions": [],
   "purpose_strings": [],
   "entitlements": [],
-  "icons": ["native/ios/AppIcon.png"],
+  "icons": ["assets/brand/icon-1024.png"],
   "deep_links": [],
   "network": {
     "cleartext": false
   },
   "assets": [
     {
-      "path": "native/fonts/NotoSans-Regular.ttf",
-      "sha256": "bfb7bb691513f12e734dc346c03a03f784912432d7e3fa8e56efcf906fe86b3d"
+      "path": "assets/brand/icon-1024.png",
+      "sha256": "7dc684b9066d7e8cc26946d7e8199cafd165d647165a6e3593f2b70eed8e4446"
     },
     {
-      "path": "native/ios/AppIcon.png",
-      "sha256": "fbcacc21a1f16ce7fc87d47126548dfe89dd6b70d59c9dc084f0024db9d6abc2"
+      "path": "assets/brand/icon-128.png",
+      "sha256": "734cc07ad7ea9896f6f2ae6a63720a0e07d78403073fd71b961e0a01820a01d5"
+    },
+    {
+      "path": "assets/brand/icon-16.png",
+      "sha256": "cb040c653695bde25d060d26c04078c0aad97a0ceec48520904b4a6c4f9ca1b6"
+    },
+    {
+      "path": "assets/brand/icon-180.png",
+      "sha256": "4164108dce24805290b34c77200fc2a9075d9295ef448f875c95b97f6b566f83"
+    },
+    {
+      "path": "assets/brand/icon-256.png",
+      "sha256": "53c749a4ceb0266b736769c9d5844ec7cd28d43cf3c92d6ff67e28f6b1c69601"
+    },
+    {
+      "path": "assets/brand/icon-32.png",
+      "sha256": "37f0e471b91a6006dbc598944e02d2475df1593ee2784b42a74fa2de73abd77c"
+    },
+    {
+      "path": "assets/brand/icon-512.png",
+      "sha256": "63cf28dc393f1e7cf50068269730baa59ec97348c55c61d282bc42f5b2a380b2"
+    },
+    {
+      "path": "assets/brand/icon-64.png",
+      "sha256": "01c846472a23c030088d1a8616714493368c53970c78e4605335c3c90bece3ff"
+    },
+    {
+      "path": "native/fonts/NotoSans-Regular.ttf",
+      "sha256": "bfb7bb691513f12e734dc346c03a03f784912432d7e3fa8e56efcf906fe86b3d"
     },
     {
       "path": "tests/fixtures/pixel.jpg",
